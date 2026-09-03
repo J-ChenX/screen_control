@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "screen-control.verify-scenario/v1",
+  "id": "IO-01d",
+  "kind": "work-package",
+  "prerequisites": ["IO-01a", "IO-01c"],
+  "environments": ["d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"],
+  "suite": "recovery",
+  "commands": [["python3", "ops/network-guard/guard.py", "exercise", "--targets", "all", "--rollback-seconds", "20"]],
+  "timeoutSeconds": 300,
+  "thresholds": {"armedBeforeChange": true, "lossObserved": true, "automaticRecoverySecondsMax": 300, "rulesRestored": true, "sshRescuePreserved": true, "independentVerifier": true},
+  "sensitivity": "R2",
+  "writablePaths": ["evidence/formal"],
+  "artifacts": ["commands.jsonl", "cleanup.json", "index.json", "index.sig", "seal.json"],
+  "cleanup": []
+}
+
