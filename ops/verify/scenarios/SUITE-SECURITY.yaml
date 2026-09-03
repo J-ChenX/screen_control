@@ -1,0 +1,1 @@
+{"schemaVersion":"screen-control.verify-scenario/v1","id":"SUITE-SECURITY","kind":"suite","prerequisites":[],"environments":["*"],"suite":"security","commands":[["internal","declared-negative-scenario"]],"timeoutSeconds":1800,"thresholds":{"denials":"all","sideEffects":0},"sensitivity":"R2","writablePaths":["evidence/formal"],"artifacts":["request-network-audit"],"cleanup":[]}

@@ -1,0 +1,1 @@
+{"schemaVersion":"screen-control.verify-scenario/v1","id":"SUITE-CONTRACT","kind":"suite","prerequisites":[],"environments":["*"],"suite":"contract","commands":[["internal","provider-consumer-contract-matrix"]],"timeoutSeconds":600,"thresholds":{"allProvidersConsumers":true},"sensitivity":"R1","writablePaths":["evidence/formal"],"artifacts":["contract-report"],"cleanup":[]}

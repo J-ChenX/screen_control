@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "screen-control.a01-subjects/v1",
+  "fixtures": [
+    {
+      "id": "a01-unregistered-tailnet",
+      "kind": "temporary-unregistered-node",
+      "identity": "generated-at-PC-10-without-production-tag-or-capability",
+      "lease": "maximum-2-hours",
+      "requiredDenials": ["grants", "edge", "api", "websocket", "desktop", "file"],
+      "cleanupReceiptRequired": true
+    },
+    {
+      "id": "a01-revoked-old-node",
+      "kind": "temporary-register-then-revoke",
+      "identity": "generated-at-PC-10-and-isolated-after-generation-increment",
+      "lease": "maximum-2-hours",
+      "requiredDenials": ["edge", "api", "websocket", "desktop", "file", "name-reuse"],
+      "cleanupReceiptRequired": true
+    },
+    {
+      "id": "a01-public-probe",
+      "kind": "non-tailnet-ephemeral-runner",
+      "identity": "no-tailnet-session-and-no-project-credential",
+      "lease": "maximum-2-hours",
+      "requiredDenials": ["dns", "ip", "host-header", "origin", "forwarded-header", "application-session"],
+      "cleanupReceiptRequired": true
+    }
+  ],
+  "prohibitions": ["real-third-party-device", "production-grant-expansion", "production-secret", "persistent-negative-fixture"]
+}
+

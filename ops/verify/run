@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+"""Single fail-closed verification and signed-evidence entry point."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import getpass
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import selectors
+import stat
+import subprocess
+import sys
+import time
+from typing import Any, Iterable
+
+ROOT = Path(__file__).resolve().parents[2]
+SCENARIO_ROOT = ROOT / "ops" / "verify" / "scenarios"
+FORMAL_ROOT = ROOT / "evidence" / "formal"
+KEY_ROOT = ROOT / "evidence" / "keys"
+IMPORTS_PATH = ROOT / "ops" / "verify" / "bootstrap-imports.json"
+EVIDENCE_POLICY_PATH = ROOT / "deploy" / "releases" / "current" / "evidence-policy.json"
+PREFLIGHT = ROOT / "ops" / "bootstrap" / "preflight"
+HEX40 = re.compile(r"^[0-9a-f]{40}$")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+ID_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
+MAX_OUTPUT = 8 * 1024 * 1024
+REQUIRED_SCENARIO = {"schemaVersion", "id", "kind", "prerequisites", "environments", "suite", "commands", "timeoutSeconds", "thresholds", "sensitivity", "writablePaths", "artifacts", "cleanup"}
+KNOWN_SUITES = {"unit", "contract", "web", "platform", "security", "e2e", "resilience", "recovery", "soak", "bootstrap"}
+SENSITIVE_PATTERN = re.compile(r"(?i)\b(?:password|passwd|authorization|bearer|secret|token)\b\s*[:=]\s*[\"']?(?!<redacted>)[^\s,;}\"]{4,}")
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def canonical(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def redact_summary(value: bytes, limit: int) -> str:
+    text = value[: min(len(value), limit)].decode("utf-8", "replace")
+    text = text.replace(str(ROOT), "<workspace>")
+    return SENSITIVE_PATTERN.sub("credential=<redacted>", text)
+
+
+def exclusive_write(path: Path, value: bytes, mode: int = 0o400) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        os.close(descriptor)
+
+
+def fsync_dir(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def safe_root(path: Path) -> Path:
+    path = path.resolve()
+    if path != ROOT and ROOT not in path.parents:
+        raise ValueError(f"path escapes workspace: {path}")
+    return path
+
+
+def scenario_path(subject: str) -> Path:
+    if not ID_PATTERN.fullmatch(subject):
+        raise ValueError("invalid subject ID")
+    return SCENARIO_ROOT / f"{subject}.yaml"
+
+
+def load_scenario(subject: str, expected_kind: str | None = None) -> dict[str, Any]:
+    path = scenario_path(subject)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise ValueError(f"scenario missing or unsafe: {subject}")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if set(value) != REQUIRED_SCENARIO:
+        raise ValueError(f"scenario fields differ from schema: {subject}")
+    if value["schemaVersion"] != "screen-control.verify-scenario/v1" or value["id"] != subject:
+        raise ValueError(f"scenario identity mismatch: {subject}")
+    if expected_kind and value["kind"] != expected_kind:
+        raise ValueError(f"scenario kind mismatch: expected {expected_kind}")
+    if value["suite"] not in KNOWN_SUITES:
+        raise ValueError("unknown suite")
+    if not isinstance(value["timeoutSeconds"], int) or not 1 <= value["timeoutSeconds"] <= 86400:
+        raise ValueError("invalid timeout")
+    for command in value["commands"] + value["cleanup"]:
+        if not isinstance(command, list) or not command or not all(isinstance(item, str) and item for item in command):
+            raise ValueError("commands must be non-empty string arrays")
+    for relative in value["writablePaths"] + value["artifacts"]:
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError("unsafe scenario path")
+    return value
+
+
+def workspace_digest() -> str:
+    ignored_roots = {".git", ".tools", "evidence", "bin", "dist", "node_modules", "coverage", "playwright-report", "test-results", "__pycache__"}
+    values = []
+    for path in sorted(ROOT.rglob("*")):
+        relative = path.relative_to(ROOT)
+        if any(part in ignored_roots or part.endswith(".tsbuildinfo") or part.endswith(".pyc") for part in relative.parts):
+            continue
+        if path.is_symlink():
+            values.append((relative.as_posix(), "symlink", os.readlink(path)))
+        elif path.is_file():
+            values.append((relative.as_posix(), "file", sha256_file(path)))
+    return sha256_bytes(canonical(values))
+
+
+def git_commit() -> str:
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    value = result.stdout.strip()
+    if not HEX40.fullmatch(value):
+        raise RuntimeError("invalid Git commit")
+    return value
+
+
+def run_command(command: list[str], timeout: int) -> dict[str, Any]:
+    started_utc = utc_now()
+    started_mono = time.monotonic()
+    process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert process.stdout is not None and process.stderr is not None
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    digests = {"stdout": hashlib.sha256(), "stderr": hashlib.sha256()}
+    totals = {"stdout": 0, "stderr": 0}
+    truncated = False
+    timed_out = False
+    deadline = started_mono + timeout
+    while selector.get_map():
+        if time.monotonic() >= deadline and process.poll() is None:
+            timed_out = True
+            process.kill()
+        for key, _ in selector.select(timeout=0.1):
+            try:
+                chunk = os.read(key.fileobj.fileno(), 64 * 1024)
+            except OSError:
+                chunk = b""
+            if not chunk:
+                selector.unregister(key.fileobj)
+                key.fileobj.close()
+                continue
+            stream = str(key.data)
+            digests[stream].update(chunk)
+            totals[stream] += len(chunk)
+            remaining = MAX_OUTPUT - len(buffers[stream])
+            if remaining > 0:
+                buffers[stream].extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                truncated = True
+                if process.poll() is None:
+                    process.kill()
+        if process.poll() is not None and not selector.get_map():
+            break
+    try:
+        return_code = process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.kill()
+        return_code = process.wait(timeout=2)
+    stdout, stderr = bytes(buffers["stdout"]), bytes(buffers["stderr"])
+    exit_code = None if timed_out else return_code
+    return {
+        "command": command,
+        "startedUtc": started_utc,
+        "finishedUtc": utc_now(),
+        "monotonicDurationMs": round((time.monotonic() - started_mono) * 1000, 3),
+        "exitCode": exit_code,
+        "timedOut": timed_out,
+        "truncated": truncated,
+        "stdoutBytes": totals["stdout"],
+        "stderrBytes": totals["stderr"],
+        "stdoutSha256": digests["stdout"].hexdigest(),
+        "stderrSha256": digests["stderr"].hexdigest(),
+        "stdoutSummary": redact_summary(stdout, 12000),
+        "stderrSummary": redact_summary(stderr, 4000),
+        "status": "passed" if exit_code == 0 and not timed_out and not truncated else "failed",
+    }
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def run_preflight(action: str, bundle: Path | None = None, timeout: int = 300) -> tuple[dict[str, Any], dict[str, Any]]:
+    command = [str(PREFLIGHT), action]
+    if bundle is not None:
+        command.append(str(bundle))
+    result = run_command(command, timeout)
+    if result["status"] != "passed":
+        return result, {}
+    try:
+        return result, json.loads(result["stdoutSummary"])
+    except json.JSONDecodeError:
+        result["status"] = "failed"
+        result["stderrSummary"] += "\npreflight output was not JSON"
+        return result, {}
+
+
+def stable_io01a_facts(bundle: Path) -> dict[str, Any]:
+    wanted = {"hostname", "os_release", "os_build", "kernel", "architecture", "display", "gpu", "tailscale_version"}
+    result = {}
+    for path in sorted(bundle.glob("snapshot-*.json")):
+        snapshot = read_json(path)
+        node = snapshot["node"]
+        probes = {}
+        for item in snapshot["probeResults"]:
+            if item["probeId"] in wanted and item["status"] == "passed":
+                probes[item["probeId"]] = item.get("stdoutSummary")
+        result[node] = {
+            "status": snapshot["status"],
+            "categories": {name: value["status"] for name, value in snapshot["categories"].items()},
+            "probes": probes,
+        }
+    return result
+
+
+def internal_command(name: str, timeout: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    imports = read_json(IMPORTS_PATH)
+    if name == "import-io01a":
+        configured = imports["io01a"]
+        original = safe_root(ROOT / configured["path"])
+        verify_result, verified = run_preflight("verify-bundle", original, timeout)
+        rerun_result, rerun = run_preflight("collect", None, timeout)
+        actuals = {"import": verified, "rerun": rerun}
+        if verified.get("bundleSha256") != configured["bundleSha256"] or verified.get("valid") is not True:
+            verify_result["status"] = "failed"
+        rerun_bundle = Path(rerun.get("bundle", "__missing__"))
+        if not rerun_bundle.is_absolute():
+            rerun_bundle = ROOT / rerun_bundle
+        if rerun_result["status"] == "passed" and rerun_bundle.is_dir():
+            actuals["stableFactsMatch"] = stable_io01a_facts(original) == stable_io01a_facts(rerun_bundle)
+            actuals["rerunBundle"] = str(rerun_bundle.relative_to(ROOT))
+            if not actuals["stableFactsMatch"] or rerun.get("blockedNodes") or rerun.get("missingNodes"):
+                rerun_result["status"] = "failed"
+        return [verify_result, rerun_result], actuals
+    if name == "import-io01b":
+        configured = imports["io01b"]
+        original = safe_root(ROOT / configured["path"])
+        verify_result, verified = run_preflight("verify-toolchain-bundle", original, timeout)
+        rerun_result, rerun = run_preflight("record-toolchain", None, timeout)
+        actuals = {"import": verified, "rerun": rerun}
+        if verified.get("bundleSha256") != configured["bundleSha256"] or verified.get("valid") is not True:
+            verify_result["status"] = "failed"
+        if rerun.get("toolchainLockSha256") != configured["toolchainLockSha256"] or not str(rerun.get("status", "")).startswith("bootstrap-complete"):
+            rerun_result["status"] = "failed"
+        return [verify_result, rerun_result], actuals
+    if name == "audit-scenarios":
+        errors = []
+        seen = set()
+        suites = set()
+        for path in sorted(SCENARIO_ROOT.glob("*.yaml")):
+            try:
+                scenario = load_scenario(path.stem)
+                if scenario["id"] in seen:
+                    errors.append(f"duplicate {scenario['id']}")
+                seen.add(scenario["id"])
+                suites.add(scenario["suite"])
+            except (ValueError, OSError, json.JSONDecodeError) as error:
+                errors.append(f"{path.name}: {error}")
+        missing_suites = sorted(KNOWN_SUITES - suites)
+        result = {
+            "command": ["internal", name], "startedUtc": utc_now(), "finishedUtc": utc_now(),
+            "monotonicDurationMs": 0, "exitCode": 0 if not errors else 1, "timedOut": False,
+            "truncated": False, "stdoutBytes": 0, "stderrBytes": 0,
+            "stdoutSha256": sha256_bytes(b""), "stderrSha256": sha256_bytes(b""),
+            "stdoutSummary": json.dumps({"scenarios": len(seen), "representedSuites": sorted(suites), "unrepresentedSuitesAllowedUntilOwningPackage": missing_suites}),
+            "stderrSummary": "\n".join(errors), "status": "passed" if not errors else "failed",
+        }
+        return [result], {"scenarioCount": len(seen), "representedSuites": sorted(suites)}
+    raise ValueError(f"unknown internal command {name}")
+
+
+def latest_prerequisite(subject: str) -> dict[str, str] | None:
+    root = FORMAL_ROOT / subject.lower()
+    if not root.is_dir():
+        return None
+    for path in sorted(root.iterdir(), reverse=True):
+        index = path / "index.json"
+        seal = path / "seal.json"
+        if index.is_file() and seal.is_file() and read_json(index).get("status") == "passed":
+            return {"subject": subject, "runId": read_json(index)["runId"], "sealSha256": sha256_file(seal)}
+    return None
+
+
+def signer_paths() -> tuple[Path, Path]:
+    return KEY_ROOT / "evidence-ed25519.pem", KEY_ROOT / "evidence-ed25519.pub.pem"
+
+
+def init_signer() -> dict[str, Any]:
+    KEY_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if KEY_ROOT.stat().st_mode & 0o077:
+        raise RuntimeError("signing-key directory permissions are too broad")
+    private, public = signer_paths()
+    if not private.exists():
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private)], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        os.chmod(private, 0o600)
+    if not public.exists():
+        subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        os.chmod(public, 0o644)
+    if private.stat().st_mode & 0o077:
+        raise RuntimeError("private signing key permissions are too broad")
+    der = subprocess.run(["openssl", "pkey", "-pubin", "-in", str(public), "-outform", "DER"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+    return {"keyId": f"key_{sha256_bytes(der)}", "algorithm": "Ed25519", "publicKeySha256": sha256_file(public), "privateKeyMode": oct(private.stat().st_mode & 0o777)}
+
+
+def create_evidence(subject: str, kind: str, scenario: dict[str, Any], environment: str, release: Path, reviewer: str) -> Path:
+    if not HEX64.fullmatch(environment):
+        raise ValueError("environment must be a 64-character SHA-256")
+    release = safe_root(release)
+    if release.is_symlink() or not release.is_file():
+        raise ValueError("release manifest missing or unsafe")
+    signer = init_signer()
+    prerequisites = []
+    blocked = False
+    for item in scenario["prerequisites"]:
+        evidence = latest_prerequisite(item)
+        if evidence is None:
+            blocked = True
+            prerequisites.append({"subject": item, "status": "missing"})
+        else:
+            prerequisites.append(evidence)
+    before = workspace_digest()
+    started_utc = utc_now()
+    started_mono = time.monotonic()
+    command_results: list[dict[str, Any]] = []
+    actuals: dict[str, Any] = {}
+    if not blocked:
+        for command in scenario["commands"]:
+            if command[0] == "internal":
+                results, values = internal_command(command[1], scenario["timeoutSeconds"])
+                command_results.extend(results)
+                actuals[command[1]] = values
+            else:
+                command_results.append(run_command(command, scenario["timeoutSeconds"]))
+    cleanup_results = [run_command(command, scenario["timeoutSeconds"]) for command in scenario["cleanup"]]
+    after = workspace_digest()
+    clean = before == after
+    scan_matches = []
+    for position, result in enumerate(command_results, start=1):
+        for stream in ("stdoutSummary", "stderrSummary"):
+            if SENSITIVE_PATTERN.search(result.get(stream, "")):
+                scan_matches.append({"command": position, "stream": stream})
+    actuals["sensitiveScan"] = {"status": "pass" if not scan_matches else "failed", "matches": scan_matches}
+    commands_pass = bool(command_results) and all(item["status"] == "passed" for item in command_results) and not scan_matches
+    cleanup_pass = all(item["status"] == "passed" for item in cleanup_results)
+    status_value = "blocked" if blocked else ("passed" if commands_pass and cleanup_pass and clean else "failed")
+    FORMAL_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    subject_root = FORMAL_ROOT / subject.lower()
+    subject_root.mkdir(mode=0o700, exist_ok=True)
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    run_id = f"{subject.lower()}-{stamp}-{os.urandom(5).hex()}"
+    run_dir = subject_root / run_id
+    run_dir.mkdir(mode=0o700)
+    commands_data = b"".join(canonical(item) for item in command_results)
+    cleanup = {"status": "passed" if cleanup_pass and clean else "failed", "commands": cleanup_results, "workspaceDigestBefore": before, "workspaceDigestAfter": after, "outOfScopeUnchanged": clean}
+    private, public = signer_paths()
+    public_data = public.read_bytes()
+    exclusive_write(run_dir / "commands.jsonl", commands_data)
+    exclusive_write(run_dir / "cleanup.json", canonical(cleanup))
+    exclusive_write(run_dir / "public.pem", public_data)
+    signer_record = {**signer, "publicKeyFile": "public.pem", "rotation": "new key ID invalidates no prior evidence; verifier selects the key embedded and approved by release policy"}
+    exclusive_write(run_dir / "signer.json", canonical(signer_record))
+    toolchain_hash = sha256_file(release)
+    index = {
+        "schemaVersion": "screen-control.evidence-index/v1",
+        "runId": run_id,
+        "subject": subject,
+        "kind": kind,
+        "status": status_value,
+        "gitCommit": git_commit(),
+        "releaseSha256": toolchain_hash,
+        "toolchainSha256": toolchain_hash,
+        "environmentSnapshotHash": environment,
+        "prerequisiteEvidence": prerequisites,
+        "startedUtc": started_utc,
+        "finishedUtc": utc_now(),
+        "monotonicDurationMs": round((time.monotonic() - started_mono) * 1000, 3),
+        "commands": {"count": len(command_results), "passed": sum(item["status"] == "passed" for item in command_results), "sha256": sha256_bytes(commands_data)},
+        "thresholds": scenario["thresholds"],
+        "actuals": actuals,
+        "sensitivity": scenario["sensitivity"],
+        "cleanup": {"status": cleanup["status"], "sha256": sha256_bytes(canonical(cleanup))},
+        "operator": getpass.getuser(),
+        "reviewer": reviewer,
+        "artifacts": {"commands.jsonl": sha256_bytes(commands_data), "cleanup.json": sha256_bytes(canonical(cleanup)), "public.pem": sha256_bytes(public_data), "signer.json": sha256_bytes(canonical(signer_record))},
+        "signerKeyId": signer["keyId"],
+    }
+    index_data = canonical(index)
+    exclusive_write(run_dir / "index.json", index_data)
+    signature_path = run_dir / "index.sig"
+    subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(private), "-in", str(run_dir / "index.json"), "-out", str(signature_path)], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.chmod(signature_path, 0o400)
+    files = {path.name: sha256_file(path) for path in sorted(run_dir.iterdir()) if path.is_file()}
+    seal = {"schemaVersion": "screen-control.evidence-seal/v1", "runId": run_id, "files": files, "aggregateSha256": sha256_bytes(canonical(files)), "sealedUtc": utc_now()}
+    exclusive_write(run_dir / "seal.json", canonical(seal))
+    fsync_dir(run_dir)
+    os.chmod(run_dir, 0o500)
+    return run_dir
+
+
+def verify_evidence(run_dir: Path) -> dict[str, Any]:
+    run_dir = run_dir.resolve()
+    errors = []
+    required = {"commands.jsonl", "cleanup.json", "public.pem", "signer.json", "index.json", "index.sig", "seal.json"}
+    if run_dir.is_symlink() or not run_dir.is_dir():
+        return {"valid": False, "errors": ["unsafe evidence root"]}
+    if FORMAL_ROOT.resolve() not in run_dir.parents:
+        return {"valid": False, "errors": ["evidence root is outside the formal evidence store"]}
+    actual = {path.name for path in run_dir.iterdir()}
+    if actual != required:
+        errors.append("evidence file set mismatch")
+    try:
+        seal = read_json(run_dir / "seal.json")
+        index = read_json(run_dir / "index.json")
+        signer = read_json(run_dir / "signer.json")
+    except (OSError, json.JSONDecodeError) as error:
+        return {"valid": False, "errors": [f"invalid JSON: {type(error).__name__}"]}
+    files = seal.get("files", {})
+    if set(files) != required - {"seal.json"}:
+        errors.append("sealed file set mismatch")
+    for name, expected in files.items():
+        path = run_dir / name
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            errors.append(f"missing {name}")
+            continue
+        if not stat.S_ISREG(metadata.st_mode) or path.is_symlink() or metadata.st_size > 64 * 1024 * 1024:
+            errors.append(f"unsafe {name}")
+        elif sha256_file(path) != expected:
+            errors.append(f"hash mismatch {name}")
+    if sha256_bytes(canonical(files)) != seal.get("aggregateSha256"):
+        errors.append("aggregate seal mismatch")
+    if index.get("runId") != seal.get("runId") or index.get("signerKeyId") != signer.get("keyId"):
+        errors.append("identity binding mismatch")
+    if sha256_file(run_dir / "public.pem") != signer.get("publicKeySha256"):
+        errors.append("public key hash mismatch")
+    try:
+        policy = read_json(EVIDENCE_POLICY_PATH)
+        trusted = next((item for item in policy.get("trustedKeys", []) if item.get("keyId") == signer.get("keyId") and item.get("status") == "active"), None)
+        if trusted is None:
+            errors.append("signer key ID is not active in evidence policy")
+        else:
+            trusted_path = safe_root(ROOT / trusted["publicKey"])
+            if trusted.get("publicKeySha256") != sha256_file(trusted_path) or trusted.get("publicKeySha256") != signer.get("publicKeySha256"):
+                errors.append("trusted public key binding mismatch")
+    except (OSError, KeyError, StopIteration, json.JSONDecodeError, ValueError) as error:
+        errors.append(f"invalid evidence trust policy: {type(error).__name__}")
+    signature = subprocess.run(["openssl", "pkeyutl", "-verify", "-rawin", "-pubin", "-inkey", str(run_dir / "public.pem"), "-in", str(run_dir / "index.json"), "-sigfile", str(run_dir / "index.sig")], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if signature.returncode != 0:
+        errors.append("Ed25519 signature verification failed")
+    return {"valid": not errors, "errors": errors, "runId": index.get("runId"), "subject": index.get("subject"), "status": index.get("status"), "signerKeyId": signer.get("keyId"), "sealSha256": sha256_file(run_dir / "seal.json")}
+
+
+def parse_args(argv: Iterable[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="action", required=True)
+    for action, kind in (("work-package", "work-package"), ("gate", "gate")):
+        item = sub.add_parser(action)
+        item.add_argument("subject")
+        item.add_argument("--environment", required=True)
+        item.add_argument("--release", required=True, type=Path)
+        item.add_argument("--reviewer", default="automated-policy-review")
+        item.set_defaults(kind=kind)
+    suite = sub.add_parser("suite")
+    suite.add_argument("name", choices=sorted(KNOWN_SUITES))
+    suite.add_argument("--dry-run", action="store_true")
+    verify = sub.add_parser("verify-evidence")
+    verify.add_argument("run", type=Path)
+    sub.add_parser("init-signer")
+    return parser.parse_args(list(argv))
+
+
+def main(argv: Iterable[str]) -> int:
+    args = parse_args(argv)
+    if args.action == "init-signer":
+        print(json.dumps(init_signer(), indent=2, sort_keys=True))
+        return 0
+    if args.action == "verify-evidence":
+        result = verify_evidence(args.run)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["valid"] else 1
+    if args.action == "suite":
+        scenarios = []
+        for path in sorted(SCENARIO_ROOT.glob("*.yaml")):
+            value = load_scenario(path.stem)
+            if value["suite"] == args.name:
+                scenarios.append({"id": value["id"], "kind": value["kind"], "commands": len(value["commands"])})
+        print(json.dumps({"suite": args.name, "dryRun": args.dry_run, "scenarios": scenarios, "valid": bool(scenarios) or args.dry_run}, indent=2, sort_keys=True))
+        return 0 if scenarios or args.dry_run else 1
+    scenario = load_scenario(args.subject, args.kind)
+    if "*" not in scenario["environments"] and args.environment not in scenario["environments"]:
+        raise ValueError("scenario does not allow the requested environment")
+    run_dir = create_evidence(args.subject, args.kind, scenario, args.environment, args.release, args.reviewer)
+    verified = verify_evidence(run_dir)
+    print(json.dumps({"evidence": str(run_dir), **verified}, indent=2, sort_keys=True))
+    return 0 if verified["valid"] and verified["status"] == "passed" else 2
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"verify: {error}", file=sys.stderr)
+        raise SystemExit(1)

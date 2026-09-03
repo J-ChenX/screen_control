@@ -1,0 +1,1 @@
+{"schemaVersion":"screen-control.verify-scenario/v1","id":"SUITE-UNIT","kind":"suite","prerequisites":[],"environments":["*"],"suite":"unit","commands":[["mise","exec","--","go","test","./..."]],"timeoutSeconds":300,"thresholds":{"exitCode":0},"sensitivity":"R0","writablePaths":[],"artifacts":["junit","coverage"],"cleanup":[]}

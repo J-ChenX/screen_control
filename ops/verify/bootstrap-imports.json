@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "screen-control.bootstrap-imports/v1",
+  "io01a": {
+    "path": "evidence/bootstrap/io-01a/io-01a-20260903T103433.753038Z-f9f2fd7839",
+    "bundleSha256": "041f683e1531796975277c7de3b3d1944e211bfe60da240a0e7e1dfc963f703f",
+    "environmentSnapshotHash": "d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"
+  },
+  "io01b": {
+    "path": "evidence/bootstrap/io-01b/io-01b-20260903T104518.967619Z-460b4be3d7",
+    "bundleSha256": "958650e543e8151930b05c5f681f151042fa7dd035c00cf80ffde143d81ad255",
+    "toolchainLockSha256": "68a3d4831cdfda32fc2af07f988633d7056964dc3e0b2c6141c0c751b9561d76"
+  }
+}

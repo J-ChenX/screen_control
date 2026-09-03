@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "screen-control.evidence-policy/v1",
+  "trustedKeys": [
+    {
+      "keyId": "key_c716f6ffacfe75512ced11ade7428826794e85eadb8d27ecf63489470447f9cb",
+      "algorithm": "Ed25519",
+      "publicKey": "deploy/releases/current/evidence-keys/key_c716f6ffacfe75512ced11ade7428826794e85eadb8d27ecf63489470447f9cb.pem",
+      "publicKeySha256": "789622d5e7301d8a930017efc0e5debcaa6bf54dae982c008b6e9f7f24e4aa17",
+      "status": "active",
+      "validFrom": "2026-09-03T10:42:00Z",
+      "validUntil": "2027-09-03T10:42:00Z"
+    }
+  ],
+  "rotation": {
+    "minimumOverlapHours": 24,
+    "oldEvidenceRemainsVerifiable": true,
+    "privateKeyStorage": "local 0700 evidence key directory; never repository, image, log, argv, or environment"
+  }
+}
+

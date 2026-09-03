@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "screen-control.verify-scenario/v1",
+  "id": "IO-01c",
+  "kind": "work-package",
+  "prerequisites": ["IO-01b"],
+  "environments": ["d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"],
+  "suite": "bootstrap",
+  "commands": [
+    ["python3", "-m", "unittest", "discover", "-s", "tests/operations", "-p", "test_*.py"],
+    ["mise", "exec", "--", "go", "test", "./..."],
+    ["mise", "exec", "--", "corepack", "pnpm", "--dir", "web", "typecheck"],
+    ["mise", "exec", "--", "corepack", "pnpm", "--dir", "web", "test"],
+    ["python3", "ops/verify/stats.py", "ops/verify/fixtures/a07-known.json"],
+    ["internal", "audit-scenarios"]
+  ],
+  "timeoutSeconds": 300,
+  "thresholds": {"allCommands": "exit 0", "scenarioSchema": "closed", "statsFixture": "exact", "signature": "Ed25519 valid", "outOfScopeUnchanged": true},
+  "sensitivity": "R1",
+  "writablePaths": ["evidence/formal", "evidence/keys", "bin", "dist", "web/tsconfig.tsbuildinfo"],
+  "artifacts": ["commands.jsonl", "cleanup.json", "index.json", "index.sig", "signer.json", "public.pem", "seal.json"],
+  "cleanup": []
+}
+

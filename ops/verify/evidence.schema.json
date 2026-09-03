@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-control.invalid/schema/evidence-index-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "subject", "kind", "status", "gitCommit", "releaseSha256", "toolchainSha256", "environmentSnapshotHash", "prerequisiteEvidence", "startedUtc", "finishedUtc", "monotonicDurationMs", "commands", "thresholds", "actuals", "sensitivity", "cleanup", "operator", "reviewer", "artifacts", "signerKeyId"],
+  "properties": {
+    "schemaVersion": {"const": "screen-control.evidence-index/v1"},
+    "runId": {"type": "string", "minLength": 1},
+    "subject": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["work-package", "gate", "suite"]},
+    "status": {"enum": ["passed", "failed", "blocked"]},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "releaseSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "toolchainSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "environmentSnapshotHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
+

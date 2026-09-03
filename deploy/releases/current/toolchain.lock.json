@@ -178,7 +178,8 @@
       {"name": "jq", "targetVersion": "1.6-2.1ubuntu3", "installState": "present-on-echova-only", "source": "Ubuntu jammy jq package", "license": "MIT"},
       {"name": "tshark", "targetVersion": "3.6.2-2", "installState": "required-before-network-evidence", "source": "Ubuntu jammy wireshark-common package", "license": "GPL-2.0-or-later"},
       {"name": "ffprobe", "targetVersion": "4.4.2-0ubuntu0.22.04.1", "installState": "required-before-media-evidence", "source": "Ubuntu jammy-updates ffmpeg package", "license": "GPL-2.0-or-later"},
-      {"name": "cosign", "targetVersion": "3.1.2", "installState": "required-by-IO-01c-before-formal-signing", "source": "https://github.com/sigstore/cosign/releases/tag/v3.1.2", "license": "Apache-2.0"}
+      {"name": "cosign", "targetVersion": "3.1.2", "installState": "required-before-OCI-signing; formal evidence indexes use the locked OpenSSL Ed25519 implementation", "source": "https://github.com/sigstore/cosign/releases/tag/v3.1.2", "license": "Apache-2.0"},
+      {"name": "evidence-signer", "version": "IO-01c-v1", "algorithm": "Ed25519 via OpenSSL 3.0.2", "keyId": "key_c716f6ffacfe75512ced11ade7428826794e85eadb8d27ecf63489470447f9cb", "publicKeySha256": "789622d5e7301d8a930017efc0e5debcaa6bf54dae982c008b6e9f7f24e4aa17", "source": "deploy/releases/current/evidence-policy.json", "license": "project code and Apache-2.0 OpenSSL"}
     ],
     "policies": {
       "noFloatingVersions": true,
@@ -200,6 +201,8 @@
       {"path": "web/pnpm-workspace.yaml", "sha256": "c68333ad4fee8306b204373fb171d96499201df1091fbef1c621b59fdc0839dc"},
       {"path": "deploy/releases/current/qg02-decisions.json", "sha256": "bf93f213f059319eacd7ec89b43b540c775dc1c917cfc5576997e871e0f70db4"},
       {"path": "deploy/releases/current/provenance/statement.schema.json", "sha256": "f2fdb530703fe9ffdf46763e81a0efe42d571b9f7327b042ac984c234ee68f13"},
+      {"path": "deploy/releases/current/evidence-policy.json", "sha256": "65befb433f0ca65bec6f3c5c9ba579e7dcedfea67b39c89e156f75fa6da339ad"},
+      {"path": "deploy/releases/current/evidence-keys/key_c716f6ffacfe75512ced11ade7428826794e85eadb8d27ecf63489470447f9cb.pem", "sha256": "789622d5e7301d8a930017efc0e5debcaa6bf54dae982c008b6e9f7f24e4aa17"},
       {"path": "deploy/releases/current/sbom/source.cdx.json", "sha256": "f45becef0bf2658dd6f6749f7a2a22386ba442d5cfa5f207be3b233007aa7b02"}
     ],
     "sbom": {
@@ -219,7 +222,7 @@
     {"item": "Tailscale node upgrade", "requiredVersion": "1.102.3", "observedVersion": "1.102.2", "blocks": ["PC-01", "G0"]},
     {"item": "MeshCentral and Node base image digests plus three MeshAgent hashes", "requiredVersion": "MeshCentral 1.2.5", "resolutionWorkPackage": "RD-01b", "blocks": ["RD-01c", "RD-01d", "RD-01e", "G0"]},
     {"item": "tshark and ffprobe exact binaries", "requiredVersions": ["tshark 3.6.2-2", "ffprobe 4.4.2-0ubuntu0.22.04.1"], "resolutionWorkPackage": "IO-01c", "blocks": ["network evidence suites", "media evidence suites"]},
-    {"item": "cosign exact verified binary and evidence signer key ID", "requiredVersion": "cosign 3.1.2", "resolutionWorkPackage": "IO-01c", "blocks": ["formal evidence signing"]},
+    {"item": "cosign exact verified binary for OCI artifacts", "requiredVersion": "cosign 3.1.2", "resolutionWorkPackage": "IO-04b", "blocks": ["OCI release signing"], "formalEvidenceSigning": "not blocked; uses active OpenSSL Ed25519 key from evidence-policy.json"},
     {"item": "SyncClipboard 3.2.0 per-node binary hashes", "requiredVersion": "3.2.0", "resolutionWorkPackage": "IO-02a", "blocks": ["IO-02d", "G5"]}
   ]
 }

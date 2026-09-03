@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "screen-control.verify-scenario/v1",
+  "id": "IO-01a",
+  "kind": "work-package",
+  "prerequisites": [],
+  "environments": ["d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"],
+  "suite": "bootstrap",
+  "commands": [["internal", "import-io01a"]],
+  "timeoutSeconds": 300,
+  "thresholds": {"bundleIntegrity": true, "stableFactsMatch": true, "blockedNodes": 0, "missingNodes": 0},
+  "sensitivity": "R1",
+  "writablePaths": ["evidence/bootstrap/io-01a"],
+  "artifacts": ["commands.jsonl", "cleanup.json", "index.json", "index.sig", "seal.json"],
+  "cleanup": []
+}
+

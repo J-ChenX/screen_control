@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-control.invalid/schema/verification-scenario-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "kind", "prerequisites", "environments", "suite", "commands", "timeoutSeconds", "thresholds", "sensitivity", "writablePaths", "artifacts", "cleanup"],
+  "properties": {
+    "schemaVersion": {"const": "screen-control.verify-scenario/v1"},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"},
+    "kind": {"enum": ["work-package", "gate", "suite"]},
+    "prerequisites": {"type": "array", "items": {"type": "string"}},
+    "environments": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "suite": {"enum": ["unit", "contract", "web", "platform", "security", "e2e", "resilience", "recovery", "soak", "bootstrap"]},
+    "commands": {"type": "array", "items": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+    "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+    "thresholds": {"type": "object"},
+    "sensitivity": {"enum": ["R0", "R1", "R2", "R3"]},
+    "writablePaths": {"type": "array", "items": {"type": "string"}},
+    "artifacts": {"type": "array", "items": {"type": "string"}},
+    "cleanup": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+  }
+}

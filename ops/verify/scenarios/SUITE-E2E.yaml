@@ -1,0 +1,1 @@
+{"schemaVersion":"screen-control.verify-scenario/v1","id":"SUITE-E2E","kind":"suite","prerequisites":[],"environments":["*"],"suite":"e2e","commands":[["internal","declared-e2e-journey"]],"timeoutSeconds":1800,"thresholds":{"journey":"pass"},"sensitivity":"R2","writablePaths":["evidence/formal"],"artifacts":["trace","channel-stats","endpoint-log"],"cleanup":[]}

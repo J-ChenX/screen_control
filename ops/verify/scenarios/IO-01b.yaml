@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "screen-control.verify-scenario/v1",
+  "id": "IO-01b",
+  "kind": "work-package",
+  "prerequisites": ["IO-01a"],
+  "environments": ["d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"],
+  "suite": "bootstrap",
+  "commands": [["internal", "import-io01b"]],
+  "timeoutSeconds": 300,
+  "thresholds": {"bundleIntegrity": true, "independentBuild": true, "toolchainLockMatch": true},
+  "sensitivity": "R1",
+  "writablePaths": ["evidence/bootstrap/io-01b", "bin", "dist", "web/tsconfig.tsbuildinfo"],
+  "artifacts": ["commands.jsonl", "cleanup.json", "index.json", "index.sig", "seal.json"],
+  "cleanup": []
+}
+

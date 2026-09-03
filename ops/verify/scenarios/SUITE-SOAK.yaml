@@ -1,0 +1,2 @@
+{"schemaVersion":"screen-control.verify-scenario/v1","id":"SUITE-SOAK","kind":"suite","prerequisites":[],"environments":["*"],"suite":"soak","commands":[["internal","declared-soak-scenario"]],"timeoutSeconds":86400,"thresholds":{"continuousHours":24},"sensitivity":"R2","writablePaths":["evidence/formal"],"artifacts":["heartbeat","events","drift","cleanup"],"cleanup":[]}
+
