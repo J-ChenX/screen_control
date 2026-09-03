@@ -3,9 +3,9 @@
   "releaseId": "0.0.0-io01b",
   "generatedUtc": "2026-09-03T10:30:00Z",
   "source": {
-    "commit": "7d813cd68e882e0a6e45198b22b50ff6a7669c58",
-    "tree": "243b2ed7910338940f8761beda0b685974984d98",
-    "repositoryState": "clean-at-baseline-commit",
+    "commit": "a2f3d6128094dac7df6a1ad7520189688f5a6f3f",
+    "tree": "7ec441861915758cb0b84ae70c290ca0bb1f9d1c",
+    "repositoryState": "source commit includes IO-01b implementation; this regenerated lock is the only post-commit metadata input",
     "module": "screencontrol.local/screen-control"
   },
   "bootstrap": {

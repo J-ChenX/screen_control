@@ -68,7 +68,7 @@ Verify(acceptanceIds[], environment) -> EvidenceIndex
 
 当前三机 bootstrap candidate 位于本地受限证据仓 `evidence/bootstrap/io-01a/io-01a-20260903T103433.753038Z-f9f2fd7839/`。113 个探针中 92 个成功，三机所有必填语义类别完整，时钟偏差分别约 `nix -0.000 s`、`echova -0.016 s`、`jiang-chenx -0.079 s` 且系统同步健康。bundle SHA-256 为 `041f683…f703f`，environment snapshot hash 为 `d12b8cc…3e77`；完整性、provenance、当前 recorder 匹配和受信状态均为 true。其余 probe 为明确记录的可选能力缺失；编码器事实作为 G0 尖峰 blocker 单独保留。
 
-`IO-01b` candidate 位于 `evidence/bootstrap/io-01b/io-01b-20260903T103531.907628Z-706c686594/`，固定六条工具链验证/Go build/前端 typecheck-test-build 命令全部通过。toolchain lock SHA-256 为 `f60fe8b…032a6`，CycloneDX SBOM 含 130 个组件，bundle SHA-256 为 `a414a7d…ef091`，完整性/provenance/current/trusted 全部为 true。两类目录均由 `.gitignore` 排除且只是 hash-sealed bootstrap 输入；`IO-01c` 必须导入、独立重验并签发正式证据。
+`IO-01b` candidate 位于 `evidence/bootstrap/io-01b/io-01b-20260903T103806.570259Z-ead7e91e65/`，固定六条工具链验证/Go build/前端 typecheck-test-build 命令全部通过。toolchain lock SHA-256 为 `b435f4c…328e7`，CycloneDX SBOM 含 130 个组件，bundle SHA-256 为 `abde6ba…57057`，完整性/provenance/current/trusted 全部为 true。两类目录均由 `.gitignore` 排除且只是 hash-sealed bootstrap 输入；`IO-01c` 必须导入、独立重验并签发正式证据。
 
 ## 工作包映射
 
