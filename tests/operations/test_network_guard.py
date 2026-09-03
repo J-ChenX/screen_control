@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,26 @@ class NetworkGuardTests(unittest.TestCase):
         self.assertIn("ICMPv4", source)
         self.assertIn("echo-request", source)
 
+    def test_failed_invariant_is_returned_as_structured_evidence(self):
+        failed = {
+            "target": "nix",
+            "platform": "linux",
+            "verifier": "echova",
+            "rollbackSeconds": 20,
+            "armedBeforeChange": True,
+            "lossObserved": False,
+            "recovered": True,
+            "recoveryElapsedSeconds": 21.0,
+            "sshRescuePreserved": True,
+            "rulesBeforeSha256": "a" * 64,
+            "rulesAfterSha256": "a" * 64,
+            "rulesRestored": True,
+        }
+        with mock.patch.object(MODULE, "exercise_linux", return_value=failed):
+            result = MODULE.exercise(["nix"], 20)
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["results"][0]["passed"])
+
 
 if __name__ == "__main__":
     unittest.main()
-

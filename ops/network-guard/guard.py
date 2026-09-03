@@ -194,11 +194,11 @@ def exercise(targets: list[str], rollback_seconds: int) -> dict[str, Any]:
     for target in targets:
         result = exercise_windows(run_tag, rollback_seconds) if NODES[target]["os"] == "windows" else exercise_linux(target, run_tag, rollback_seconds)
         results.append(result)
-        if not all(result[key] for key in ("armedBeforeChange", "lossObserved", "recovered", "sshRescuePreserved", "rulesRestored")):
-            raise RuntimeError(f"{target}: network rollback exercise did not meet every invariant")
-        if result["recoveryElapsedSeconds"] > 300:
-            raise RuntimeError(f"{target}: recovery exceeded five minutes")
-    return {"schemaVersion": "screen-control.network-guard-evidence/v1", "runTag": run_tag, "results": results, "status": "passed"}
+        result["passed"] = all(result[key] for key in ("armedBeforeChange", "lossObserved", "recovered", "sshRescuePreserved", "rulesRestored")) and result["recoveryElapsedSeconds"] <= 300
+        if not result["passed"]:
+            break
+    passed = len(results) == len(targets) and all(item["passed"] for item in results)
+    return {"schemaVersion": "screen-control.network-guard-evidence/v1", "runTag": run_tag, "results": results, "status": "passed" if passed else "failed"}
 
 
 def main() -> int:
@@ -210,8 +210,9 @@ def main() -> int:
     if not 10 <= args.rollback_seconds <= 240:
         raise ValueError("rollback seconds must be between 10 and 240")
     targets = list(NODES) if "all" in args.targets else list(dict.fromkeys(args.targets))
-    print(json.dumps(exercise(targets, args.rollback_seconds), ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
+    result = exercise(targets, args.rollback_seconds)
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result["status"] == "passed" else 1
 
 
 if __name__ == "__main__":
@@ -220,4 +221,3 @@ if __name__ == "__main__":
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print(f"network-guard: {error}", file=sys.stderr)
         raise SystemExit(1)
-
