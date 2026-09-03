@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-control.local/schemas/bootstrap-preflight-v1.json",
+  "title": "screen-control IO-01a bootstrap bundle records",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "manifest": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "workPackage",
+        "runId",
+        "recorderSha256",
+        "bundleSchemaSha256",
+        "allowlistSha256",
+        "recorderRuntime",
+        "sshKnownHosts",
+        "evidencePermissions",
+        "nodes",
+        "startedUtc"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "screen-control.bootstrap-preflight/v1"},
+        "workPackage": {"const": "IO-01a"},
+        "runId": {"type": "string", "pattern": "^io-01a-[A-Za-z0-9.-]+$"},
+        "recorderSha256": {"$ref": "#/$defs/sha256"},
+        "bundleSchemaSha256": {"$ref": "#/$defs/sha256"},
+        "allowlistSha256": {"$ref": "#/$defs/sha256"},
+        "nodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["nix", "echova", "jiang-chenx"]}
+        }
+      },
+      "additionalProperties": true
+    },
+    "command": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "runId",
+        "node",
+        "probeId",
+        "category",
+        "commandAllowlistId",
+        "startedUtc",
+        "finishedUtc",
+        "monotonicDurationMs",
+        "status",
+        "stdoutSha256",
+        "stderrSha256",
+        "stdoutBytes",
+        "stderrBytes"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "screen-control.bootstrap-preflight/v1"},
+        "runId": {"type": "string"},
+        "node": {"enum": ["nix", "echova", "jiang-chenx"]},
+        "stdoutSha256": {"$ref": "#/$defs/sha256"},
+        "stderrSha256": {"$ref": "#/$defs/sha256"},
+        "status": {"enum": ["passed", "unavailable", "timeout", "output-limit"]}
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "workPackage",
+        "runId",
+        "node",
+        "osFamily",
+        "clockGate",
+        "clockSamples",
+        "clockSyncHealthy",
+        "categories",
+        "spikeBlockers",
+        "status",
+        "probeResults"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "screen-control.bootstrap-preflight/v1"},
+        "workPackage": {"const": "IO-01a"},
+        "node": {"enum": ["nix", "echova", "jiang-chenx"]},
+        "osFamily": {"enum": ["linux", "windows"]},
+        "clockGate": {"enum": ["pass", "block"]},
+        "status": {"enum": ["complete", "blocked"]}
+      },
+      "additionalProperties": true
+    },
+    "index": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "workPackage",
+        "runId",
+        "status",
+        "recorderSha256",
+        "environmentSnapshotHash",
+        "snapshotHashes",
+        "blockedNodes",
+        "missingNodes",
+        "sensitiveScan"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "screen-control.bootstrap-preflight/v1"},
+        "workPackage": {"const": "IO-01a"},
+        "recorderSha256": {"$ref": "#/$defs/sha256"},
+        "environmentSnapshotHash": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": true
+    },
+    "seal": {
+      "type": "object",
+      "required": ["schemaVersion", "runId", "sealedUtc", "files", "bundleSha256"],
+      "properties": {
+        "schemaVersion": {"const": "screen-control.bootstrap-preflight/v1"},
+        "bundleSha256": {"$ref": "#/$defs/sha256"},
+        "files": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/sha256"}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

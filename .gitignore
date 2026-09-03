@@ -1,0 +1,15 @@
+/evidence/
+__pycache__/
+*.py[cod]
+/bin/
+/dist/
+/web/node_modules/
+/web/coverage/
+/web/playwright-report/
+/web/test-results/
+/web/*.tsbuildinfo
+/.tools/
+*.local
+.env
+.env.*
+!.env.example

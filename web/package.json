@@ -1,0 +1,29 @@
+{
+  "name": "@screen-control/portal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": "24.20.0",
+    "pnpm": "11.25.0"
+  },
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.6",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}

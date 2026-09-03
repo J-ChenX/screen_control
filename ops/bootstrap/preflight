@@ -1,0 +1,1207 @@
+#!/usr/bin/env python3
+"""IO-01a read-only, hash-pinned three-node preflight recorder.
+
+This file is the complete executable allowlist.  It never accepts an arbitrary
+command and it does not write to target nodes.  Remote probes are sent over the
+already-configured SSH transport and all evidence is sealed locally.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import concurrent.futures
+import dataclasses
+import datetime as dt
+import getpass
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import selectors
+import shlex
+import socket
+import stat
+import subprocess
+import sys
+import time
+from typing import Any, Iterable
+
+
+SCHEMA_VERSION = "screen-control.bootstrap-preflight/v1"
+WORK_PACKAGE = "IO-01a"
+SCRIPT_PATH = Path(__file__).resolve()
+PROJECT_ROOT = SCRIPT_PATH.parents[2]
+PIN_PATH = SCRIPT_PATH.with_name("preflight.sha256")
+BUNDLE_SCHEMA_PATH = SCRIPT_PATH.with_name("bundle.schema.json")
+BUNDLE_SCHEMA_SHA256 = "c6c3677ae9b9ccafca76ce3658bc4e372b0281d4d5e58db87e8338b909818343"
+DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "evidence" / "bootstrap" / "io-01a"
+MAX_SUMMARY_CHARS = 12_000
+MAX_PROBE_OUTPUT_BYTES = 8 * 1024 * 1024
+MAX_BUNDLE_FILE_BYTES = 64 * 1024 * 1024
+KNOWN_HOSTS_PATH = Path.home() / ".ssh" / "known_hosts"
+
+
+@dataclasses.dataclass(frozen=True)
+class Node:
+    name: str
+    os_family: str
+    ssh_target: str | None
+    expected_hostname: str
+    expected_tailscale_ip: str
+
+
+@dataclasses.dataclass(frozen=True)
+class Probe:
+    probe_id: str
+    category: str
+    command: tuple[str, ...] | str
+    parser: str = "text"
+    timeout_seconds: int = 20
+    stability: str = "stable"
+
+
+NODES = {
+    "nix": Node("nix", "linux", None, "nix", "100.64.0.10"),
+    "echova": Node("echova", "linux", "operator@100.64.0.20", "echova", "100.64.0.20"),
+    "jiang-chenx": Node("jiang-chenx", "windows", "operator@100.64.0.30", "Jiang_ChenX", "100.64.0.30"),
+}
+
+LINUX_PROBES: tuple[Probe, ...] = (
+    Probe("hostname", "recovery", ("hostname",)),
+    Probe("os_release", "os", ("cat", "/etc/os-release"), "os_release"),
+    Probe("kernel", "os", ("uname", "-sr")),
+    Probe("architecture", "os", ("uname", "-m")),
+    Probe("boot_id", "os", ("cat", "/proc/sys/kernel/random/boot_id"), "digest", stability="volatile"),
+    Probe("boot_time", "os", ("uptime", "-s"), stability="volatile"),
+    Probe("sessions", "display", ("loginctl", "list-sessions", "--no-legend", "--no-pager")),
+    Probe("xrandr_display_1", "display", ("env", "DISPLAY=:1", "xrandr", "--current")),
+    Probe("desktop_scaling", "display", ("gsettings", "get", "org.gnome.desktop.interface", "scaling-factor")),
+    Probe("gpu_pci", "gpu", ("lspci", "-nnk"), "gpu"),
+    Probe("gpu_nvidia", "gpu", ("nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"), "gpu"),
+    Probe("video_encoders", "gpu", ("ffmpeg", "-hide_banner", "-encoders"), "encoders"),
+    Probe("browser_chrome", "browser", ("google-chrome", "--version")),
+    Probe("browser_chrome_stable", "browser", ("google-chrome-stable", "--version")),
+    Probe("browser_chromium", "browser", ("chromium", "--version")),
+    Probe("browser_chromium_browser", "browser", ("chromium-browser", "--version")),
+    Probe("browser_firefox", "browser", ("firefox", "--version")),
+    Probe("browser_edge", "browser", ("microsoft-edge", "--version")),
+    Probe("tailscale_version", "tailscale", ("tailscale", "version", "--json"), "tailscale_version"),
+    Probe("tailscale_status", "tailscale", ("tailscale", "status", "--json"), "tailscale_status", stability="volatile"),
+    Probe("tailscale_netcheck", "tailscale", ("tailscale", "netcheck", "--format=json"), "tailscale_netcheck", 45, "volatile"),
+    Probe("tailscale_interface", "tailscale", ("ip", "-j", "link", "show", "tailscale0"), "json_redacted"),
+    Probe("route_table_hash", "tailscale", ("ip", "-j", "route", "show", "table", "all"), "digest", stability="volatile"),
+    Probe("firewall_ufw", "firewall", ("ufw", "status", "verbose"), "firewall"),
+    Probe("firewall_nft_privileged", "firewall", ("sudo", "-n", "nft", "--json", "list", "ruleset"), "digest"),
+    Probe("firewall_iptables_privileged", "firewall", ("sudo", "-n", "iptables-save"), "digest"),
+    Probe("firewall_service_state", "firewall", ("systemctl", "show", "ufw", "--property=LoadState", "--property=ActiveState", "--property=UnitFileState")),
+    Probe("firewall_kernel_tables_v4", "firewall", ("cat", "/proc/net/ip_tables_names"), "digest"),
+    Probe("firewall_kernel_tables_v6", "firewall", ("cat", "/proc/net/ip6_tables_names"), "digest"),
+    Probe("firewall_iptables_backend", "firewall", ("readlink", "-f", "/etc/alternatives/iptables")),
+    Probe("firewall_nft", "firewall", ("nft", "--json", "list", "ruleset"), "digest"),
+    Probe("firewall_iptables", "firewall", ("iptables-save",), "digest"),
+    Probe("cgroup_bpf", "firewall", ("bpftool", "cgroup", "tree", "/sys/fs/cgroup"), "digest"),
+    Probe("listening_sockets", "ports", ("ss", "-H", "-lntup"), "sockets", stability="volatile"),
+    Probe("identity", "permissions", ("id",), "identity"),
+    Probe("capabilities", "permissions", ("capsh", "--print"), "capabilities"),
+    Probe("clock_utc_1", "clock", ("date", "--utc", "+%Y-%m-%dT%H:%M:%S.%NZ"), "clock", stability="volatile"),
+    Probe("clock_utc_2", "clock", ("date", "--utc", "+%Y-%m-%dT%H:%M:%S.%NZ"), "clock", stability="volatile"),
+    Probe("clock_utc_3", "clock", ("date", "--utc", "+%Y-%m-%dT%H:%M:%S.%NZ"), "clock", stability="volatile"),
+    Probe("clock_sync", "clock", ("timedatectl", "show", "--property=NTPSynchronized", "--property=NTPSync", "--property=Timezone", "--property=LocalRTC")),
+    Probe("disk_bytes", "disk", ("df", "-B1", "-P", "/", "/tmp", "/home"), "disk", stability="volatile"),
+    Probe("disk_inodes", "disk", ("df", "-i", "-P", "/", "/tmp", "/home"), "disk", stability="volatile"),
+    Probe("ssh_service", "recovery", ("systemctl", "is-active", "ssh")),
+)
+
+
+def ps(script: str) -> str:
+    return "$ErrorActionPreference='Stop';" + script
+
+
+WINDOWS_PROBES: tuple[Probe, ...] = (
+    Probe("hostname", "recovery", ps("[Environment]::MachineName")),
+    Probe("os_build", "os", ps("$o=Get-CimInstance Win32_OperatingSystem;[ordered]@{caption=$o.Caption;version=$o.Version;build=$o.BuildNumber;architecture=$o.OSArchitecture;bootUtc=$o.LastBootUpTime.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("kernel", "os", ps("[Environment]::OSVersion.VersionString")),
+    Probe("architecture", "os", ps("[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()")),
+    Probe("session", "display", ps("$s=@(Get-CimInstance Win32_LogonSession|Where-Object {$_.LogonType -in 2,10});[ordered]@{interactiveSessionCount=$s.Count;hasInteractiveSession=($s.Count -gt 0)}|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("display", "display", ps("Get-CimInstance Win32_VideoController|Select-Object Name,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate,VideoModeDescription|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("display_scaling", "display", ps("$p=Get-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -ErrorAction SilentlyContinue;[ordered]@{logPixels=$p.LogPixels;win8DpiScaling=$p.Win8DpiScaling}|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("gpu", "gpu", ps("Get-CimInstance Win32_VideoController|Select-Object Name,DriverVersion,AdapterRAM,VideoProcessor|ConvertTo-Json -Compress"), "gpu_json"),
+    Probe("browsers", "browser", ps("$paths=@(" +
+          "'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'," +
+          "'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'," +
+          "'C:\\Program Files\\Mozilla Firefox\\firefox.exe');" +
+          "$r=@();foreach($p in $paths){if(Test-Path -LiteralPath $p){$i=(Get-Item -LiteralPath $p).VersionInfo;$r+=[ordered]@{product=$i.ProductName;version=$i.ProductVersion}}};$r|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("tailscale_version", "tailscale", ps("tailscale.exe version --json"), "tailscale_version"),
+    Probe("tailscale_status", "tailscale", ps("tailscale.exe status --json"), "tailscale_status", stability="volatile"),
+    Probe("tailscale_netcheck", "tailscale", ps("tailscale.exe netcheck --format=json"), "tailscale_netcheck", 45, "volatile"),
+    Probe("tailscale_adapter", "tailscale", ps("Get-NetAdapter|Where-Object {$_.InterfaceDescription -match 'Tailscale' -or $_.Name -match 'Tailscale'}|Select-Object Name,InterfaceDescription,Status,LinkSpeed,ifIndex|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("route_table_hash", "tailscale", ps("Get-NetRoute|Where-Object {$_.InterfaceAlias -match 'Tailscale'}|Select-Object AddressFamily,DestinationPrefix,RouteMetric,State|ConvertTo-Json -Compress"), "digest", stability="volatile"),
+    Probe("firewall_profiles", "firewall", ps("Get-NetFirewallProfile|Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction,AllowInboundRules,NotifyOnListen|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("firewall_rules_hash", "firewall", ps("Get-NetFirewallRule|Select-Object DisplayName,Enabled,Direction,Action,Profile,PolicyStoreSourceType|Sort-Object DisplayName|ConvertTo-Json -Compress -Depth 3"), "digest", 45),
+    Probe("listening_tcp", "ports", ps("Get-NetTCPConnection -State Listen|Select-Object LocalAddress,LocalPort,OwningProcess|Sort-Object LocalPort|ConvertTo-Json -Compress"), "windows_sockets", stability="volatile"),
+    Probe("listening_udp", "ports", ps("Get-NetUDPEndpoint|Select-Object LocalAddress,LocalPort,OwningProcess|Sort-Object LocalPort|ConvertTo-Json -Compress"), "windows_sockets", stability="volatile"),
+    Probe("identity", "permissions", ps("$id=[Security.Principal.WindowsIdentity]::GetCurrent();$p=[Security.Principal.WindowsPrincipal]$id;[ordered]@{isAdmin=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);authenticationType=$id.AuthenticationType;isSystem=$id.IsSystem}|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("privileges_hash", "permissions", ps("whoami.exe /priv"), "digest"),
+    Probe("clock_utc_1", "clock", ps("[DateTime]::UtcNow.ToString('o')"), "clock", stability="volatile"),
+    Probe("clock_utc_2", "clock", ps("[DateTime]::UtcNow.ToString('o')"), "clock", stability="volatile"),
+    Probe("clock_utc_3", "clock", ps("[DateTime]::UtcNow.ToString('o')"), "clock", stability="volatile"),
+    Probe("clock_sync", "clock", ps("$svc=Get-Service W32Time -ErrorAction SilentlyContinue;[ordered]@{serviceStatus=$svc.Status.ToString();serviceStartType=$svc.StartType.ToString();timeZone=(Get-TimeZone).Id}|ConvertTo-Json -Compress"), "json_redacted"),
+    Probe("clock_sync_detail", "clock", ps("w32tm.exe /query /status /verbose"), stability="volatile"),
+    Probe("disk", "disk", ps("Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'|Select-Object DeviceID,Size,FreeSpace,FileSystem|ConvertTo-Json -Compress"), "json_redacted", stability="volatile"),
+    Probe("ssh_service", "recovery", ps("Get-Service sshd|Select-Object Status,StartType|ConvertTo-Json -Compress"), "json_redacted"),
+)
+
+CATEGORY_MINIMUMS = {
+    "os": 3,
+    "display": 1,
+    "gpu": 1,
+    "browser": 1,
+    "tailscale": 3,
+    "firewall": 1,
+    "ports": 1,
+    "permissions": 1,
+    "clock": 1,
+    "disk": 1,
+    "recovery": 1,
+}
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def canonical_json(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def script_hash() -> str:
+    return sha256_file(SCRIPT_PATH)
+
+
+def pinned_hash() -> str:
+    line = PIN_PATH.read_text(encoding="utf-8").strip()
+    match = re.fullmatch(r"([0-9a-f]{64})  preflight", line)
+    if not match:
+        raise RuntimeError(f"invalid pin file: {PIN_PATH}")
+    return match.group(1)
+
+
+def verify_self() -> str:
+    actual = script_hash()
+    expected = pinned_hash()
+    if actual != expected:
+        raise RuntimeError(f"preflight hash mismatch: expected {expected}, got {actual}")
+    if sha256_file(BUNDLE_SCHEMA_PATH) != BUNDLE_SCHEMA_SHA256:
+        raise RuntimeError("bootstrap bundle schema hash mismatch")
+    return actual
+
+
+def known_host_evidence(selected_names: list[str]) -> dict[str, Any]:
+    remote_nodes = [NODES[name] for name in selected_names if NODES[name].ssh_target]
+    if not remote_nodes:
+        return {"file": None, "fileSha256": None, "fingerprints": {}}
+    if not KNOWN_HOSTS_PATH.is_file() or KNOWN_HOSTS_PATH.is_symlink():
+        raise RuntimeError(f"strict known_hosts file missing or unsafe: {KNOWN_HOSTS_PATH}")
+    fingerprints: dict[str, list[str]] = {}
+    for node in remote_nodes:
+        host = str(node.ssh_target).split("@", 1)[1]
+        found = subprocess.run(
+            ["ssh-keygen", "-F", host, "-f", str(KNOWN_HOSTS_PATH)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+        key_lines = [line for line in found.stdout.splitlines() if line and not line.startswith(b"#")]
+        node_fingerprints = []
+        for key_line in key_lines:
+            fields = key_line.split(maxsplit=2)
+            if len(fields) != 3:
+                continue
+            fingerprint = subprocess.run(
+                ["ssh-keygen", "-lf", "-"],
+                input=fields[1] + b" " + fields[2] + b"\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+                check=False,
+            )
+            if fingerprint.returncode == 0:
+                parts = decode_output(fingerprint.stdout).strip().split()
+                if len(parts) >= 2:
+                    node_fingerprints.append(parts[1])
+        if not node_fingerprints:
+            raise RuntimeError(f"no pinned host key found for {node.name}")
+        fingerprints[node.name] = sorted(set(node_fingerprints))
+    return {
+        "file": "<home>/.ssh/known_hosts",
+        "fileSha256": sha256_file(KNOWN_HOSTS_PATH),
+        "fingerprints": fingerprints,
+    }
+
+
+def hash_tag(value: str, label: str) -> str:
+    return f"<{label}:sha256:{sha256_bytes(value.encode())[:12]}>"
+
+
+APPROVED_IPS = {"100.64.0.10", "100.64.0.20", "100.64.0.30", "127.0.0.1", "0.0.0.0"}
+
+
+def redact_text(value: str) -> str:
+    value = re.sub(r"(?i)(bearer|token|secret|password|passwd|authorization)(\s*[:=]\s*)([^\s,;]+)", r"\1\2<redacted>", value)
+    value = re.sub(r"(?i)(/home/)[^/\s]+", r"\1<user>", value)
+    value = re.sub(r"(?i)([A-Z]:\\Users\\)[^\\\s]+", r"\1<user>", value)
+    value = re.sub(r"(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", lambda m: hash_tag(m.group(0), "mac"), value)
+    value = re.sub(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", lambda m: hash_tag(m.group(0), "uuid"), value)
+
+    def redact_ipv4(match: re.Match[str]) -> str:
+        ip = match.group(0)
+        if ip in APPROVED_IPS or ip.startswith("127."):
+            return ip
+        return hash_tag(ip, "ip")
+
+    value = re.sub(r"(?<![\d.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\d.])", redact_ipv4, value)
+
+    def redact_ipv6(match: re.Match[str]) -> str:
+        candidate = match.group(0)
+        wrapped = candidate.startswith("[") and candidate.endswith("]")
+        raw = candidate[1:-1] if wrapped else candidate
+        try:
+            address = ipaddress.ip_address(raw)
+        except ValueError:
+            return candidate
+        if address.version != 6 or address.is_loopback or address.is_unspecified:
+            return candidate
+        return hash_tag(raw, "ipv6")
+
+    value = re.sub(r"(?<![0-9A-Fa-f:])\[?(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\]?(?![0-9A-Fa-f:])", redact_ipv6, value)
+    return value[:MAX_SUMMARY_CHARS]
+
+
+def decode_output(output: bytes) -> str:
+    """Decode Unix UTF-8 and localized Windows OpenSSH/PowerShell output."""
+    if output.startswith((b"\xff\xfe", b"\xfe\xff")) or (len(output) >= 4 and output[1::2].count(0) >= max(2, len(output[1::2]) // 3)):
+        try:
+            return output.decode("utf-16", errors="strict") if output.startswith((b"\xff\xfe", b"\xfe\xff")) else output.decode("utf-16le", errors="strict")
+        except UnicodeDecodeError:
+            pass
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            return output.decode(encoding, errors="strict")
+        except UnicodeDecodeError:
+            continue
+    return output.decode("utf-8", errors="replace")
+
+
+def normalize_node_name(value: str) -> str:
+    return re.sub(r"[-_]", "", value.rstrip(".").lower())
+
+
+def parse_json_bytes(stdout: bytes) -> Any:
+    return json.loads(decode_output(stdout))
+
+
+def normalize_json(value: Any) -> Any:
+    return json.loads(redact_text(json.dumps(value, ensure_ascii=False)))
+
+
+def parse_summary(parser: str, stdout: bytes) -> Any:
+    text = decode_output(stdout).strip()
+    if parser == "digest":
+        return {"bytes": len(stdout), "lines": len(text.splitlines()), "sha256": sha256_bytes(stdout)}
+    if parser == "os_release":
+        allowed = {"ID", "ID_LIKE", "PRETTY_NAME", "VERSION", "VERSION_ID", "VERSION_CODENAME"}
+        result: dict[str, str] = {}
+        for line in text.splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key in allowed:
+                result[key] = value.strip().strip('"')
+        return result
+    if parser == "tailscale_version":
+        value = parse_json_bytes(stdout)
+        aliases = {
+            "majorMinorPatch": ("majorMinorPatch", "MajorMinorPatch"),
+            "short": ("short", "Short"),
+            "long": ("long", "Long"),
+            "gitCommit": ("gitCommit", "GitCommit"),
+            "extraGitCommit": ("extraGitCommit", "ExtraGitCommit"),
+            "daemonLong": ("daemonLong", "DaemonLong"),
+            "daemonShort": ("daemonShort", "DaemonShort"),
+            "daemonGitCommit": ("daemonGitCommit", "DaemonGitCommit"),
+        }
+        result = {}
+        for normalized, candidates in aliases.items():
+            for key in candidates:
+                if value.get(key) not in (None, ""):
+                    result[normalized] = value[key]
+                    break
+        return result
+    if parser == "tailscale_status":
+        value = parse_json_bytes(stdout)
+        selected: dict[str, Any] = {"BackendState": value.get("BackendState")}
+        self_value = value.get("Self") or {}
+        selected["Self"] = {key: self_value.get(key) for key in ("HostName", "TailscaleIPs", "Online", "OS", "Relay") if key in self_value}
+        peers = []
+        all_peers = list((value.get("Peer") or {}).values())
+        known_names = {normalize_node_name(node.expected_hostname) for node in NODES.values()}
+        for peer in all_peers:
+            hostname = normalize_node_name(str(peer.get("HostName", "")))
+            dnsname = normalize_node_name(str(peer.get("DNSName", "")).split(".")[0])
+            if hostname in known_names or dnsname in known_names:
+                peers.append({key: peer.get(key) for key in ("HostName", "DNSName", "TailscaleIPs", "Online", "OS", "Relay", "Active") if key in peer})
+        selected["RegisteredPeers"] = sorted(peers, key=lambda item: str(item.get("HostName", "")))
+        selected["PeerCount"] = len(all_peers)
+        selected["UnexpectedPeerCount"] = len(all_peers) - len(peers)
+        return normalize_json(selected)
+    if parser == "tailscale_netcheck":
+        value = parse_json_bytes(stdout)
+        allowed = ("UDP", "IPv4", "IPv6", "IPv4CanSend", "IPv6CanSend", "MappingVariesByDestIP", "HairPinning", "PortMapping", "PreferredDERP")
+        return {key: value.get(key) for key in allowed if key in value}
+    if parser in {"json_redacted", "gpu_json"}:
+        return normalize_json(parse_json_bytes(stdout))
+    if parser == "encoders":
+        names = sorted(set(re.findall(r"\b(?:h264|hevc|av1)_(?:nvenc|vaapi|qsv|amf)\b", text, flags=re.I)))
+        return {"hardwareEncoderNames": names, "fullOutputSha256": sha256_bytes(stdout)}
+    if parser == "gpu":
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        selected = [line for line in lines if re.search(r"(?i)(vga|3d controller|display|kernel driver|nvidia|amd|intel)", line)]
+        return {"summary": redact_text("\n".join(selected)), "fullOutputSha256": sha256_bytes(stdout)}
+    if parser == "firewall":
+        first = "\n".join(text.splitlines()[:8])
+        return {"summary": redact_text(first), "fullOutputSha256": sha256_bytes(stdout), "lines": len(text.splitlines())}
+    if parser == "sockets":
+        rows = []
+        for line in text.splitlines():
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            proto = parts[0]
+            local = parts[4] if parts[1] in {"LISTEN", "UNCONN"} else parts[3]
+            port = local.rsplit(":", 1)[-1] if ":" in local else "unknown"
+            host = local[: -(len(port) + 1)] if port != "unknown" else local
+            if host in {"*", "0.0.0.0", "[::]", "::"}:
+                scope = "wildcard"
+            elif host.startswith("127.") or host in {"[::1]", "::1"}:
+                scope = "loopback"
+            elif any(ip in host for ip in APPROVED_IPS if ip.startswith("100.")):
+                scope = "tailscale"
+            else:
+                scope = "other-redacted"
+            rows.append({"protocol": proto, "port": port, "bindScope": scope})
+        return {"listeners": rows, "fullOutputSha256": sha256_bytes(stdout)}
+    if parser == "windows_sockets":
+        value = parse_json_bytes(stdout)
+        items = value if isinstance(value, list) else ([value] if value else [])
+        rows = []
+        for item in items:
+            address = str(item.get("LocalAddress", ""))
+            if address in {"0.0.0.0", "::", "*"}:
+                scope = "wildcard"
+            elif address.startswith("127.") or address == "::1":
+                scope = "loopback"
+            elif address in APPROVED_IPS:
+                scope = "tailscale"
+            else:
+                scope = "other-redacted"
+            rows.append({"port": item.get("LocalPort"), "bindScope": scope})
+        return {"listeners": rows, "fullOutputSha256": sha256_bytes(stdout)}
+    if parser == "identity":
+        return {"isRoot": bool(re.search(r"\buid=0\b", text)), "groupsCount": text.count(",") + 1, "fullOutputSha256": sha256_bytes(stdout)}
+    if parser == "capabilities":
+        current = next((line.partition("=")[2] for line in text.splitlines() if line.startswith("Current:")), "unknown")
+        return {"current": redact_text(current), "fullOutputSha256": sha256_bytes(stdout)}
+    if parser == "clock":
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return {"utc": parsed.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")}
+    if parser == "disk":
+        lines = text.splitlines()
+        return {"rows": [redact_text(line) for line in lines[:8]], "fullOutputSha256": sha256_bytes(stdout)}
+    return redact_text(text)
+
+
+def passed_event(events: list[dict[str, Any]], probe_id: str) -> dict[str, Any] | None:
+    return next((event for event in events if event["probeId"] == probe_id and event["status"] == "passed"), None)
+
+
+def nonempty(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (str, bytes, list, tuple, dict, set)):
+        return bool(value)
+    return True
+
+
+def semantic_fact_checks(node: Node, events: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Validate facts, rather than treating a zero exit code as sufficient."""
+    checks: dict[str, dict[str, Any]] = {}
+
+    def record(category: str, conditions: list[tuple[bool, str]]) -> None:
+        issues = [message for condition, message in conditions if not condition]
+        checks[category] = {"status": "complete" if not issues else "unknown", "issues": issues}
+
+    if node.os_family == "linux":
+        os_event = passed_event(events, "os_release")
+        display_event = passed_event(events, "xrandr_display_1")
+        gpu_event = passed_event(events, "gpu_pci")
+        browser_events = [passed_event(events, probe) for probe in (
+            "browser_chrome", "browser_chrome_stable", "browser_chromium",
+            "browser_chromium_browser", "browser_firefox", "browser_edge",
+        )]
+        firewall_events = [passed_event(events, "firewall_nft_privileged"), passed_event(events, "firewall_iptables_privileged")]
+        record("os", [
+            (bool(os_event and nonempty(os_event["stdoutSummary"])), "missing OS release"),
+            (passed_event(events, "kernel") is not None, "missing kernel"),
+            (passed_event(events, "architecture") is not None, "missing architecture"),
+            (passed_event(events, "boot_id") is not None, "missing boot identity"),
+        ])
+        record("display", [
+            (bool(display_event and re.search(r"current\s+\d+\s+x\s+\d+", str(display_event["stdoutSummary"]), re.I)), "missing active display resolution"),
+            (passed_event(events, "sessions") is not None, "missing session inventory"),
+        ])
+        record("gpu", [(bool(gpu_event and nonempty(gpu_event["stdoutSummary"].get("summary"))), "missing GPU/driver inventory")])
+        record("browser", [(any(event and nonempty(event["stdoutSummary"]) for event in browser_events), "no supported browser version observed")])
+        record("firewall", [(any(event and event["stdoutSummary"].get("bytes", 0) > 0 for event in firewall_events), "privileged firewall rules hash unavailable")])
+        record("permissions", [
+            (passed_event(events, "identity") is not None, "missing identity facts"),
+            (passed_event(events, "capabilities") is not None, "missing capability facts"),
+        ])
+        record("disk", [(passed_event(events, "disk_bytes") is not None, "missing byte capacity"), (passed_event(events, "disk_inodes") is not None, "missing inode capacity")])
+    else:
+        os_event = passed_event(events, "os_build")
+        display_event = passed_event(events, "display")
+        gpu_event = passed_event(events, "gpu")
+        browser_event = passed_event(events, "browsers")
+        display_items = display_event["stdoutSummary"] if display_event else []
+        display_items = display_items if isinstance(display_items, list) else [display_items]
+        gpu_items = gpu_event["stdoutSummary"] if gpu_event else []
+        gpu_items = gpu_items if isinstance(gpu_items, list) else [gpu_items]
+        browser_items = browser_event["stdoutSummary"] if browser_event else []
+        browser_items = browser_items if isinstance(browser_items, list) else [browser_items]
+        record("os", [
+            (bool(os_event and all(nonempty(os_event["stdoutSummary"].get(key)) for key in ("caption", "version", "build", "architecture"))), "incomplete Windows OS build"),
+            (passed_event(events, "kernel") is not None, "missing kernel"),
+        ])
+        record("display", [
+            (any(isinstance(item, dict) and isinstance(item.get("CurrentHorizontalResolution"), int) and isinstance(item.get("CurrentVerticalResolution"), int) for item in display_items), "missing active display resolution"),
+            (bool((passed_event(events, "session") or {}).get("stdoutSummary", {}).get("hasInteractiveSession")), "no interactive session fact"),
+        ])
+        record("gpu", [(any(isinstance(item, dict) and nonempty(item.get("Name")) and nonempty(item.get("DriverVersion")) for item in gpu_items), "missing GPU/driver inventory")])
+        record("browser", [(any(isinstance(item, dict) and nonempty(item.get("product")) and nonempty(item.get("version")) for item in browser_items), "no supported browser version observed")])
+        firewall_rules = passed_event(events, "firewall_rules_hash")
+        record("firewall", [
+            (passed_event(events, "firewall_profiles") is not None, "missing firewall profiles"),
+            (bool(firewall_rules and firewall_rules["stdoutSummary"].get("bytes", 0) > 0), "missing firewall rules hash"),
+        ])
+        identity = passed_event(events, "identity")
+        record("permissions", [(bool(identity and isinstance(identity["stdoutSummary"].get("isAdmin"), bool)), "missing Windows privilege classification")])
+        record("disk", [(passed_event(events, "disk") is not None, "missing disk capacity")])
+
+    version = passed_event(events, "tailscale_version")
+    status = passed_event(events, "tailscale_status")
+    netcheck = passed_event(events, "tailscale_netcheck")
+    status_summary = status["stdoutSummary"] if status else {}
+    self_summary = status_summary.get("Self", {}) if isinstance(status_summary, dict) else {}
+    peer_summaries = status_summary.get("RegisteredPeers", []) if isinstance(status_summary, dict) else []
+    observed_names = {normalize_node_name(str(self_summary.get("HostName", "")))}
+    observed_names.update(normalize_node_name(str(peer.get("HostName", ""))) for peer in peer_summaries)
+    expected_names = {normalize_node_name(item.expected_hostname) for item in NODES.values()}
+    record("tailscale", [
+        (bool(version and nonempty(version["stdoutSummary"].get("short"))), "missing Tailscale CLI version"),
+        (bool(status and status_summary.get("BackendState") == "Running"), "Tailscale backend is not running"),
+        (normalize_node_name(str(self_summary.get("HostName", ""))) == normalize_node_name(node.expected_hostname), "Tailscale Self hostname mismatch"),
+        (node.expected_tailscale_ip in self_summary.get("TailscaleIPs", []), "Tailscale Self IPv4 mismatch"),
+        (expected_names.issubset(observed_names), "one or more registered nodes missing from Tailscale view"),
+        (all(peer.get("Online") is True for peer in peer_summaries), "one or more registered peers offline"),
+        (bool(netcheck and isinstance(netcheck["stdoutSummary"].get("UDP"), bool)), "missing Tailscale netcheck facts"),
+    ])
+
+    sockets = passed_event(events, "listening_sockets") or passed_event(events, "listening_tcp")
+    record("ports", [(bool(sockets and isinstance(sockets["stdoutSummary"].get("listeners"), list)), "missing listener inventory")])
+    hostname = passed_event(events, "hostname")
+    ssh_service = passed_event(events, "ssh_service")
+    record("recovery", [
+        (bool(hostname and normalize_node_name(str(hostname["stdoutSummary"])) == normalize_node_name(node.expected_hostname)), "hostname mismatch"),
+        (ssh_service is not None, "SSH recovery service unavailable"),
+    ])
+
+    spike_blockers = []
+    encoder = passed_event(events, "video_encoders")
+    if node.os_family == "linux" and not (encoder and encoder["stdoutSummary"].get("hardwareEncoderNames")):
+        spike_blockers.append("video-encoder-capability-unverified")
+    if node.os_family == "windows":
+        spike_blockers.append("video-encoder-capability-not-yet-probed")
+    return checks, spike_blockers
+
+
+def evaluate_clock(node: Node, events: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]], bool, list[str]]:
+    clock_samples = []
+    for event in events:
+        if not event["probeId"].startswith("clock_utc_") or event["status"] != "passed":
+            continue
+        try:
+            remote = dt.datetime.fromisoformat(event["stdoutSummary"]["utc"].replace("Z", "+00:00"))
+            received = dt.datetime.fromisoformat((event.get("sampleReceivedUtc") or event["finishedUtc"]).replace("Z", "+00:00"))
+            measured_offset = (remote - received).total_seconds()
+            round_trip_upper = event["monotonicDurationMs"] / 1000
+            clock_samples.append({
+                "probeId": event["probeId"],
+                "measuredOffsetSeconds": round(measured_offset, 3),
+                "roundTripUpperSeconds": round(round_trip_upper, 3),
+                "possibleOffsetLowerSeconds": round(measured_offset, 3),
+                "possibleOffsetUpperSeconds": round(measured_offset + round_trip_upper, 3),
+            })
+        except Exception:
+            continue
+    selected_clock = min(clock_samples, key=lambda item: item["roundTripUpperSeconds"]) if clock_samples else None
+    if node.os_family == "linux":
+        sync_event = passed_event(events, "clock_sync")
+        sync_healthy = bool(sync_event and "NTPSynchronized=yes" in str(sync_event["stdoutSummary"]))
+    else:
+        sync_event = passed_event(events, "clock_sync")
+        sync_detail = passed_event(events, "clock_sync_detail")
+        detail = str(sync_detail["stdoutSummary"]) if sync_detail else ""
+        unhealthy_markers = ("未同步", "Local CMOS Clock", "无上次成功同步时间", "上次成功同步时间: 未指定")
+        sync_healthy = bool(
+            sync_event
+            and sync_event["stdoutSummary"].get("serviceStatus") == "Running"
+            and sync_detail
+            and not any(marker in detail for marker in unhealthy_markers)
+        )
+    issues = []
+    if not selected_clock:
+        issues.append("no valid UTC samples")
+    elif selected_clock["possibleOffsetLowerSeconds"] < -2 or selected_clock["possibleOffsetUpperSeconds"] > 2:
+        issues.append("UTC offset uncertainty interval exceeds ±2 seconds")
+    if not sync_healthy:
+        issues.append("time synchronization unhealthy")
+    return selected_clock, clock_samples, sync_healthy, issues
+
+
+def command_label(probe: Probe) -> str:
+    if isinstance(probe.command, tuple):
+        return shlex.join(probe.command)
+    digest = sha256_bytes(probe.command.encode())[:16]
+    return f"powershell-encoded-script sha256:{digest}"
+
+
+def build_command(node: Node, probe: Probe) -> list[str]:
+    if node.os_family == "linux":
+        assert isinstance(probe.command, tuple)
+        if node.ssh_target is None:
+            return list(probe.command)
+        return [
+            "ssh", "-p", "22", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={KNOWN_HOSTS_PATH}",
+            node.ssh_target, "--", shlex.join(probe.command),
+        ]
+    assert isinstance(probe.command, str)
+    encoded = base64.b64encode(probe.command.encode("utf-16le")).decode("ascii")
+    return [
+        "ssh", "-p", "22", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+        "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={KNOWN_HOSTS_PATH}",
+        node.ssh_target or "", "--", "powershell.exe", "-NoLogo", "-NoProfile",
+        "-NonInteractive", "-EncodedCommand", encoded,
+    ]
+
+
+def run_bounded(command: list[str], timeout_seconds: int, capture_clock_receipt: bool) -> dict[str, Any]:
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert process.stdout is not None and process.stderr is not None
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    digests = {"stdout": hashlib.sha256(), "stderr": hashlib.sha256()}
+    totals = {"stdout": 0, "stderr": 0}
+    truncated = {"stdout": False, "stderr": False}
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    timed_out = False
+    killed_at: float | None = None
+    sample_received_utc: str | None = None
+    while selector.get_map():
+        now = time.monotonic()
+        if now >= deadline and not timed_out:
+            timed_out = True
+            killed_at = now
+            process.kill()
+        if killed_at is not None and now - killed_at > 2:
+            for key in list(selector.get_map().values()):
+                selector.unregister(key.fileobj)
+                key.fileobj.close()
+            break
+        for key, _ in selector.select(timeout=0.1):
+            try:
+                chunk = os.read(key.fileobj.fileno(), 64 * 1024)
+            except OSError:
+                chunk = b""
+            if not chunk:
+                selector.unregister(key.fileobj)
+                key.fileobj.close()
+                continue
+            stream = str(key.data)
+            if capture_clock_receipt and stream == "stdout" and sample_received_utc is None:
+                sample_received_utc = utc_now()
+            digests[stream].update(chunk)
+            totals[stream] += len(chunk)
+            remaining = MAX_PROBE_OUTPUT_BYTES - len(buffers[stream])
+            if remaining > 0:
+                buffers[stream].extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                truncated[stream] = True
+        if process.poll() is not None and not selector.get_map():
+            break
+    try:
+        return_code = process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.kill()
+        return_code = process.wait(timeout=2)
+    return {
+        "exitCode": None if timed_out else return_code,
+        "timedOut": timed_out,
+        "stdout": bytes(buffers["stdout"]),
+        "stderr": bytes(buffers["stderr"]),
+        "stdoutSha256": digests["stdout"].hexdigest(),
+        "stderrSha256": digests["stderr"].hexdigest(),
+        "stdoutBytes": totals["stdout"],
+        "stderrBytes": totals["stderr"],
+        "stdoutTruncated": truncated["stdout"],
+        "stderrTruncated": truncated["stderr"],
+        "sampleReceivedUtc": sample_received_utc,
+    }
+
+
+def run_probe(node: Node, probe: Probe) -> dict[str, Any]:
+    started_utc = utc_now()
+    started_mono = time.monotonic()
+    stdout = b""
+    stderr = b""
+    stdout_sha256 = sha256_bytes(b"")
+    stderr_sha256 = sha256_bytes(b"")
+    stdout_bytes = 0
+    stderr_bytes = 0
+    stdout_truncated = False
+    stderr_truncated = False
+    sample_received_utc: str | None = None
+    try:
+        result = run_bounded(build_command(node, probe), probe.timeout_seconds, probe.parser == "clock")
+        exit_code = result["exitCode"]
+        timed_out = result["timedOut"]
+        stdout = result["stdout"]
+        stderr = result["stderr"]
+        stdout_sha256 = result["stdoutSha256"]
+        stderr_sha256 = result["stderrSha256"]
+        stdout_bytes = result["stdoutBytes"]
+        stderr_bytes = result["stderrBytes"]
+        stdout_truncated = result["stdoutTruncated"]
+        stderr_truncated = result["stderrTruncated"]
+        sample_received_utc = result["sampleReceivedUtc"]
+    except FileNotFoundError as error:
+        stderr = str(error).encode()
+        stderr_sha256 = sha256_bytes(stderr)
+        stderr_bytes = len(stderr)
+        exit_code = 127
+        timed_out = False
+    finished_mono = time.monotonic()
+    parse_error: str | None = None
+    summary: Any = None
+    if exit_code == 0 and not stdout_truncated and not stderr_truncated:
+        try:
+            summary = parse_summary(probe.parser, stdout)
+        except Exception as error:  # the recorder must preserve parse failures
+            parse_error = f"{type(error).__name__}: {error}"
+    status = (
+        "passed"
+        if exit_code == 0 and parse_error is None and not stdout_truncated and not stderr_truncated
+        else ("timeout" if timed_out else ("output-limit" if stdout_truncated or stderr_truncated else "unavailable"))
+    )
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "node": node.name,
+        "probeId": probe.probe_id,
+        "category": probe.category,
+        "command": command_label(probe),
+        "commandAllowlistId": f"{node.os_family}:{probe.probe_id}",
+        "stability": probe.stability,
+        "startedUtc": started_utc,
+        "finishedUtc": utc_now(),
+        "sampleReceivedUtc": sample_received_utc,
+        "monotonicDurationMs": round((finished_mono - started_mono) * 1000, 3),
+        "exitCode": exit_code,
+        "timedOut": timed_out,
+        "status": status,
+        "stdoutSha256": stdout_sha256,
+        "stderrSha256": stderr_sha256,
+        "stdoutBytes": stdout_bytes,
+        "stderrBytes": stderr_bytes,
+        "stdoutTruncated": stdout_truncated,
+        "stderrTruncated": stderr_truncated,
+        "stdoutSummary": summary,
+        "stderrSummary": redact_text(decode_output(stderr))[:2000],
+        "parseError": parse_error,
+    }
+
+
+def collect_node(node: Node) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    probes = LINUX_PROBES if node.os_family == "linux" else WINDOWS_PROBES
+    events = [run_probe(node, probe) for probe in probes]
+    fact_checks, spike_blockers = semantic_fact_checks(node, events)
+
+    selected_clock, clock_samples, sync_healthy, clock_issues = evaluate_clock(node, events)
+    fact_checks["clock"] = {"status": "complete" if not clock_issues else "unknown", "issues": clock_issues}
+
+    categories: dict[str, dict[str, Any]] = {}
+    for category, minimum in CATEGORY_MINIMUMS.items():
+        category_events = [event for event in events if event["category"] == category]
+        success = sum(event["status"] == "passed" for event in category_events)
+        categories[category] = {
+            "status": fact_checks.get(category, {}).get("status", "unknown"),
+            "semanticIssues": fact_checks.get(category, {}).get("issues", ["semantic validator missing"]),
+            "successfulProbes": success,
+            "minimumSuccessfulProbes": minimum,
+            "probeIds": [event["probeId"] for event in category_events],
+        }
+    offset = selected_clock["measuredOffsetSeconds"] if selected_clock else None
+    clock_gate = "pass" if fact_checks["clock"]["status"] == "complete" else "block"
+    all_categories = all(value["status"] == "complete" for value in categories.values())
+    snapshot = {
+        "schemaVersion": SCHEMA_VERSION,
+        "workPackage": WORK_PACKAGE,
+        "node": node.name,
+        "osFamily": node.os_family,
+        "transport": "local" if node.ssh_target is None else "ssh-existing-host-key",
+        "collectedUtc": utc_now(),
+        "clockOffsetSeconds": offset,
+        "clockSelectedSample": selected_clock,
+        "clockSamples": clock_samples,
+        "clockSyncHealthy": sync_healthy,
+        "clockGate": clock_gate,
+        "categories": categories,
+        "spikeBlockers": spike_blockers,
+        "status": "complete" if all_categories and clock_gate == "pass" else "blocked",
+        "probeResults": [
+            {
+                "probeId": event["probeId"],
+                "category": event["category"],
+                "status": event["status"],
+                "stability": event["stability"],
+                "stdoutSummary": event["stdoutSummary"],
+            }
+            for event in events
+        ],
+    }
+    return snapshot, events
+
+
+def exclusive_write(path: Path, data: bytes, mode: int = 0o400) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+SENSITIVE_PATTERNS = {
+    "private-key": re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    "credential-value": re.compile(
+        rb"(?i)\b(?:password|passwd|authorization|bearer|secret|token)\b\s*[:=]\s*[\"']?(?!<redacted>)[^\s,;}\"]{4,}"
+    ),
+}
+
+
+def sensitive_scan(blobs: dict[str, bytes]) -> dict[str, Any]:
+    matches = []
+    for name, blob in blobs.items():
+        for pattern_id, pattern in SENSITIVE_PATTERNS.items():
+            if pattern.search(blob):
+                matches.append({"artifact": name, "patternId": pattern_id})
+    return {
+        "status": "pass" if not matches else "quarantined",
+        "ruleSetSha256": sha256_bytes(canonical_json(sorted(SENSITIVE_PATTERNS))),
+        "matches": matches,
+    }
+
+
+def create_run_dir(output_root: Path) -> tuple[str, Path]:
+    output_root = output_root.expanduser().absolute()
+    if output_root.exists() and output_root.is_symlink():
+        raise RuntimeError("output root must not be a symlink")
+    output_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    output_stat = output_root.stat()
+    if output_stat.st_uid != os.getuid() or output_stat.st_mode & 0o077:
+        raise RuntimeError("output root must be owned by the recorder user and inaccessible to group/other")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    nonce = os.urandom(5).hex()
+    run_id = f"io-01a-{stamp}-{nonce}"
+    run_dir = output_root / run_id
+    run_dir.mkdir(mode=0o700)
+    return run_id, run_dir
+
+
+def collect(selected_names: list[str], output_root: Path) -> Path:
+    executable_hash = verify_self()
+    recorder_bytes = SCRIPT_PATH.read_bytes()
+    if sha256_bytes(recorder_bytes) != executable_hash:
+        raise RuntimeError("preflight changed after hash verification")
+    pin_bytes = PIN_PATH.read_bytes()
+    schema_bytes = BUNDLE_SCHEMA_PATH.read_bytes()
+    known_hosts = known_host_evidence(selected_names)
+    python_executable = Path(sys.executable).resolve()
+    run_id, run_dir = create_run_dir(output_root)
+    output_stat = output_root.expanduser().absolute().stat()
+    run_stat = run_dir.stat()
+    started_utc = utc_now()
+    started_mono = time.monotonic()
+    manifest = {
+        "schemaVersion": SCHEMA_VERSION,
+        "workPackage": WORK_PACKAGE,
+        "runId": run_id,
+        "recorderSha256": executable_hash,
+        "pinFileSha256": sha256_bytes(PIN_PATH.read_bytes()),
+        "bundleSchemaSha256": BUNDLE_SCHEMA_SHA256,
+        "allowlistSha256": sha256_bytes(canonical_json({
+            "linux": [command_label(probe) for probe in LINUX_PROBES],
+            "windows": [command_label(probe) for probe in WINDOWS_PROBES],
+        })),
+        "operator": getpass.getuser(),
+        "recorderHost": socket.gethostname(),
+        "recorderPlatform": platform.platform(),
+        "recorderRuntime": {
+            "implementation": sys.implementation.name,
+            "version": platform.python_version(),
+            "executable": redact_text(str(python_executable)),
+            "executableSha256": sha256_file(python_executable),
+        },
+        "sshKnownHosts": known_hosts,
+        "evidencePermissions": {
+            "outputRootMode": oct(output_stat.st_mode & 0o777),
+            "outputRootOwnerUid": output_stat.st_uid,
+            "runMode": oct(run_stat.st_mode & 0o777),
+            "runOwnerUid": run_stat.st_uid,
+            "recorderUid": os.getuid(),
+            "ownerMatchesRecorder": output_stat.st_uid == os.getuid() == run_stat.st_uid,
+        },
+        "startedUtc": started_utc,
+        "nodes": selected_names,
+        "redaction": "summaries only; raw stdout/stderr discarded after SHA-256; home users, non-approved IPs, MACs, UUIDs and secret-like values redacted",
+        "targetMutation": "none; fixed read-only commands over existing SSH; no remote files created",
+    }
+    exclusive_write(run_dir / "manifest.json", canonical_json(manifest))
+    exclusive_write(run_dir / "recorder", recorder_bytes)
+    exclusive_write(run_dir / "preflight.sha256", pin_bytes)
+    exclusive_write(run_dir / "bundle.schema.json", schema_bytes)
+    fsync_directory(run_dir)
+
+    snapshots: dict[str, dict[str, Any]] = {}
+    all_events: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(selected_names)) as pool:
+        futures = {pool.submit(collect_node, NODES[name]): name for name in selected_names}
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            try:
+                snapshot, events = future.result()
+            except Exception as error:
+                snapshot = {
+                    "schemaVersion": SCHEMA_VERSION,
+                    "workPackage": WORK_PACKAGE,
+                    "node": name,
+                    "status": "blocked",
+                    "fatalError": redact_text(f"{type(error).__name__}: {error}"),
+                }
+                events = []
+            snapshot["runId"] = run_id
+            for event in events:
+                event["runId"] = run_id
+            snapshots[name] = snapshot
+            all_events.extend(events)
+
+    all_events.sort(key=lambda event: (event["node"], event["startedUtc"], event["probeId"]))
+    commands_data = b"".join(canonical_json(event) for event in all_events)
+    snapshot_data = {name: canonical_json(snapshot) for name, snapshot in sorted(snapshots.items())}
+    scan = sensitive_scan({"commands.jsonl": commands_data, **{f"snapshot-{name}.json": data for name, data in snapshot_data.items()}})
+    if scan["status"] != "pass":
+        exclusive_write(run_dir / "quarantine.json", canonical_json(scan))
+        fsync_directory(run_dir)
+        os.chmod(run_dir, 0o500)
+        raise RuntimeError(f"sensitive summary scan quarantined run {run_id}")
+    exclusive_write(run_dir / "commands.jsonl", commands_data)
+    for name, data in snapshot_data.items():
+        exclusive_write(run_dir / f"snapshot-{name}.json", data)
+    fsync_directory(run_dir)
+
+    missing_nodes = sorted(set(NODES) - set(selected_names))
+    complete = not missing_nodes and all(snapshot.get("status") == "complete" for snapshot in snapshots.values())
+    partial_diagnostic = bool(missing_nodes) and all(snapshot.get("status") == "complete" for snapshot in snapshots.values())
+    index = {
+        "schemaVersion": SCHEMA_VERSION,
+        "workPackage": WORK_PACKAGE,
+        "runId": run_id,
+        "status": (
+            "bootstrap-complete-awaiting-IO-01c-formal-evidence"
+            if complete
+            else ("diagnostic-partial-node-set" if partial_diagnostic else "blocked")
+        ),
+        "startedUtc": started_utc,
+        "finishedUtc": utc_now(),
+        "monotonicDurationMs": round((time.monotonic() - started_mono) * 1000, 3),
+        "recorderSha256": executable_hash,
+        "snapshotHashes": {name: sha256_bytes(canonical_json(snapshot)) for name, snapshot in sorted(snapshots.items())},
+        "environmentSnapshotHash": sha256_bytes(canonical_json({name: snapshots[name] for name in sorted(snapshots)})),
+        "probeCount": len(all_events),
+        "passedProbeCount": sum(event["status"] == "passed" for event in all_events),
+        "blockedNodes": [name for name, snapshot in sorted(snapshots.items()) if snapshot.get("status") != "complete"],
+        "missingNodes": missing_nodes,
+        "formalEvidence": "pending IO-01c import and rerun",
+        "sensitiveScan": scan,
+    }
+    exclusive_write(run_dir / "index.json", canonical_json(index))
+    fsync_directory(run_dir)
+
+    hashes = {}
+    for path in sorted(run_dir.iterdir()):
+        if path.is_file():
+            hashes[path.name] = sha256_bytes(path.read_bytes())
+    seal = {
+        "schemaVersion": SCHEMA_VERSION,
+        "runId": run_id,
+        "sealedUtc": utc_now(),
+        "files": hashes,
+        "bundleSha256": sha256_bytes(canonical_json(hashes)),
+    }
+    exclusive_write(run_dir / "seal.json", canonical_json(seal))
+    fsync_directory(run_dir)
+    os.chmod(run_dir, 0o500)
+    return run_dir
+
+
+def verify_bundle(run_dir: Path) -> dict[str, Any]:
+    current_hash = verify_self()
+    run_dir = run_dir.expanduser().absolute()
+    errors: list[str] = []
+    if run_dir.is_symlink() or not run_dir.is_dir():
+        return {"schemaVersion": SCHEMA_VERSION, "runId": None, "valid": False, "integrityValid": False, "errors": ["bundle root missing, not a directory, or a symlink"]}
+    seal_path = run_dir / "seal.json"
+    if seal_path.is_symlink() or not seal_path.is_file() or seal_path.stat().st_size > MAX_BUNDLE_FILE_BYTES:
+        return {"schemaVersion": SCHEMA_VERSION, "runId": None, "valid": False, "integrityValid": False, "errors": ["seal missing, unsafe, or oversized"]}
+    try:
+        seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return {"schemaVersion": SCHEMA_VERSION, "runId": None, "valid": False, "integrityValid": False, "errors": [f"invalid seal: {type(error).__name__}"]}
+    sealed_files = seal.get("files")
+    if not isinstance(sealed_files, dict):
+        sealed_files = {}
+        errors.append("seal files must be an object")
+    for name, expected in sealed_files.items():
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name) or name == "seal.json":
+            errors.append(f"unsafe sealed filename {name!r}")
+            continue
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            errors.append(f"invalid hash for {name}")
+            continue
+        path = run_dir / name
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            errors.append(f"missing {name}")
+            continue
+        if not stat.S_ISREG(metadata.st_mode) or path.is_symlink():
+            errors.append(f"unsafe non-regular file {name}")
+        elif metadata.st_size > MAX_BUNDLE_FILE_BYTES:
+            errors.append(f"oversized {name}")
+        elif sha256_file(path) != expected:
+            errors.append(f"hash mismatch {name}")
+    actual_files = {path.name for path in run_dir.iterdir() if path.name != "seal.json"}
+    if actual_files != set(sealed_files):
+        for name in sorted(actual_files - set(sealed_files)):
+            errors.append(f"unsealed extra file {name}")
+        for name in sorted(set(sealed_files) - actual_files):
+            if f"missing {name}" not in errors:
+                errors.append(f"missing {name}")
+    computed_bundle = sha256_bytes(canonical_json(sealed_files))
+    if computed_bundle != seal.get("bundleSha256"):
+        errors.append("bundle hash mismatch")
+
+    manifest: dict[str, Any] = {}
+    index: dict[str, Any] = {}
+    try:
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as error:
+        errors.append(f"invalid manifest/index: {type(error).__name__}")
+    modern_bundle = "bundle.schema.json" in sealed_files
+    if modern_bundle:
+        manifest_required = {
+            "schemaVersion", "workPackage", "runId", "recorderSha256", "bundleSchemaSha256",
+            "allowlistSha256", "recorderRuntime", "sshKnownHosts", "evidencePermissions", "nodes", "startedUtc",
+        }
+        index_required = {
+            "schemaVersion", "workPackage", "runId", "status", "recorderSha256",
+            "environmentSnapshotHash", "snapshotHashes", "blockedNodes", "missingNodes", "sensitiveScan",
+        }
+        if missing := sorted(manifest_required - set(manifest)):
+            errors.append(f"manifest missing fields: {','.join(missing)}")
+        if missing := sorted(index_required - set(index)):
+            errors.append(f"index missing fields: {','.join(missing)}")
+    run_id = seal.get("runId")
+    if not run_id or manifest.get("runId") != run_id or index.get("runId") != run_id:
+        errors.append("cross-file runId mismatch")
+    if manifest.get("workPackage") != WORK_PACKAGE or index.get("workPackage") != WORK_PACKAGE:
+        errors.append("cross-file workPackage mismatch")
+    if manifest.get("recorderSha256") != index.get("recorderSha256"):
+        errors.append("cross-file recorder hash mismatch")
+    nodes = manifest.get("nodes") if isinstance(manifest.get("nodes"), list) else []
+    expected_snapshots = {f"snapshot-{name}.json" for name in nodes}
+    observed_snapshots = {name for name in sealed_files if str(name).startswith("snapshot-")}
+    if expected_snapshots != observed_snapshots:
+        errors.append("snapshot set differs from manifest nodes")
+    parsed_snapshots: dict[str, Any] = {}
+    for name in sorted(observed_snapshots):
+        try:
+            snapshot = json.loads((run_dir / name).read_text(encoding="utf-8"))
+            expected_node = name.removeprefix("snapshot-").removesuffix(".json")
+            parsed_snapshots[expected_node] = snapshot
+            if snapshot.get("runId") not in (None, run_id):  # legacy v1 omitted runId
+                errors.append(f"snapshot runId mismatch {name}")
+            if snapshot.get("node") != expected_node or snapshot.get("workPackage") != WORK_PACKAGE:
+                errors.append(f"snapshot identity mismatch {name}")
+            if modern_bundle:
+                required = {"schemaVersion", "workPackage", "runId", "node", "osFamily", "clockGate", "clockSamples", "clockSyncHealthy", "categories", "spikeBlockers", "status", "probeResults"}
+                if missing := sorted(required - set(snapshot)):
+                    errors.append(f"snapshot missing fields {name}: {','.join(missing)}")
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as error:
+            errors.append(f"invalid snapshot {name}: {type(error).__name__}")
+    if modern_bundle and parsed_snapshots:
+        expected_hashes = index.get("snapshotHashes") if isinstance(index.get("snapshotHashes"), dict) else {}
+        for node_name, snapshot in parsed_snapshots.items():
+            if expected_hashes.get(node_name) != sha256_bytes(canonical_json(snapshot)):
+                errors.append(f"index snapshot hash mismatch {node_name}")
+        computed_environment_hash = sha256_bytes(canonical_json({name: parsed_snapshots[name] for name in sorted(parsed_snapshots)}))
+        if index.get("environmentSnapshotHash") != computed_environment_hash:
+            errors.append("environment snapshot hash mismatch")
+    commands_path = run_dir / "commands.jsonl"
+    if commands_path.is_file() and not commands_path.is_symlink():
+        seen = set()
+        try:
+            for line_number, line in enumerate(commands_path.read_text(encoding="utf-8").splitlines(), start=1):
+                if line_number > 2000:
+                    errors.append("commands.jsonl line limit exceeded")
+                    break
+                event = json.loads(line)
+                key = (event.get("node"), event.get("probeId"))
+                if key in seen:
+                    errors.append(f"duplicate probe event {key}")
+                seen.add(key)
+                if event.get("node") not in nodes or not event.get("probeId") or event.get("schemaVersion") != manifest.get("schemaVersion"):
+                    errors.append(f"invalid command event line {line_number}")
+                if event.get("runId") not in (None, run_id):  # legacy v1 omitted runId
+                    errors.append(f"command event runId mismatch line {line_number}")
+                if modern_bundle:
+                    required = {"schemaVersion", "runId", "node", "probeId", "category", "commandAllowlistId", "startedUtc", "finishedUtc", "monotonicDurationMs", "status", "stdoutSha256", "stderrSha256", "stdoutBytes", "stderrBytes"}
+                    if required - set(event):
+                        errors.append(f"command event missing fields line {line_number}")
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as error:
+            errors.append(f"invalid commands.jsonl: {type(error).__name__}")
+
+    recorder_hash = manifest.get("recorderSha256")
+    embedded_recorder = run_dir / "recorder"
+    embedded_pin = run_dir / "preflight.sha256"
+    embedded_schema = run_dir / "bundle.schema.json"
+    provenance_complete = (
+        embedded_recorder.is_file()
+        and not embedded_recorder.is_symlink()
+        and embedded_pin.is_file()
+        and not embedded_pin.is_symlink()
+        and embedded_schema.is_file()
+        and not embedded_schema.is_symlink()
+    )
+    if provenance_complete:
+        if sha256_file(embedded_recorder) != recorder_hash:
+            errors.append("embedded recorder hash mismatch")
+        try:
+            embedded_pin_hash = embedded_pin.read_text(encoding="utf-8").split()[0]
+            if embedded_pin_hash != recorder_hash:
+                errors.append("embedded pin hash mismatch")
+        except (OSError, UnicodeError, IndexError):
+            errors.append("invalid embedded pin")
+        if sha256_file(embedded_schema) != manifest.get("bundleSchemaSha256"):
+            errors.append("embedded bundle schema hash mismatch")
+    current_match = recorder_hash == current_hash
+    trusted_recorder = bool(current_match and provenance_complete)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "runId": run_id,
+        "valid": not errors,
+        "integrityValid": not errors,
+        "provenanceComplete": provenance_complete,
+        "currentRecorderMatch": current_match,
+        "trustedRecorder": trusted_recorder,
+        "errors": errors,
+        "bundleSha256": computed_bundle,
+        "bootstrapStatus": index.get("status"),
+    }
+
+
+def parse_args(argv: Iterable[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="action", required=True)
+    collect_parser = subparsers.add_parser("collect", help="run the fixed read-only allowlist")
+    collect_parser.add_argument("--nodes", nargs="+", choices=["all", *NODES], default=["all"])
+    verify_parser = subparsers.add_parser("verify-bundle", help="verify a sealed bootstrap bundle without modifying it")
+    verify_parser.add_argument("bundle", type=Path)
+    subparsers.add_parser("print-hash", help="print the executable SHA-256")
+    return parser.parse_args(list(argv))
+
+
+def main(argv: Iterable[str]) -> int:
+    args = parse_args(argv)
+    if args.action == "print-hash":
+        print(script_hash())
+        return 0
+    if args.action == "verify-bundle":
+        result = verify_bundle(args.bundle)
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if result["valid"] else 1
+    selected = list(NODES) if "all" in args.nodes else list(dict.fromkeys(args.nodes))
+    run_dir = collect(selected, DEFAULT_OUTPUT_ROOT)
+    index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+    print(json.dumps({"bundle": str(run_dir), **index}, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if not index["blockedNodes"] and not index["missingNodes"] else 2
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (RuntimeError, OSError, ValueError) as error:
+        print(f"preflight: {error}", file=sys.stderr)
+        raise SystemExit(1)
