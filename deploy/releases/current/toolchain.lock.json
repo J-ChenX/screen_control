@@ -1,16 +1,16 @@
 {
   "schemaVersion": "screen-control.toolchain-lock/v1",
   "releaseId": "0.0.0-io01b",
-  "generatedUtc": "2026-09-03T10:30:00Z",
+  "generatedUtc": "2026-09-03T11:12:00Z",
   "source": {
-    "commit": "a2f3d6128094dac7df6a1ad7520189688f5a6f3f",
-    "tree": "7ec441861915758cb0b84ae70c290ca0bb1f9d1c",
-    "repositoryState": "source commit includes IO-01b implementation; this regenerated lock is the only post-commit metadata input",
+    "commit": "6c7fc51a09d8a16b47be93bff0d874a4ee5b0541",
+    "tree": "a49d946cb352a4a45921666be896f5df36119f21",
+    "repositoryState": "source commit includes IO-01a through IO-04a implementation before this environment lock refresh",
     "module": "screencontrol.local/screen-control"
   },
   "bootstrap": {
-    "environmentRunId": "io-01a-20260903T103433.753038Z-f9f2fd7839",
-    "environmentSnapshotHash": "d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77",
+    "environmentRunId": "io-01a-20260903T111038.668468Z-2c672ec8b3",
+    "environmentSnapshotHash": "06ac13827049a6681496796abd43bb25b877a01ea17162a2be65d8da4ef95ba5",
     "recorderSha256": "d0737e7556addc5f11e5f600f404d4b17411718211aaa2350b83384a8800bd79",
     "python": {
       "implementation": "cpython",
@@ -27,8 +27,8 @@
       "os": "Ubuntu 22.04.5 LTS",
       "kernel": "Linux 6.8.0-138-generic",
       "arch": "x86_64",
-      "snapshotSha256": "bbe164b3e49d8bb1cad0876e4f47719aa7358dc21c9853427ef7365ce3d91091",
-      "tailscale": "1.102.2-t6cac91817-g6ff0ddc72",
+      "snapshotSha256": "6d589e16758cae6491796ac0b23a1055f83b45e87ced5b3d266ac461d54ee68e",
+      "tailscale": "1.102.3-t9329c3677-ga522f65e9",
       "browsers": ["Google Chrome 148.0.7778.215", "Mozilla Firefox 154.0"],
       "platformFacts": "display, scaling, GPU, firewall, ports, disk, permissions, and recovery are hash-bound in the referenced IO-01a snapshot"
     },
@@ -37,8 +37,8 @@
       "os": "Ubuntu 22.04.5 LTS",
       "kernel": "Linux 6.8.0-138-generic",
       "arch": "x86_64",
-      "snapshotSha256": "267498df2513c1eb048154d505eba0f0962d7ba8793c1be359c750debdfcee7e",
-      "tailscale": "1.102.2-t6cac91817-g6ff0ddc72",
+      "snapshotSha256": "0a4c6f0995a7d9796c753d3e8016e09aa1fc0d7b787a844a1f3aef11e00d0167",
+      "tailscale": "1.102.3-t9329c3677-ga522f65e9",
       "browsers": ["Google Chrome 150.0.7871.46", "Mozilla Firefox 153.0.4"],
       "platformFacts": "display, scaling, GPU, firewall, ports, disk, permissions, and recovery are hash-bound in the referenced IO-01a snapshot"
     },
@@ -47,8 +47,8 @@
       "os": "Microsoft Windows 11 Pro 10.0.26200 build 26200",
       "kernel": "Microsoft Windows NT 10.0.26200.0",
       "arch": "x64",
-      "snapshotSha256": "940ee1f5a53af72bc132f1df497e72c52a75ecd53ea5318e5c8bf5b4dca6f2fb",
-      "tailscale": "1.102.2-t6cac91817-g6ff0ddc72",
+      "snapshotSha256": "5ab1e245eb0f612397de05667385bafa6b288a43224e3d01adc0a2c1aefa0289",
+      "tailscale": "1.102.3-t9329c3677-ga522f65e9",
       "browsers": ["Google Chrome 152.0.7977.75", "Microsoft Edge 152.0.4191.53"],
       "platformFacts": "display, scaling, GPU, firewall, ports, disk, permissions, and recovery are hash-bound in the referenced IO-01a snapshot"
     }
@@ -115,8 +115,8 @@
     "tailscale": {
       "targetVersion": "1.102.3",
       "goModule": "tailscale.com v1.102.3",
-      "observedNodeVersion": "1.102.2-t6cac91817-g6ff0ddc72",
-      "state": "upgrade-required-before-PC-01-and-G0",
+      "observedNodeVersion": "1.102.3-t9329c3677-ga522f65e9 on all three nodes",
+      "state": "target-matched-on-all-three-nodes",
       "officialSource": "https://tailscale.com/changelog",
       "license": "BSD-3-Clause for client components",
       "supportVerifiedAt": "2026-09-03",
@@ -176,8 +176,8 @@
       {"name": "tcpdump", "version": "4.99.1", "installState": "present-on-nix-and-echova", "source": "Ubuntu jammy tcpdump package", "license": "BSD-3-Clause"},
       {"name": "syft", "version": "1.51.1", "sha256": "abca2def61de9952fa06d3977bb1e064818facb9badfce502b450d3d6846a91f", "archiveSha256": "8fcb33017a0dc1058298c923c436d19dfa68ae93968e0b423248542e3afb9fc3", "source": "https://github.com/anchore/syft/releases/tag/v1.51.1", "license": "Apache-2.0"},
       {"name": "jq", "targetVersion": "1.6-2.1ubuntu3", "installState": "present-on-echova-only", "source": "Ubuntu jammy jq package", "license": "MIT"},
-      {"name": "tshark", "targetVersion": "3.6.2-2", "installState": "required-before-network-evidence", "source": "Ubuntu jammy wireshark-common package", "license": "GPL-2.0-or-later"},
-      {"name": "ffprobe", "targetVersion": "4.4.2-0ubuntu0.22.04.1", "installState": "required-before-media-evidence", "source": "Ubuntu jammy-updates ffmpeg package", "license": "GPL-2.0-or-later"},
+      {"name": "tshark", "version": "3.6.2-2", "sha256": "a65608d17a78f255c7a9aaa08244f3fe284ce752f6818fd87fee9ca6e5bb4d54", "installState": "installed-and-hash-matched-on-nix-and-echova", "source": "Ubuntu jammy wireshark-common package", "license": "GPL-2.0-or-later"},
+      {"name": "ffprobe", "version": "4.4.2-0ubuntu0.22.04.1", "sha256": "d4f3ef9c12be756793cad83dd2004d89f49c1c4094053bfbbe7e28925c8fa4fd", "installState": "installed-and-hash-matched-on-nix-and-echova", "source": "Ubuntu jammy-updates ffmpeg package", "license": "GPL-2.0-or-later"},
       {"name": "cosign", "targetVersion": "3.1.2", "installState": "required-before-OCI-signing; formal evidence indexes use the locked OpenSSL Ed25519 implementation", "source": "https://github.com/sigstore/cosign/releases/tag/v3.1.2", "license": "Apache-2.0"},
       {"name": "evidence-signer", "version": "IO-01c-v1", "algorithm": "Ed25519 via OpenSSL 3.0.2", "keyId": "key_c716f6ffacfe75512ced11ade7428826794e85eadb8d27ecf63489470447f9cb", "publicKeySha256": "789622d5e7301d8a930017efc0e5debcaa6bf54dae982c008b6e9f7f24e4aa17", "source": "deploy/releases/current/evidence-policy.json", "license": "project code and Apache-2.0 OpenSSL"}
     ],
@@ -219,9 +219,7 @@
     }
   },
   "unresolved": [
-    {"item": "Tailscale node upgrade", "requiredVersion": "1.102.3", "observedVersion": "1.102.2", "blocks": ["PC-01", "G0"]},
     {"item": "MeshCentral and Node base image digests plus three MeshAgent hashes", "requiredVersion": "MeshCentral 1.2.5", "resolutionWorkPackage": "RD-01b", "blocks": ["RD-01c", "RD-01d", "RD-01e", "G0"]},
-    {"item": "tshark and ffprobe exact binaries", "requiredVersions": ["tshark 3.6.2-2", "ffprobe 4.4.2-0ubuntu0.22.04.1"], "resolutionWorkPackage": "IO-01c", "blocks": ["network evidence suites", "media evidence suites"]},
     {"item": "cosign exact verified binary for OCI artifacts", "requiredVersion": "cosign 3.1.2", "resolutionWorkPackage": "IO-04b", "blocks": ["OCI release signing"], "formalEvidenceSigning": "not blocked; uses active OpenSSL Ed25519 key from evidence-policy.json"},
     {"item": "SyncClipboard 3.2.0 per-node binary hashes", "requiredVersion": "3.2.0", "resolutionWorkPackage": "IO-02a", "blocks": ["IO-02d", "G5"]}
   ]

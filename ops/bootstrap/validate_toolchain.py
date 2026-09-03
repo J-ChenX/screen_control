@@ -12,6 +12,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOCK = ROOT / "deploy/releases/current/toolchain.lock.json"
+IMPORTS_PATH = ROOT / "ops/verify/bootstrap-imports.json"
+PREFLIGHT_PATH = ROOT / "ops/bootstrap/preflight"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 FORBIDDEN = re.compile(r"(?i)(^|[^a-z])(latest|system default|系统默认)([^a-z]|$)")
 
@@ -52,6 +54,16 @@ def validate(lock_path: Path = DEFAULT_LOCK) -> list[str]:
     targets = lock.get("targets", [])
     if {item.get("node") for item in targets if isinstance(item, dict)} != {"nix", "echova", "jiang-chenx"}:
         errors.append("targets must be exactly nix, echova, and jiang-chenx")
+    bootstrap = lock.get("bootstrap", {})
+    if bootstrap.get("recorderSha256") != sha256_file(PREFLIGHT_PATH):
+        errors.append("bootstrap recorder hash does not match current preflight executable")
+    imports = json.loads(IMPORTS_PATH.read_text(encoding="utf-8"))
+    imported_environment = imports.get("io01a", {}).get("environmentSnapshotHash")
+    if bootstrap.get("environmentSnapshotHash") != imported_environment:
+        errors.append("bootstrap environment hash does not match the selected IO-01a import")
+    target_version = lock.get("runtime", {}).get("tailscale", {}).get("targetVersion")
+    if target_version and any(target_version not in str(item.get("tailscale")) for item in targets):
+        errors.append("one or more target snapshots do not match the locked Tailscale version")
     files = lock.get("artifacts", {}).get("files", [])
     for item in files:
         relative = item.get("path")
@@ -90,4 +102,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

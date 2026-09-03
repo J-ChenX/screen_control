@@ -3,7 +3,7 @@
   "id": "IO-04a",
   "kind": "work-package",
   "prerequisites": ["IO-01b", "IO-01c"],
-  "environments": ["d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"],
+  "environments": ["06ac13827049a6681496796abd43bb25b877a01ea17162a2be65d8da4ef95ba5"],
   "suite": "recovery",
   "commands": [["python3", "-m", "unittest", "tests.operations.test_backup_restore", "-v"], ["python3", "ops/backup/backup_restore.py", "exercise", "--key-file", "evidence/keys/io04a-backup.key"]],
   "timeoutSeconds": 300,

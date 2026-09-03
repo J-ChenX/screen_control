@@ -3,7 +3,7 @@
   "id": "IO-01c",
   "kind": "work-package",
   "prerequisites": ["IO-01b"],
-  "environments": ["d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"],
+  "environments": ["06ac13827049a6681496796abd43bb25b877a01ea17162a2be65d8da4ef95ba5"],
   "suite": "bootstrap",
   "commands": [
     ["python3", "-m", "unittest", "discover", "-s", "tests/operations", "-p", "test_*.py"],
@@ -20,4 +20,3 @@
   "artifacts": ["commands.jsonl", "cleanup.json", "index.json", "index.sig", "signer.json", "public.pem", "seal.json"],
   "cleanup": []
 }
-

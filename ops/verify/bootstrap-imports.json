@@ -1,13 +1,13 @@
 {
   "schemaVersion": "screen-control.bootstrap-imports/v1",
   "io01a": {
-    "path": "evidence/bootstrap/io-01a/io-01a-20260903T103433.753038Z-f9f2fd7839",
-    "bundleSha256": "041f683e1531796975277c7de3b3d1944e211bfe60da240a0e7e1dfc963f703f",
-    "environmentSnapshotHash": "d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77"
+    "path": "evidence/bootstrap/io-01a/io-01a-20260903T111038.668468Z-2c672ec8b3",
+    "bundleSha256": "60ea0f89481350ed8aa020158adf24bc8287d7cdb7b238061a9eec72eabb1736",
+    "environmentSnapshotHash": "06ac13827049a6681496796abd43bb25b877a01ea17162a2be65d8da4ef95ba5"
   },
   "io01b": {
-    "path": "evidence/bootstrap/io-01b/io-01b-20260903T104518.967619Z-460b4be3d7",
-    "bundleSha256": "958650e543e8151930b05c5f681f151042fa7dd035c00cf80ffde143d81ad255",
-    "toolchainLockSha256": "68a3d4831cdfda32fc2af07f988633d7056964dc3e0b2c6141c0c751b9561d76"
+    "path": "evidence/bootstrap/io-01b/io-01b-20260903T111235.439645Z-b0f3a9b8c4",
+    "bundleSha256": "de04c394537aa6e030a47b93ad64d20abdb22315b1391c88db2fb3bcf157a75b",
+    "toolchainLockSha256": "82676f0dfea89be605a5561c6692d609973d0ff056ed24f6c205591a50943fdb"
   }
 }

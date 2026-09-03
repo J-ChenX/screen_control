@@ -50,7 +50,24 @@ class ToolchainLockTests(unittest.TestCase):
         path = self.write_variant(lock)
         self.assertTrue(any("targets must be exactly" in item for item in MODULE.validate(path)))
 
+    def test_bootstrap_recorder_drift_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["bootstrap"]["recorderSha256"] = "0" * 64
+        path = self.write_variant(lock)
+        self.assertTrue(any("recorder hash" in item for item in MODULE.validate(path)))
+
+    def test_environment_import_mismatch_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["bootstrap"]["environmentSnapshotHash"] = "0" * 64
+        path = self.write_variant(lock)
+        self.assertTrue(any("environment hash" in item for item in MODULE.validate(path)))
+
+    def test_target_tailscale_version_drift_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["targets"][0]["tailscale"] = "1.102.2"
+        path = self.write_variant(lock)
+        self.assertTrue(any("Tailscale version" in item for item in MODULE.validate(path)))
+
 
 if __name__ == "__main__":
     unittest.main()
-
