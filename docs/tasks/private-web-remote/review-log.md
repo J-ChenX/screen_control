@@ -310,7 +310,7 @@
 - [x] `R4-01` 修复 `jiang-chenx` Windows Time 同步并重跑三机 `IO-01a` — 双 NTP peer 同步健康，candidate run 三机时钟门通过
 - [x] `R4-02` 加固 recorder provenance/runtime、严格 SSH host key、结构化脱敏、固定安全导入路径和封存前敏感扫描 — recorder/pin/schema/runtime 随 bundle 封存，安全 verifier 与扫描通过
 - [x] `R4-03` 为十类环境事实建立语义 validator、三平台 fixture、同步健康与多样本时钟门、输出上限和跨文件 schema 校验 — 15 项回归测试与三台实机采集通过
-- [ ] `R4-04` 完成 `IO-01b` 仓库/构建/toolchain/SBOM 基线，正式记录 Git commit 与 Python bootstrap runtime — 负责人：operations
+- [x] `R4-04` 完成 `IO-01b` 仓库/构建/toolchain/SBOM 基线，正式记录 Git commit 与 Python bootstrap runtime — Git 根基线、双语言构建、130 组件 SBOM、provenance schema、QG02 八领域矩阵及六命令 bootstrap bundle 通过
 - [ ] `R4-05` 完成 `IO-01c` runner、scenario schema、CI、正式 signer/importer，并重验 `IO-01a`/`IO-01b` — 负责人：operations
 - [ ] `R4-06` 按 DAG 完成 `IO-01d`、`IO-04a` 和 G0；任何系统网络改动前通过自动回滚演练 — 负责人：operations + remote-desktop
 - [ ] `R4-07` 完成其余全部工作包与 G1–G6，将 8 个模块的 `[计划中]` 替换为真实代码指针 — 负责人：各模块
@@ -319,3 +319,5 @@
 ## 总体状态：不通过第四阶段门控
 
 `IO-01a` 已有可工作的只读 recorder 与真实三机 bundle，但其环境门和证据链仍有阻断；其余系统尚未实现。解决清单全部闭合、G0–G6 真实证据通过且模块神经为 8/8 前，不得开始第五阶段。
+
+**整改进度（2026-09-03）：** `R4-01`–`R4-04` 已闭合，环境门、bootstrap 证据链及仓库/toolchain/SBOM 基线不再阻断；当前剩余 `R4-05`–`R4-08`，总门仍保持不通过。

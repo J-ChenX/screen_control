@@ -1,7 +1,7 @@
 # Operations — 部署、恢复与验收
 
 **最后更新：** 2026-09-03  
-**状态：** 🔄 第四阶段实施中；`IO-01a` bootstrap candidate 已通过，当前执行 `IO-01b`
+**状态：** 🔄 第四阶段实施中；`IO-01a`/`IO-01b` bootstrap candidate 已通过，当前执行 `IO-01c`
 
 ## 一句话职责
 
@@ -57,23 +57,26 @@ Verify(acceptanceIds[], environment) -> EvidenceIndex
 
 | 组件/契约 | 代码指针 | 当前状态 |
 |---|---|---|
-| 固定节点与只读 probe allowlist | `ops/bootstrap/preflight:73-154` | 已实现；Linux/Windows 查询面固定，无任意命令参数 |
-| 严格 SSH host key、输出解码与 IPv4/IPv6/身份脱敏 | `ops/bootstrap/preflight:215-436` | 已实现；固定 known_hosts，原始 stdout/stderr 仅保留完整 hash |
-| 十类语义校验、三样本时钟与同步健康 | `ops/bootstrap/preflight:451-595` | 已实现；采集完整性与尖峰 readiness 分离 |
-| 有界流式 probe 与节点采集 | `ops/bootstrap/preflight:624-817` | 已实现；每流 8 MiB 上限，超限终止并失败关闭 |
-| exclusive bundle、敏感扫描与 provenance | `ops/bootstrap/preflight:819-1006` | 已实现；嵌入 recorder/pin/schema/Python runtime，新 run 不覆盖旧证据 |
-| `verify-bundle(path) -> verification result` | `ops/bootstrap/preflight:1008-1173` | 已实现；固定文件集、拒绝 traversal/symlink，并分离 integrity/trust/current |
-| recorder/schema hash pin | `ops/bootstrap/preflight.sha256:1`, `ops/bootstrap/bundle.schema.json` | recorder `11566de…d0b`；schema `c6c3677…8343` |
-| 安全、语义与防篡改单元测试 | `tests/operations/test_bootstrap_preflight.py:32-257` | 15 项通过 |
+| 固定节点与只读 probe allowlist | `ops/bootstrap/preflight:83-164` | 已实现；Linux/Windows 查询面固定，无任意命令参数 |
+| 严格 SSH host key、输出解码与 IPv4/IPv6/身份脱敏 | `ops/bootstrap/preflight:225-446` | 已实现；固定 known_hosts，原始 stdout/stderr 仅保留完整 hash |
+| 十类语义校验、三样本时钟与同步健康 | `ops/bootstrap/preflight:461-605` | 已实现；采集完整性与尖峰 readiness 分离 |
+| 有界流式 probe 与节点采集 | `ops/bootstrap/preflight:634-827` | 已实现；每流 8 MiB 上限，超限终止并失败关闭 |
+| exclusive bundle、敏感扫描与 provenance | `ops/bootstrap/preflight:829-1016` | 已实现；嵌入 recorder/pin/schema/Python runtime，新 run 不覆盖旧证据 |
+| IO-01b 固定构建记录与双 bundle verifier | `ops/bootstrap/preflight:1018-1395` | 已实现；六条本地命令、固定工件集、独立 seal/trust 校验 |
+| recorder/schema hash pin | `ops/bootstrap/preflight.sha256:1`, `ops/bootstrap/bundle.schema.json` | recorder `c927ad7…06def`；schema `c6c3677…8343` |
+| 安全、语义、toolchain 与防篡改测试 | `tests/operations/test_bootstrap_preflight.py:32-290`, `tests/operations/test_toolchain_lock.py:1-55` | 22 项通过 |
 
-当前三机 bootstrap candidate 位于本地受限证据仓 `evidence/bootstrap/io-01a/io-01a-20260903T101743.195837Z-bdd8888321/`。113 个探针中 92 个成功，三机所有必填语义类别完整，时钟偏差分别约 `nix -0.000 s`、`echova -0.040 s`、`jiang-chenx -0.047 s` 且系统同步健康。bundle SHA-256 为 `fa3b369…3a3a05`，environment snapshot hash 为 `27bee24…c388`；完整性、provenance、当前 recorder 匹配和受信状态均为 true。其余 probe 为明确记录的可选能力缺失；编码器事实作为 G0 尖峰 blocker 单独保留。该目录由 `.gitignore` 排除且仅是 hash-sealed bootstrap 输入；`IO-01c` 必须导入、重验并签发正式证据。
+当前三机 bootstrap candidate 位于本地受限证据仓 `evidence/bootstrap/io-01a/io-01a-20260903T103433.753038Z-f9f2fd7839/`。113 个探针中 92 个成功，三机所有必填语义类别完整，时钟偏差分别约 `nix -0.000 s`、`echova -0.016 s`、`jiang-chenx -0.079 s` 且系统同步健康。bundle SHA-256 为 `041f683…f703f`，environment snapshot hash 为 `d12b8cc…3e77`；完整性、provenance、当前 recorder 匹配和受信状态均为 true。其余 probe 为明确记录的可选能力缺失；编码器事实作为 G0 尖峰 blocker 单独保留。
+
+`IO-01b` candidate 位于 `evidence/bootstrap/io-01b/io-01b-20260903T103531.907628Z-706c686594/`，固定六条工具链验证/Go build/前端 typecheck-test-build 命令全部通过。toolchain lock SHA-256 为 `f60fe8b…032a6`，CycloneDX SBOM 含 130 个组件，bundle SHA-256 为 `a414a7d…ef091`，完整性/provenance/current/trusted 全部为 true。两类目录均由 `.gitignore` 排除且只是 hash-sealed bootstrap 输入；`IO-01c` 必须导入、独立重验并签发正式证据。
 
 ## 工作包映射
 
 | 工作包 | 内容 | 验收 |
 |---|---|---|
 | `IO-01a` | hash 固定三机只读 preflight recorder 与 bootstrap bundle | bootstrap candidate 通过；等待 `IO-01c` 转为正式证据 |
-| `IO-01b`–`IO-01d` | toolchain/供应链、验证入口与网络自动回滚 | `IO-01b` 进行中；`IO-01c`/`IO-01d` 待前置 |
+| `IO-01b` | Git/构建/toolchain/SBOM/provenance/QG02 基线 | bootstrap candidate 通过；等待 `IO-01c` 转为正式证据 |
+| `IO-01c`–`IO-01d` | 唯一验证入口与网络自动回滚 | `IO-01c` 进行中；`IO-01d` 待前置 |
 | `IO-03a`–`IO-03c` | 可观测性、10× 容量与跨进程故障/恢复 epoch | A14、QG03 |
 | `IO-04a`–`IO-04b` | 备份恢复、兼容、金丝雀和回滚 DAG | A14 |
 | `IO-05a`–`IO-05g` | 按门聚合复核、迁移清理、QG 与签名总索引 | A01–A14、QG01–QG03 |

@@ -27,9 +27,9 @@
 - `echova` 项目部署目录为 `/home/operator/code/screen_control`，NAS 数据目录为 `/home/operator/nas`。
 - Windows 端实测 `whoami` 返回 `jiang_chenx\operator`，`hostname` 返回 `Jiang_ChenX`；命令执行仍受普通用户 `operator` 的系统权限约束。
 
-### 1.2 G0 前基线缺口（事实）
+### 1.2 G0 前初始基线缺口（历史事实）
 
-当前审计足以证明三机可达，但尚未形成同一时点、同一 schema、可签名复算的 G0 environment snapshot。以下缺口必须由只读 `IO-01a` 补齐；本表只记录“已知/未知”，不以文档猜测机器值。
+本表记录 `IO-01a` 执行前的缺口，保留用于解释为何需要 bootstrap；这些采集缺口已经由 §1.3 的同一 schema candidate snapshot 闭合。正式可签名复算的 G0 environment ID 仍须由 `IO-01c` 导入重验后产生。
 
 | 类别 | `nix` | `echova` | `jiang-chenx` | 当前缺口 |
 |---|---|---|---|---|
@@ -45,7 +45,7 @@
 
 ### 1.3 `IO-01a` 最新 bootstrap 结果
 
-当前通过的 candidate run `io-01a-20260903T101743.195837Z-bdd8888321` 已用固定 hash recorder 对三机执行 113 个白名单只读探针，92 个成功；其余为明确记录的可选工具缺失。三机十类必填语义事实均完整，UTC 偏差分别约 `nix -0.000 s`、`echova -0.040 s`、`jiang-chenx -0.047 s`，三机同步健康均通过。bundle SHA-256 为 `fa3b369e9414e4e02c7e8cc90d56686ffe76c32c8ef65109da4f97ecc33a3a05`，environment snapshot hash 为 `27bee2493cbdf722b494f649897ceccbab0875cbaad47f6d748dccf178b6c388`；verifier 对完整性、provenance、当前 recorder 匹配和受信状态均返回 true。本 bundle 仍是待 `IO-01c` 导入重验的 hash-sealed bootstrap 输入，不是正式签名证据。
+当前通过的 candidate run `io-01a-20260903T103433.753038Z-f9f2fd7839` 已用最终固定 hash recorder 对三机执行 113 个白名单只读探针，92 个成功；其余为明确记录的可选工具缺失。三机十类必填语义事实均完整，UTC 偏差分别约 `nix -0.000 s`、`echova -0.016 s`、`jiang-chenx -0.079 s`，三机同步健康均通过。bundle SHA-256 为 `041f683e1531796975277c7de3b3d1944e211bfe60da240a0e7e1dfc963f703f`，environment snapshot hash 为 `d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77`；verifier 对完整性、provenance、当前 recorder 匹配和受信状态均返回 true。本 bundle 仍是待 `IO-01c` 导入重验的 hash-sealed bootstrap 输入，不是正式签名证据。
 
 此前 Windows Time 使用手动启动、单一 `time.windows.com,0x9`，状态为 Leap Indicator 3、Stratum 0、来源 Local CMOS Clock 且无成功同步；实测 UDP NTP 可达性后，已把 W32Time 设置为自动启动并配置 `ntp.aliyun.com,0x9 time.cloudflare.com,0x9` 双 peer，重启服务并执行强制重新发现/同步。整改后来源为 `ntp.aliyun.com,0x9`、Leap Indicator 0、Stratum 4，实测 phase offset 约 `0.000489 s`。若新配置在后续观察中不稳定，回滚为原 peer `time.windows.com,0x9` 和手动启动；任何回滚后仍须重新通过三样本偏差与同步健康门。该环境变更独立于只读 recorder，前后状态均在本节记录。
 

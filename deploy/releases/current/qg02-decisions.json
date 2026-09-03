@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "screen-control.qg02-decisions/v1",
+  "verifiedAt": "2026-09-03",
+  "decisions": [
+    {
+      "domain": "backend-agent",
+      "selected": "Go 1.26.8; compatibility CI Go 1.27.1",
+      "rejected": ["Rust stable", ".NET 10"],
+      "reason": "One cross-platform static-binary ecosystem and mature HTTP/TLS/streaming support; alternatives add another runtime or system adaptation surface without solving the desktop kernel risk.",
+      "officialSource": "https://go.dev/doc/devel/release",
+      "targetGate": "IO-01c build/race/contract matrix and three-node cross-build",
+      "replacementTrigger": "Supported-platform loss, unstable required OS APIs, or CGO server build failing the reproducibility gate"
+    },
+    {
+      "domain": "web-ui",
+      "selected": "React 19.2.8, TypeScript 7.0.2, Vite 8.2.2, Node.js 24.20.0 LTS",
+      "rejected": ["Vue", "Svelte", "server-rendered templates", "React Server Components"],
+      "reason": "A static SPA handles concurrent desktop, transfer, and component state without adding SSR or RSC trust boundaries.",
+      "officialSource": "https://www.npmjs.com/package/react/v/19.2.8",
+      "targetGate": "PC-07 locked browser matrix and IO-01c web suite",
+      "replacementTrigger": "Maintained-line loss, security advisory, bundle budget failure, or a locked target browser incompatibility"
+    },
+    {
+      "domain": "metadata",
+      "selected": "github.com/mattn/go-sqlite3 v1.14.50 with embedded SQLite 3.53.4",
+      "rejected": ["modernc.org/sqlite v1.58.0", "external PostgreSQL"],
+      "reason": "Only the echova composition root needs the database; mature database/sql integration is preferred and CGO does not spread to endpoint agents.",
+      "officialSource": "https://github.com/mattn/go-sqlite3/releases/tag/v1.14.50",
+      "targetGate": "IO-04a online backup/restore and IO-03b WAL load",
+      "replacementTrigger": "Windows agent embedding becomes required, single-writer throughput misses the gate, or multi-instance writes become a requirement"
+    },
+    {
+      "domain": "private-network-identity",
+      "selected": "Tailscale 1.102.3 and tailscale.com v1.102.3 with first-party edge gateway",
+      "rejected": ["Tailscale Serve as the application", "raw WireGuard", "trusted forwarding headers"],
+      "reason": "The gateway can authenticate the accepted socket peer with LocalAPI while retaining application registration, password sessions, and revocation.",
+      "officialSource": "https://tailscale.com/changelog",
+      "targetGate": "PC-01 and G1 unregistered/revoked/public rejection matrix",
+      "replacementTrigger": "LocalAPI, certificate, or Grants behavior cannot satisfy exact destination and least-privilege requirements"
+    },
+    {
+      "domain": "remote-desktop",
+      "selected": "MeshCentral 1.2.5 and exact per-platform MeshAgent hashes; candidate only",
+      "rejected": ["RustDesk", "Apache Guacamole", "self-built capture/input kernel"],
+      "reason": "It is the smallest currently plausible browser-control candidate, but its ICE path and URL-token behavior remain explicit G0 elimination risks.",
+      "officialSource": "https://github.com/Ylianst/MeshCentral/releases/tag/1.2.5",
+      "targetGate": "G0: secure desktop, Tailscale-only fail-closed, desktop-only, separate origin without URL credentials",
+      "replacementTrigger": "Any G0 condition fails, a long-lived upstream fork is required, or media must relay through echova"
+    },
+    {
+      "domain": "file-data-plane",
+      "selected": "Ordinary-user Go agent with Tailscale HTTPS and target-pull copying",
+      "rejected": ["echova content relay", "SMB/WebDAV exposure", "browser Blob buffering"],
+      "reason": "Direct endpoints preserve user permissions and avoid centralizing file content while allowing one authorization and SafeFS contract.",
+      "officialSource": "https://go.dev/doc/devel/release",
+      "targetGate": "FF-00 >3 GiB browser streaming/resume and G4 six-direction matrix",
+      "replacementTrigger": "A locked browser cannot safely stream/resume with header authorization or handle-based SafeFS cannot be unified"
+    },
+    {
+      "domain": "clipboard",
+      "selected": "SyncClipboard 3.2.0 behind per-device mTLS",
+      "rejected": ["new clipboard protocol", "Mesh clipboard channel"],
+      "reason": "Retains the user's existing history UI without creating a second clipboard writer or feedback loop.",
+      "officialSource": "https://github.com/Jeric-X/SyncClipboard/releases/tag/v3.2.0",
+      "targetGate": "IO-02 migration, three-component health, propagation matrix, and 24-hour soak",
+      "replacementTrigger": "A13, private authentication/rotation, or queue recovery cannot pass"
+    },
+    {
+      "domain": "deployment",
+      "selected": "Docker Engine 29.7.2/Compose on echova plus native systemd and Windows Service agents",
+      "rejected": ["all containers", "all host processes", "Kubernetes"],
+      "reason": "Server dependencies stay isolated while login-screen and user-permission agents retain native OS integration.",
+      "officialSource": "https://docs.docker.com/engine/release-notes/29/",
+      "targetGate": "IO-04a restore and IO-04b adjacent-version/canary/rollback DAG",
+      "replacementTrigger": "Compose cannot safely integrate with host Tailscale/LocalAPI or the rollback gate fails"
+    }
+  ]
+}
+

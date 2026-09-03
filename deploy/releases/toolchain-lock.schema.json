@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-control.invalid/schema/toolchain-lock-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "releaseId", "generatedUtc", "source", "bootstrap", "targets", "build", "runtime", "verification", "artifacts", "unresolved"],
+  "properties": {
+    "schemaVersion": {"const": "screen-control.toolchain-lock/v1"},
+    "releaseId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+$"},
+    "generatedUtc": {"type": "string", "format": "date-time"},
+    "source": {"type": "object", "required": ["commit", "tree", "repositoryState"]},
+    "bootstrap": {"type": "object", "required": ["environmentSnapshotHash", "recorderSha256", "python"]},
+    "targets": {"type": "array", "minItems": 3},
+    "build": {"type": "object", "required": ["go", "web", "cgo"]},
+    "runtime": {"type": "object", "required": ["sqlite", "tailscale", "meshcentral", "syncClipboard", "deployment"]},
+    "verification": {"type": "object", "required": ["tools", "policies"]},
+    "artifacts": {"type": "object", "required": ["files", "sbom", "provenanceSchema"]},
+    "unresolved": {"type": "array"}
+  }
+}
+

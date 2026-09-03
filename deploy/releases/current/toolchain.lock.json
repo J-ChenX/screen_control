@@ -1,0 +1,225 @@
+{
+  "schemaVersion": "screen-control.toolchain-lock/v1",
+  "releaseId": "0.0.0-io01b",
+  "generatedUtc": "2026-09-03T10:30:00Z",
+  "source": {
+    "commit": "7d813cd68e882e0a6e45198b22b50ff6a7669c58",
+    "tree": "243b2ed7910338940f8761beda0b685974984d98",
+    "repositoryState": "clean-at-baseline-commit",
+    "module": "screencontrol.local/screen-control"
+  },
+  "bootstrap": {
+    "environmentRunId": "io-01a-20260903T103433.753038Z-f9f2fd7839",
+    "environmentSnapshotHash": "d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77",
+    "recorderSha256": "d0737e7556addc5f11e5f600f404d4b17411718211aaa2350b83384a8800bd79",
+    "python": {
+      "implementation": "cpython",
+      "version": "3.12.13",
+      "executableSha256": "202c17d1671602a4ef1d43e9b2fdbef0769443f37bf5e51f6b603e0b2c27d9d8",
+      "allowedRange": ">=3.12.13 <3.13.0",
+      "officialSource": "https://www.python.org/downloads/release/python-31213/",
+      "license": "Python-2.0"
+    }
+  },
+  "targets": [
+    {
+      "node": "nix",
+      "os": "Ubuntu 22.04.5 LTS",
+      "kernel": "Linux 6.8.0-138-generic",
+      "arch": "x86_64",
+      "snapshotSha256": "bbe164b3e49d8bb1cad0876e4f47719aa7358dc21c9853427ef7365ce3d91091",
+      "tailscale": "1.102.2-t6cac91817-g6ff0ddc72",
+      "browsers": ["Google Chrome 148.0.7778.215", "Mozilla Firefox 154.0"],
+      "platformFacts": "display, scaling, GPU, firewall, ports, disk, permissions, and recovery are hash-bound in the referenced IO-01a snapshot"
+    },
+    {
+      "node": "echova",
+      "os": "Ubuntu 22.04.5 LTS",
+      "kernel": "Linux 6.8.0-138-generic",
+      "arch": "x86_64",
+      "snapshotSha256": "267498df2513c1eb048154d505eba0f0962d7ba8793c1be359c750debdfcee7e",
+      "tailscale": "1.102.2-t6cac91817-g6ff0ddc72",
+      "browsers": ["Google Chrome 150.0.7871.46", "Mozilla Firefox 153.0.4"],
+      "platformFacts": "display, scaling, GPU, firewall, ports, disk, permissions, and recovery are hash-bound in the referenced IO-01a snapshot"
+    },
+    {
+      "node": "jiang-chenx",
+      "os": "Microsoft Windows 11 Pro 10.0.26200 build 26200",
+      "kernel": "Microsoft Windows NT 10.0.26200.0",
+      "arch": "x64",
+      "snapshotSha256": "940ee1f5a53af72bc132f1df497e72c52a75ecd53ea5318e5c8bf5b4dca6f2fb",
+      "tailscale": "1.102.2-t6cac91817-g6ff0ddc72",
+      "browsers": ["Google Chrome 152.0.7977.75", "Microsoft Edge 152.0.4191.53"],
+      "platformFacts": "display, scaling, GPU, firewall, ports, disk, permissions, and recovery are hash-bound in the referenced IO-01a snapshot"
+    }
+  ],
+  "build": {
+    "go": {
+      "productionVersion": "1.26.8",
+      "compatibilityVersion": "1.27.1",
+      "goDirective": "1.26.6",
+      "binarySha256": "d9a2fa19c7ef8b57f420012c21f49f235c46f08a68c12077d9c753dbb6ccdc34",
+      "moduleLock": "go.sum",
+      "moduleLockSha256": "8ebfaf41ea4b249ab25815cd95d583ddad1a539ac5a272e29eb63e390d46966d",
+      "goModSha256": "f6d7f262b5de14464405fde15587ae66a5c9b24cc28341ebe84f38efe0c0bfd9",
+      "officialSource": "https://go.dev/doc/devel/release",
+      "license": "BSD-3-Clause",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "monthly patch review; minor-line change only after three-node build/race/contract matrix",
+      "replacementTrigger": "required OS API or supported target fails reproducible build"
+    },
+    "cgo": {
+      "enabledForServer": true,
+      "enabledForEndpointAgents": false,
+      "compiler": "gcc 11.4.0",
+      "compilerSha256": "821af3c74506283c179ca413bb33e6b528805a4dd8a5c09df125e5ad560a9e89",
+      "linker": "GNU ld 2.38",
+      "target": "linux/amd64 GOAMD64=v1",
+      "policy": "CGO is confined to the echova composition root and embedded SQLite; endpoint agents remain CGO-free"
+    },
+    "web": {
+      "node": "24.20.0",
+      "nodeSha256": "89af8424dd53e560b1933f87ba650d8bf57c83ca5a04600eefb31f416aabbae7",
+      "npm": "11.19.0",
+      "corepack": "0.35.0",
+      "corepackSha256": "3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9",
+      "packageManager": "pnpm 11.25.0",
+      "typescript": "7.0.2",
+      "react": "19.2.8",
+      "reactDom": "19.2.8",
+      "builder": "Vite 8.2.2 with @vitejs/plugin-react 6.1.1",
+      "unitTest": "Vitest 4.1.11",
+      "browserAutomation": "Playwright 1.62.1",
+      "playwrightBrowsers": ["Chromium 151.0.7922.34", "Firefox 153.0", "WebKit 26.5", "Edge uses installed stable channel"],
+      "lockFile": "web/pnpm-lock.yaml",
+      "lockFileSha256": "73dfb9e3f797c5c118ab67a3bf189aa36ee7fa2b5b6e5520b4210c611ec8278f",
+      "officialSource": "https://nodejs.org/en/blog/release/v24.20.0",
+      "license": "MIT and dependency-specific licenses recorded by the SBOM",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "monthly lock refresh with all three browser engines; no RSC packages",
+      "replacementTrigger": "maintained-line loss, security advisory, browser matrix failure, or bundle budget failure"
+    }
+  },
+  "runtime": {
+    "sqlite": {
+      "driver": "github.com/mattn/go-sqlite3 v1.14.50",
+      "embeddedVersion": "3.53.4",
+      "compileOptionsPolicy": "IO-04a records sqlite_compileoption_get output and rejects system libsqlite3 linkage",
+      "migrationHead": "0000-bootstrap",
+      "officialSource": "https://github.com/mattn/go-sqlite3/releases/tag/v1.14.50",
+      "license": "MIT",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "driver and embedded SQLite move together after WAL and restore regression",
+      "replacementTrigger": "WAL correctness, backup, or 10x single-writer load gate fails"
+    },
+    "tailscale": {
+      "targetVersion": "1.102.3",
+      "goModule": "tailscale.com v1.102.3",
+      "observedNodeVersion": "1.102.2-t6cac91817-g6ff0ddc72",
+      "state": "upgrade-required-before-PC-01-and-G0",
+      "officialSource": "https://tailscale.com/changelog",
+      "license": "BSD-3-Clause for client components",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "coordinated three-node patch with connectivity rollback",
+      "replacementTrigger": "LocalAPI, Grants, certificate, or least-privilege helper gate fails"
+    },
+    "meshcentral": {
+      "serverVersion": "1.2.5",
+      "containerImage": "ghcr.io/ylianst/meshcentral:1.2.5",
+      "containerDigestState": "resolve-and-pin-in-RD-01b-before-pull",
+      "nodeBaseImage": "node:24.20.0-bookworm-slim",
+      "nodeBaseDigestState": "resolve-and-pin-in-RD-01b-before-pull",
+      "linuxAgentSha256State": "resolve-from-isolated-RD-01b-artifact",
+      "windowsAgentSha256State": "resolve-from-isolated-RD-01b-artifact",
+      "candidateStatus": "not-production-approved-until-G0",
+      "officialSource": "https://github.com/Ylianst/MeshCentral/releases/tag/1.2.5",
+      "license": "Apache-2.0",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "disabled until G0; then one-agent canary only",
+      "replacementTrigger": "any G0 criterion fails or a long-lived fork is required"
+    },
+    "syncClipboard": {
+      "targetVersion": "3.2.0",
+      "migrationSourceVersion": "3.1.5",
+      "gatewayVersion": "0.0.0-io02f-not-built",
+      "connectorVersion": "0.0.0-io02g-not-built",
+      "binaryHashState": "resolve-per-node-in-IO-02a-before-migration",
+      "officialSource": "https://github.com/Jeric-X/SyncClipboard/releases/tag/v3.2.0",
+      "license": "GPL-3.0",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "single coordinated three-client/server migration with tested rollback",
+      "replacementTrigger": "A13, mTLS identity/rotation, or queue recovery fails"
+    },
+    "deployment": {
+      "echovaDockerObserved": "29.6.1 build 8900f1d",
+      "nixDockerObserved": "29.5.2 build 79eb04c",
+      "windowsDockerObserved": "29.1.3 build f52814d",
+      "targetDockerEngine": "29.7.2",
+      "echovaComposeObserved": "v5.2.0",
+      "targetCompose": "v5.2.0",
+      "linuxServiceManager": "systemd 249.11-0ubuntu3.22",
+      "windowsServiceManager": "sc.exe 10.0.26100.8875",
+      "powershell": "Windows PowerShell 5.1.26100.8875 and PowerShell 7.6.5",
+      "officialSource": "https://docs.docker.com/engine/release-notes/29/",
+      "license": "Apache-2.0 and platform-provided service managers",
+      "supportVerifiedAt": "2026-09-03",
+      "upgradeWindow": "echova only after IO-04a backup and IO-04b compose rollback",
+      "replacementTrigger": "host Tailscale/LocalAPI isolation or rollback gate fails"
+    }
+  },
+  "verification": {
+    "tools": [
+      {"name": "git", "version": "2.34.1", "sha256": "587ef21868c948b883993e23209b86a72a6ddc06aab1545c697ffc31075acd4a", "source": "Ubuntu jammy git package", "license": "GPL-2.0-only"},
+      {"name": "bash", "version": "5.1.16", "sha256": "59474588a312b6b6e73e5a42a59bf71e62b55416b6c9d5e4a6e1c630c2a9ecd4", "source": "Ubuntu jammy bash package", "license": "GPL-3.0-or-later"},
+      {"name": "openssl", "version": "3.0.2", "sha256": "8777e1f7d8a8965829198e3e3666ec493bc857cfc72ff6421ef7bcc70ce7563d", "source": "Ubuntu jammy openssl package", "license": "Apache-2.0"},
+      {"name": "curl", "version": "8.20.0", "sha256": "fb15ac433e66b1ddd1b35a80d1315f24c09c09f2fba686b74325479deba7a392", "source": "managed local installation", "license": "curl"},
+      {"name": "tcpdump", "version": "4.99.1", "installState": "present-on-nix-and-echova", "source": "Ubuntu jammy tcpdump package", "license": "BSD-3-Clause"},
+      {"name": "syft", "version": "1.51.1", "sha256": "abca2def61de9952fa06d3977bb1e064818facb9badfce502b450d3d6846a91f", "archiveSha256": "8fcb33017a0dc1058298c923c436d19dfa68ae93968e0b423248542e3afb9fc3", "source": "https://github.com/anchore/syft/releases/tag/v1.51.1", "license": "Apache-2.0"},
+      {"name": "jq", "targetVersion": "1.6-2.1ubuntu3", "installState": "present-on-echova-only", "source": "Ubuntu jammy jq package", "license": "MIT"},
+      {"name": "tshark", "targetVersion": "3.6.2-2", "installState": "required-before-network-evidence", "source": "Ubuntu jammy wireshark-common package", "license": "GPL-2.0-or-later"},
+      {"name": "ffprobe", "targetVersion": "4.4.2-0ubuntu0.22.04.1", "installState": "required-before-media-evidence", "source": "Ubuntu jammy-updates ffmpeg package", "license": "GPL-2.0-or-later"},
+      {"name": "cosign", "targetVersion": "3.1.2", "installState": "required-by-IO-01c-before-formal-signing", "source": "https://github.com/sigstore/cosign/releases/tag/v3.1.2", "license": "Apache-2.0"}
+    ],
+    "policies": {
+      "noFloatingVersions": true,
+      "noSystemDefault": true,
+      "lockHashRequired": true,
+      "sbomRequired": true,
+      "provenanceRequiredForReleaseArtifacts": true,
+      "signingKeyMaterialInRepository": false,
+      "dependencyReviewCadence": "weekly vulnerability rescan and monthly supported-version review"
+    }
+  },
+  "artifacts": {
+    "files": [
+      {"path": ".mise.toml", "sha256": "c455c5393e5a23a91703b95b8c78f9a2ae6c90e570d44fe2f05f875b243d2a28"},
+      {"path": "go.mod", "sha256": "f6d7f262b5de14464405fde15587ae66a5c9b24cc28341ebe84f38efe0c0bfd9"},
+      {"path": "go.sum", "sha256": "8ebfaf41ea4b249ab25815cd95d583ddad1a539ac5a272e29eb63e390d46966d"},
+      {"path": "web/package.json", "sha256": "03c319f2077b3ecb3cd54ea9e0ac5b555c18978603d7e93eb51b28a8cd204728"},
+      {"path": "web/pnpm-lock.yaml", "sha256": "73dfb9e3f797c5c118ab67a3bf189aa36ee7fa2b5b6e5520b4210c611ec8278f"},
+      {"path": "web/pnpm-workspace.yaml", "sha256": "c68333ad4fee8306b204373fb171d96499201df1091fbef1c621b59fdc0839dc"},
+      {"path": "deploy/releases/current/qg02-decisions.json", "sha256": "bf93f213f059319eacd7ec89b43b540c775dc1c917cfc5576997e871e0f70db4"},
+      {"path": "deploy/releases/current/provenance/statement.schema.json", "sha256": "f2fdb530703fe9ffdf46763e81a0efe42d571b9f7327b042ac984c234ee68f13"},
+      {"path": "deploy/releases/current/sbom/source.cdx.json", "sha256": "f45becef0bf2658dd6f6749f7a2a22386ba442d5cfa5f207be3b233007aa7b02"}
+    ],
+    "sbom": {
+      "path": "deploy/releases/current/sbom/source.cdx.json",
+      "format": "CycloneDX 1.7 JSON",
+      "componentCount": 130,
+      "sha256": "f45becef0bf2658dd6f6749f7a2a22386ba442d5cfa5f207be3b233007aa7b02",
+      "generator": "syft 1.51.1"
+    },
+    "provenanceSchema": {
+      "path": "deploy/releases/current/provenance/statement.schema.json",
+      "format": "in-toto Statement v1 with SLSA provenance v1 predicate",
+      "sha256": "f2fdb530703fe9ffdf46763e81a0efe42d571b9f7327b042ac984c234ee68f13"
+    }
+  },
+  "unresolved": [
+    {"item": "Tailscale node upgrade", "requiredVersion": "1.102.3", "observedVersion": "1.102.2", "blocks": ["PC-01", "G0"]},
+    {"item": "MeshCentral and Node base image digests plus three MeshAgent hashes", "requiredVersion": "MeshCentral 1.2.5", "resolutionWorkPackage": "RD-01b", "blocks": ["RD-01c", "RD-01d", "RD-01e", "G0"]},
+    {"item": "tshark and ffprobe exact binaries", "requiredVersions": ["tshark 3.6.2-2", "ffprobe 4.4.2-0ubuntu0.22.04.1"], "resolutionWorkPackage": "IO-01c", "blocks": ["network evidence suites", "media evidence suites"]},
+    {"item": "cosign exact verified binary and evidence signer key ID", "requiredVersion": "cosign 3.1.2", "resolutionWorkPackage": "IO-01c", "blocks": ["formal evidence signing"]},
+    {"item": "SyncClipboard 3.2.0 per-node binary hashes", "requiredVersion": "3.2.0", "resolutionWorkPackage": "IO-02a", "blocks": ["IO-02d", "G5"]}
+  ]
+}

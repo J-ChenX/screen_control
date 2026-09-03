@@ -8,7 +8,7 @@
 |---|---|---|
 | `ReleaseManifest` | 版本、digest、Agent hash、schema 与兼容窗口 | `deploy/releases/` |
 | `ToolchainLock` | 构建/测试/浏览器/实机工具的精确版本、来源、hash、SBOM 与替换触发 | `deploy/releases/<release>/toolchain.lock.json` |
-| `Preflight` | G0 前 hash 固定的三机只读采集、脱敏 snapshot、追加式 bootstrap bundle 与 seal 复核；后续部署预检仍在 `IO-01b+` 扩展 | `ops/bootstrap/preflight:73-154`, `ops/bootstrap/preflight:451-1173` |
+| `Preflight` | G0 前 hash 固定的三机只读采集、脱敏 snapshot、IO-01b 固定构建记录、追加式 bootstrap bundle 与 seal 复核 | `ops/bootstrap/preflight:83-164`, `ops/bootstrap/preflight:461-1395` |
 | `NetworkChangeGuard` | 规则快照、独立救援、定时 watchdog、跨节点确认与自动回退 | `ops/network-guard/` |
 | `DeployOrchestrator` | 有序装配、金丝雀、健康门和幂等恢复 | `ops/deploy/` |
 | `BackupRestore` | SQLite online backup、配置/卷/历史及恢复验证 | `ops/backup/` |
@@ -63,4 +63,4 @@
 
 ## 当前与计划文件结构
 
-已存在：`ops/bootstrap/preflight`、`ops/bootstrap/preflight.sha256`、`ops/bootstrap/README.md` 与 `tests/operations/test_bootstrap_preflight.py`。计划中：`deploy/{compose,systemd,windows-service,releases}/`、`ops/{preflight,network-guard,deploy,backup,verify,migrations}/`、`internal/operations/observability/` 及其余 `tests/operations/` 内容。
+已存在：`ops/bootstrap/preflight`、`ops/bootstrap/preflight.sha256`、`ops/bootstrap/validate_toolchain.py`、`deploy/releases/current/{toolchain.lock.json,qg02-decisions.json,sbom/,provenance/}`、Git/Go/Web 构建骨架及对应 bootstrap/toolchain 测试。计划中：`deploy/{compose,systemd,windows-service}/`、`ops/{network-guard,deploy,backup,verify,migrations}/`、`internal/operations/observability/` 及其余 `tests/operations/` 内容。

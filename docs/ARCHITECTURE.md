@@ -2,7 +2,7 @@
 
 **最后更新：** 2026-09-03  
 **架构层级：** 三层（L1 全局契约 → L2 模块设计 → L3 工作包与文件细节）  
-**当前阶段：** 第四阶段；第四阶段全量审查已完成，`IO-01a` bootstrap candidate 通过，当前执行入口为 `IO-01b`
+**当前阶段：** 第四阶段；第四阶段全量审查已完成，`IO-01a`/`IO-01b` bootstrap candidate 通过，当前执行入口为 `IO-01c`
 
 ## 项目概述
 
@@ -120,4 +120,5 @@ flowchart LR
 - [x] `IO-01a` 的 hash 固定只读 recorder、三机固定白名单、语义校验、脱敏摘要、追加式 run 和防篡改封存已实现；15 项 bootstrap 测试通过。
 - [x] `IO-01a` bootstrap candidate：三机必填类别、UTC ≤2 s 与同步健康均通过，bundle 的完整性、provenance、当前 recorder 匹配和受信状态已复核；正式证据仍由 `IO-01c` 导入重验后签发。
 - [ ] G0 实证 Mesh WebRTC 的 Tailscale-only 网络强制，以及不经 URL 的单次启动交换；失败则重新选型。
-- [ ] 第四阶段当前执行 `IO-01b`；`IO-01a`–`IO-01d` 通过后才运行 G0，G0 通过后才进入依赖远控内核的全面实现。
+- [x] `IO-01b` 建立 Git 根基线、Go/Node/React 可构建骨架、完整 toolchain lock、130 组件 CycloneDX SBOM、SLSA/in-toto provenance schema 与八领域 QG02 决策矩阵；固定六命令 bootstrap bundle 通过。
+- [ ] 第四阶段当前执行 `IO-01c`；`IO-01a`–`IO-01d` 通过后才运行 G0，G0 通过后才进入依赖远控内核的全面实现。

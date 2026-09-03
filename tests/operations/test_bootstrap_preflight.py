@@ -47,6 +47,14 @@ class PreflightTests(unittest.TestCase):
         for pattern in forbidden_patterns:
             self.assertNotRegex(surface, pattern)
 
+    def test_io01b_command_surface_is_fixed_and_local(self):
+        self.assertEqual(len(self.module.TOOLCHAIN_COMMANDS), 6)
+        surface = "\n".join(" ".join(command) for command in self.module.TOOLCHAIN_COMMANDS)
+        self.assertNotIn("ssh", surface)
+        self.assertNotRegex(surface, r"(?m)(?:^|\s)(?:curl|wget|apt|rm|scp)(?:\s|$)")
+        self.assertIn("validate_toolchain.py", surface)
+        self.assertIn("go test ./...", surface)
+
     def test_redaction_removes_private_network_and_home_identity(self):
         value = "user=/home/alice/a ip=192.168.1.9 ipv6=fd00::1234 mac=aa:bb:cc:dd:ee:ff password=hunter2"
         redacted = self.module.redact_text(value)
@@ -252,6 +260,31 @@ class PreflightTests(unittest.TestCase):
             result = self.module.verify_bundle(bundle)
             self.assertFalse(result["integrityValid"])
             self.assertTrue(any("unsafe sealed filename" in error for error in result["errors"]))
+
+    def test_toolchain_bundle_verifies_and_detects_tamper(self):
+        fake_result = {
+            "exitCode": 0,
+            "timedOut": False,
+            "stdout": b"ok\n",
+            "stderr": b"",
+            "stdoutSha256": hashlib.sha256(b"ok\n").hexdigest(),
+            "stderrSha256": hashlib.sha256(b"").hexdigest(),
+            "stdoutBytes": 3,
+            "stderrBytes": 0,
+            "stdoutTruncated": False,
+            "stderrTruncated": False,
+            "sampleReceivedUtc": None,
+        }
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(self.module, "run_bounded", return_value=fake_result):
+            bundle = self.module.record_toolchain(Path(temp))
+            self.assertTrue(self.module.verify_toolchain_bundle(bundle)["valid"])
+            bundle.chmod(0o700)
+            lock = bundle / "toolchain.lock.json"
+            lock.chmod(0o600)
+            lock.write_bytes(lock.read_bytes() + b"\n")
+            result = self.module.verify_toolchain_bundle(bundle)
+            self.assertFalse(result["integrityValid"])
+            self.assertIn("hash mismatch toolchain.lock.json", result["errors"])
 
 
 if __name__ == "__main__":

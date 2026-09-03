@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""IO-01a read-only, hash-pinned three-node preflight recorder.
+"""IO-01a/IO-01b hash-pinned bootstrap recorder.
 
 This file is the complete executable allowlist.  It never accepts an arbitrary
 command and it does not write to target nodes.  Remote probes are sent over the
 already-configured SSH transport and all evidence is sealed locally.
+
+IO-01b adds only a fixed local build/validation command set; it never extends
+the remote command surface.
 """
 
 from __future__ import annotations
@@ -39,6 +42,12 @@ PIN_PATH = SCRIPT_PATH.with_name("preflight.sha256")
 BUNDLE_SCHEMA_PATH = SCRIPT_PATH.with_name("bundle.schema.json")
 BUNDLE_SCHEMA_SHA256 = "c6c3677ae9b9ccafca76ce3658bc4e372b0281d4d5e58db87e8338b909818343"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "evidence" / "bootstrap" / "io-01a"
+TOOLCHAIN_OUTPUT_ROOT = PROJECT_ROOT / "evidence" / "bootstrap" / "io-01b"
+TOOLCHAIN_LOCK_PATH = PROJECT_ROOT / "deploy" / "releases" / "current" / "toolchain.lock.json"
+TOOLCHAIN_DECISIONS_PATH = PROJECT_ROOT / "deploy" / "releases" / "current" / "qg02-decisions.json"
+TOOLCHAIN_SBOM_PATH = PROJECT_ROOT / "deploy" / "releases" / "current" / "sbom" / "source.cdx.json"
+PROVENANCE_SCHEMA_PATH = PROJECT_ROOT / "deploy" / "releases" / "current" / "provenance" / "statement.schema.json"
+TOOLCHAIN_SCHEMA_PATH = PROJECT_ROOT / "deploy" / "releases" / "toolchain-lock.schema.json"
 MAX_SUMMARY_CHARS = 12_000
 MAX_PROBE_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_BUNDLE_FILE_BYTES = 64 * 1024 * 1024
@@ -621,12 +630,13 @@ def build_command(node: Node, probe: Probe) -> list[str]:
     ]
 
 
-def run_bounded(command: list[str], timeout_seconds: int, capture_clock_receipt: bool) -> dict[str, Any]:
+def run_bounded(command: list[str], timeout_seconds: int, capture_clock_receipt: bool, cwd: Path | None = None) -> dict[str, Any]:
     process = subprocess.Popen(
         command,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=cwd,
     )
     assert process.stdout is not None and process.stderr is not None
     selector = selectors.DefaultSelector()
@@ -853,7 +863,7 @@ def sensitive_scan(blobs: dict[str, bytes]) -> dict[str, Any]:
     }
 
 
-def create_run_dir(output_root: Path) -> tuple[str, Path]:
+def create_run_dir(output_root: Path, prefix: str = "io-01a") -> tuple[str, Path]:
     output_root = output_root.expanduser().absolute()
     if output_root.exists() and output_root.is_symlink():
         raise RuntimeError("output root must not be a symlink")
@@ -863,7 +873,7 @@ def create_run_dir(output_root: Path) -> tuple[str, Path]:
         raise RuntimeError("output root must be owned by the recorder user and inaccessible to group/other")
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     nonce = os.urandom(5).hex()
-    run_id = f"io-01a-{stamp}-{nonce}"
+    run_id = f"{prefix}-{stamp}-{nonce}"
     run_dir = output_root / run_id
     run_dir.mkdir(mode=0o700)
     return run_id, run_dir
@@ -1003,6 +1013,209 @@ def collect(selected_names: list[str], output_root: Path) -> Path:
     fsync_directory(run_dir)
     os.chmod(run_dir, 0o500)
     return run_dir
+
+
+TOOLCHAIN_COMMANDS: tuple[tuple[str, ...], ...] = (
+    (sys.executable, "ops/bootstrap/validate_toolchain.py"),
+    ("mise", "exec", "--", "go", "test", "./..."),
+    ("mise", "exec", "--", "go", "build", "-trimpath", "-o", "bin/screen-control", "./cmd/screen-control"),
+    ("mise", "exec", "--", "corepack", "pnpm", "--dir", "web", "typecheck"),
+    ("mise", "exec", "--", "corepack", "pnpm", "--dir", "web", "test"),
+    ("mise", "exec", "--", "corepack", "pnpm", "--dir", "web", "build"),
+)
+
+TOOLCHAIN_BUNDLE_FILES = {
+    "toolchain.lock.json": TOOLCHAIN_LOCK_PATH,
+    "qg02-decisions.json": TOOLCHAIN_DECISIONS_PATH,
+    "source.cdx.json": TOOLCHAIN_SBOM_PATH,
+    "provenance.schema.json": PROVENANCE_SCHEMA_PATH,
+    "toolchain-lock.schema.json": TOOLCHAIN_SCHEMA_PATH,
+}
+
+
+def record_toolchain(output_root: Path) -> Path:
+    recorder_hash = verify_self()
+    for name, path in TOOLCHAIN_BUNDLE_FILES.items():
+        if not path.is_file() or path.is_symlink():
+            raise RuntimeError(f"required IO-01b artifact missing or unsafe: {name}")
+        if path.stat().st_size > MAX_BUNDLE_FILE_BYTES:
+            raise RuntimeError(f"required IO-01b artifact oversized: {name}")
+    run_id, run_dir = create_run_dir(output_root, "io-01b")
+    started_utc = utc_now()
+    started_mono = time.monotonic()
+    command_events = []
+    for index, fixed_command in enumerate(TOOLCHAIN_COMMANDS, start=1):
+        command = list(fixed_command)
+        event_started = utc_now()
+        event_started_mono = time.monotonic()
+        result = run_bounded(command, 300, False, PROJECT_ROOT)
+        stdout = result["stdout"]
+        stderr = result["stderr"]
+        truncated = result["stdoutTruncated"] or result["stderrTruncated"]
+        status_value = "passed" if result["exitCode"] == 0 and not result["timedOut"] and not truncated else "failed"
+        command_events.append({
+            "schemaVersion": "screen-control.bootstrap-toolchain/v1",
+            "workPackage": "IO-01b",
+            "runId": run_id,
+            "node": "nix",
+            "probeId": f"toolchain-{index:02d}",
+            "category": "toolchain",
+            "commandAllowlistId": sha256_bytes(canonical_json(command)),
+            "command": command,
+            "startedUtc": event_started,
+            "finishedUtc": utc_now(),
+            "monotonicDurationMs": round((time.monotonic() - event_started_mono) * 1000, 3),
+            "status": status_value,
+            "exitCode": result["exitCode"],
+            "timedOut": result["timedOut"],
+            "truncated": truncated,
+            "stdoutBytes": result["stdoutBytes"],
+            "stderrBytes": result["stderrBytes"],
+            "stdoutSha256": result["stdoutSha256"],
+            "stderrSha256": result["stderrSha256"],
+            "stdoutSummary": redact_text(decode_output(stdout))[:MAX_SUMMARY_CHARS],
+            "stderrSummary": redact_text(decode_output(stderr))[:2000],
+        })
+    commands_data = b"".join(canonical_json(event) for event in command_events)
+    artifact_blobs = {name: path.read_bytes() for name, path in TOOLCHAIN_BUNDLE_FILES.items()}
+    scan = sensitive_scan({"commands.jsonl": commands_data, **artifact_blobs})
+    lock = json.loads(artifact_blobs["toolchain.lock.json"])
+    manifest = {
+        "schemaVersion": "screen-control.bootstrap-toolchain/v1",
+        "workPackage": "IO-01b",
+        "runId": run_id,
+        "recorderSha256": recorder_hash,
+        "operator": getpass.getuser(),
+        "recorderHost": socket.gethostname(),
+        "recorderRuntime": {
+            "implementation": sys.implementation.name,
+            "version": platform.python_version(),
+            "executableSha256": sha256_file(Path(sys.executable).resolve()),
+        },
+        "startedUtc": started_utc,
+        "sourceCommit": lock["source"]["commit"],
+        "environmentSnapshotHash": lock["bootstrap"]["environmentSnapshotHash"],
+        "allowlistSha256": sha256_bytes(canonical_json([list(command) for command in TOOLCHAIN_COMMANDS])),
+        "artifactHashes": {name: sha256_bytes(blob) for name, blob in sorted(artifact_blobs.items())},
+        "targetMutation": "local build outputs only; no remote command and no target-node mutation",
+    }
+    if scan["status"] != "pass":
+        exclusive_write(run_dir / "quarantine.json", canonical_json(scan))
+        fsync_directory(run_dir)
+        os.chmod(run_dir, 0o500)
+        raise RuntimeError(f"sensitive IO-01b scan quarantined run {run_id}")
+    exclusive_write(run_dir / "manifest.json", canonical_json(manifest))
+    exclusive_write(run_dir / "commands.jsonl", commands_data)
+    exclusive_write(run_dir / "recorder", SCRIPT_PATH.read_bytes())
+    exclusive_write(run_dir / "preflight.sha256", PIN_PATH.read_bytes())
+    for name, blob in artifact_blobs.items():
+        exclusive_write(run_dir / name, blob)
+    complete = all(event["status"] == "passed" for event in command_events)
+    index = {
+        "schemaVersion": "screen-control.bootstrap-toolchain/v1",
+        "workPackage": "IO-01b",
+        "runId": run_id,
+        "status": "bootstrap-complete-awaiting-IO-01c-formal-evidence" if complete else "blocked",
+        "startedUtc": started_utc,
+        "finishedUtc": utc_now(),
+        "monotonicDurationMs": round((time.monotonic() - started_mono) * 1000, 3),
+        "recorderSha256": recorder_hash,
+        "sourceCommit": manifest["sourceCommit"],
+        "environmentSnapshotHash": manifest["environmentSnapshotHash"],
+        "toolchainLockSha256": sha256_bytes(artifact_blobs["toolchain.lock.json"]),
+        "sbomSha256": sha256_bytes(artifact_blobs["source.cdx.json"]),
+        "commandCount": len(command_events),
+        "passedCommandCount": sum(event["status"] == "passed" for event in command_events),
+        "sensitiveScan": scan,
+        "formalEvidence": "pending IO-01c import, independent rebuild, and signature",
+    }
+    exclusive_write(run_dir / "index.json", canonical_json(index))
+    fsync_directory(run_dir)
+    hashes = {path.name: sha256_file(path) for path in sorted(run_dir.iterdir()) if path.is_file()}
+    seal = {
+        "schemaVersion": "screen-control.bootstrap-toolchain/v1",
+        "workPackage": "IO-01b",
+        "runId": run_id,
+        "sealedUtc": utc_now(),
+        "files": hashes,
+        "bundleSha256": sha256_bytes(canonical_json(hashes)),
+    }
+    exclusive_write(run_dir / "seal.json", canonical_json(seal))
+    fsync_directory(run_dir)
+    os.chmod(run_dir, 0o500)
+    return run_dir
+
+
+def verify_toolchain_bundle(run_dir: Path) -> dict[str, Any]:
+    current_hash = verify_self()
+    run_dir = run_dir.expanduser().absolute()
+    errors: list[str] = []
+    required = {"manifest.json", "commands.jsonl", "recorder", "preflight.sha256", "toolchain.lock.json", "qg02-decisions.json", "source.cdx.json", "provenance.schema.json", "toolchain-lock.schema.json", "index.json"}
+    if run_dir.is_symlink() or not run_dir.is_dir():
+        return {"valid": False, "integrityValid": False, "errors": ["bundle root missing, not a directory, or a symlink"]}
+    seal_path = run_dir / "seal.json"
+    if seal_path.is_symlink() or not seal_path.is_file() or seal_path.stat().st_size > MAX_BUNDLE_FILE_BYTES:
+        return {"valid": False, "integrityValid": False, "errors": ["seal missing, unsafe, or oversized"]}
+    try:
+        seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return {"valid": False, "integrityValid": False, "errors": [f"invalid seal: {type(error).__name__}"]}
+    sealed_files = seal.get("files") if isinstance(seal.get("files"), dict) else {}
+    if set(sealed_files) != required:
+        errors.append("sealed file set differs from fixed IO-01b bundle contract")
+    if {path.name for path in run_dir.iterdir()} != required | {"seal.json"}:
+        errors.append("actual file set differs from fixed IO-01b bundle contract")
+    for name, expected in sealed_files.items():
+        path = run_dir / name
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            errors.append(f"missing {name}")
+            continue
+        if not stat.S_ISREG(metadata.st_mode) or path.is_symlink() or metadata.st_size > MAX_BUNDLE_FILE_BYTES:
+            errors.append(f"unsafe or oversized {name}")
+        elif not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected) or sha256_file(path) != expected:
+            errors.append(f"hash mismatch {name}")
+    bundle_hash = sha256_bytes(canonical_json(sealed_files))
+    if bundle_hash != seal.get("bundleSha256"):
+        errors.append("bundle hash mismatch")
+    try:
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        lock = json.loads((run_dir / "toolchain.lock.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        errors.append(f"invalid manifest/index/lock: {type(error).__name__}")
+        manifest, index, lock = {}, {}, {}
+    run_id = seal.get("runId")
+    if manifest.get("runId") != run_id or index.get("runId") != run_id:
+        errors.append("cross-file runId mismatch")
+    if manifest.get("workPackage") != "IO-01b" or index.get("workPackage") != "IO-01b" or seal.get("workPackage") != "IO-01b":
+        errors.append("cross-file workPackage mismatch")
+    if lock.get("schemaVersion") != "screen-control.toolchain-lock/v1":
+        errors.append("unexpected toolchain lock schema")
+    if index.get("toolchainLockSha256") != sealed_files.get("toolchain.lock.json"):
+        errors.append("toolchain lock hash binding mismatch")
+    recorder_hash = manifest.get("recorderSha256")
+    try:
+        pin_hash = (run_dir / "preflight.sha256").read_text(encoding="utf-8").split()[0]
+    except (OSError, UnicodeError, IndexError):
+        pin_hash = None
+    provenance_complete = sealed_files.get("recorder") == recorder_hash and pin_hash == recorder_hash
+    if not provenance_complete:
+        errors.append("recorder provenance mismatch")
+    current_match = recorder_hash == current_hash
+    return {
+        "schemaVersion": "screen-control.bootstrap-toolchain/v1",
+        "runId": run_id,
+        "valid": not errors,
+        "integrityValid": not errors,
+        "provenanceComplete": provenance_complete,
+        "currentRecorderMatch": current_match,
+        "trustedRecorder": bool(provenance_complete and current_match),
+        "errors": errors,
+        "bundleSha256": bundle_hash,
+        "bootstrapStatus": index.get("status"),
+    }
 
 
 def verify_bundle(run_dir: Path) -> dict[str, Any]:
@@ -1179,6 +1392,9 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     collect_parser.add_argument("--nodes", nargs="+", choices=["all", *NODES], default=["all"])
     verify_parser = subparsers.add_parser("verify-bundle", help="verify a sealed bootstrap bundle without modifying it")
     verify_parser.add_argument("bundle", type=Path)
+    subparsers.add_parser("record-toolchain", help="run and seal the fixed local IO-01b build/toolchain checks")
+    verify_toolchain_parser = subparsers.add_parser("verify-toolchain-bundle", help="verify a sealed IO-01b bundle without modifying it")
+    verify_toolchain_parser.add_argument("bundle", type=Path)
     subparsers.add_parser("print-hash", help="print the executable SHA-256")
     return parser.parse_args(list(argv))
 
@@ -1192,6 +1408,15 @@ def main(argv: Iterable[str]) -> int:
         result = verify_bundle(args.bundle)
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if result["valid"] else 1
+    if args.action == "verify-toolchain-bundle":
+        result = verify_toolchain_bundle(args.bundle)
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if result["valid"] else 1
+    if args.action == "record-toolchain":
+        run_dir = record_toolchain(TOOLCHAIN_OUTPUT_ROOT)
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        print(json.dumps({"bundle": str(run_dir), **index}, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if index["status"].startswith("bootstrap-complete") else 2
     selected = list(NODES) if "all" in args.nodes else list(dict.fromkeys(args.nodes))
     run_dir = collect(selected, DEFAULT_OUTPUT_ROOT)
     index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))

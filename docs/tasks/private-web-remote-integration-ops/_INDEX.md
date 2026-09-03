@@ -1,7 +1,7 @@
 # 子任务：集成与运维
 
 **父任务：** [private-web-remote](../private-web-remote/_INDEX.md)  
-**状态：** 第四阶段进行中；`IO-01a` bootstrap candidate 已通过，当前执行 `IO-01b`  
+**状态：** 第四阶段进行中；`IO-01a`/`IO-01b` bootstrap candidate 已通过，当前执行 `IO-01c`
 **范围：** `clipboard`、`operations` 及所有模块的构建、发布、恢复和最终验收
 
 ## 工作包规则
@@ -14,7 +14,9 @@
 
 `IO-01a` recorder、固定三节点/命令白名单、跨平台摘要解析、十类语义 validator、严格 SSH host key、IPv4/IPv6/身份脱敏、有界输出、敏感扫描、固定 schema、只新建不覆盖的 bundle 和 hash seal 已实现；代码入口与测试见 [operations 模块实现指针](../../modules/operations/README.md#第四阶段实现指针)。失败 run 保持只读且不被重跑覆盖，历史 seal 完整性与 recorder trust/current 状态分开报告。
 
-当前通过的 candidate run 为 `io-01a-20260903T101743.195837Z-bdd8888321`，使用 recorder SHA-256 `11566de34370a22266860108722ec5f40bd63344978d149595c2dddd1d7e3d0b`，113 个探针中 92 个成功；三机必填类别、固定节点 inventory、UTC ≤2 s 与同步健康全部通过。bundle SHA-256 为 `fa3b369e9414e4e02c7e8cc90d56686ffe76c32c8ef65109da4f97ecc33a3a05`，environment snapshot hash 为 `27bee2493cbdf722b494f649897ceccbab0875cbaad47f6d748dccf178b6c388`，verifier 报告 integrity/provenance/current/trusted 全部为 true。未安装的编码器探测工具只影响对应 G0 spike readiness，不伪装成 snapshot 缺失。所有早期失败 run 均保留；本产物仍不是正式签名证据，待 `IO-01c` 导入、重验和签发。
+当前通过的 `IO-01a` candidate run 为 `io-01a-20260903T103433.753038Z-f9f2fd7839`，使用 recorder SHA-256 `c927ad785df5f192f2da3599851b59c71b19aea52a0fd1345d856cc709306def`，113 个探针中 92 个成功；三机必填类别、固定节点 inventory、UTC ≤2 s 与同步健康全部通过。bundle SHA-256 为 `041f683e1531796975277c7de3b3d1944e211bfe60da240a0e7e1dfc963f703f`，environment snapshot hash 为 `d12b8cca914eae319016ee31cea7668f7ae3803c5e0f120c3324984162bc3e77`，verifier 报告 integrity/provenance/current/trusted 全部为 true。未安装的编码器探测工具只影响对应 G0 spike readiness，不伪装成 snapshot 缺失。
+
+`IO-01b` 已初始化 Git 并形成根基线 commit `7d813cd68e882e0a6e45198b22b50ff6a7669c58`，锁定 Go 1.26.8/兼容 1.27.1、Node 24.20.0、React 19.2.8、TypeScript 7.0.2、Vite 8.2.2、Vitest 4.1.11、Playwright 1.62.1、pnpm 11.25.0 和全部 Go/npm 依赖。`toolchain.lock.json` 同时记录三机 snapshot、目标/观测版本差异、官方来源/许可证/升级窗口/替换触发器及明确阻断包；CycloneDX 1.7 SBOM 含 130 个组件，SLSA/in-toto provenance schema 与八领域 QG02 候选/拒绝/替换矩阵已入库。candidate run `io-01b-20260903T103531.907628Z-706c686594` 的六条固定命令全过，toolchain lock SHA-256 为 `f60fe8bd20fc57e9c22cea4b25108067266f2885ba7f34a7db843ba026e0a248`，bundle SHA-256 为 `a414a7dbd064911b1c8abf3d42eac7683e492be12ef40b226e0a578133fef091`，四项 verifier 状态全真。所有早期失败 run 均保留；两包仍待 `IO-01c` 导入、重验和正式签发。
 
 ## 工作包
 

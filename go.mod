@@ -1,6 +1,6 @@
 module screencontrol.local/screen-control
 
-go 1.26.8
+go 1.26.6
 
 toolchain go1.26.8
 

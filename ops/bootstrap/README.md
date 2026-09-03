@@ -1,4 +1,4 @@
-# Bootstrap preflight (`IO-01a`)
+# Bootstrap recorder (`IO-01a` / `IO-01b`)
 
 `preflight` is the only pre-runner recorder permitted before `IO-01c`. Its
 executable SHA-256 is pinned in `preflight.sha256`; changing the executable
@@ -31,6 +31,8 @@ requires an explicit review and a new pin.
 ```bash
 ./ops/bootstrap/preflight collect --nodes all
 ./ops/bootstrap/preflight verify-bundle evidence/bootstrap/io-01a/<run-id>
+./ops/bootstrap/preflight record-toolchain
+./ops/bootstrap/preflight verify-toolchain-bundle evidence/bootstrap/io-01b/<run-id>
 ```
 
 `collect` returns exit code 0 only when every required category is represented
@@ -61,3 +63,9 @@ symlinks, validates schema/cross-file invariants, and reports seal integrity,
 provenance completeness, current-recorder match, and trusted-recorder status as
 separate properties. The bootstrap seal is not an operator signature; the
 formal evidence signer is introduced by `IO-01c`.
+
+`record-toolchain` is the IO-01b side of the same pinned recorder. It executes
+only six local commands: lock validation, Go test/build, and web
+typecheck/test/build. It embeds the exact toolchain lock, QG02 matrix,
+CycloneDX SBOM, provenance schema, recorder, and pin. It never runs SSH or
+changes a target node.
