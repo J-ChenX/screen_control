@@ -1,32 +1,19 @@
-# Bootstrap recorder (`IO-01a` / `IO-01b`)
+# 引导记录器（`IO-01a` / `IO-01b`）
 
-`preflight` is the only pre-runner recorder permitted before `IO-01c`. Its
-executable SHA-256 is pinned in `preflight.sha256`; changing the executable
-requires an explicit review and a new pin.
+`preflight` 是 `IO-01c` 之前唯一允许使用的验证运行器前置记录器。其可执行文件的 SHA-256 固定在 `preflight.sha256` 中；修改可执行文件需要明确审查并更新固定哈希。
 
-## Safety contract
+## 安全契约
 
-- The target set is fixed to `nix`, `echova`, and `jiang-chenx`.
-- Every probe is defined in the executable allowlist. There is no arbitrary
-  command option.
-- Remote probes use existing, host-key-checked SSH connections in batch mode.
-  They explicitly require strict host-key checking against a fixed known-hosts
-  file, record its hash/fingerprints, stream fixed commands, and never create a
-  remote file.
-- Probes are version, state, capability, listener, permission, clock, and disk
-  queries only. They do not install packages, restart services, alter network
-  policy, open ports, or change files.
-- Raw stdout/stderr is streamed through an 8 MiB-per-stream bound, hashed in
-  memory, and discarded. The bundle contains selected or redacted summaries
-  plus full-output hashes; overflow terminates the probe and fails closed.
-- Required categories use semantic validators. Snapshot completeness is kept
-  separate from platform-spike blockers such as an unavailable encoder probe.
-- The bundle embeds the exact recorder, pin, versioned schema, and Python
-  runtime identity. A pre-seal sensitive-pattern scan must pass.
-- A run uses a new `0700` directory and exclusive file creation, then seals the
-  directory read-only. A rerun always gets a new run ID.
+- 目标集合固定为 `nix`、`echova` 和 `jiang-chenx`。
+- 每项探测均定义在可执行命令白名单中，不提供任意命令选项。
+- 远程探测以批处理模式使用现有的、已校验主机密钥的 SSH 连接。必须针对固定的已知主机文件执行严格主机密钥校验，记录其哈希与指纹，以流式方式传输固定命令，且绝不创建远程文件。
+- 探测仅查询版本、状态、能力、监听器、权限、时钟和磁盘，不安装软件包、重启服务、修改网络策略、开放端口或更改文件。
+- 原始标准输出和标准错误各自受 8 MiB 流量上限约束，在内存中计算哈希后丢弃。记录包包含筛选或脱敏后的摘要及完整输出哈希；超限时终止探测并按失败处理。
+- 必需类别采用语义校验器。快照完整性与平台尖峰阻塞项分别记录，例如编码器探测不可用不等同于快照缺失。
+- 记录包嵌入本次使用的记录器、固定哈希、版本化模式定义和 Python 运行时身份。封存前必须通过敏感模式扫描。
+- 每次运行使用新建的 `0700` 目录，并以独占方式创建文件，随后将目录封存为只读。重新运行必须使用新的运行 ID。
 
-## Usage
+## 用法
 
 ```bash
 ./ops/bootstrap/preflight collect --nodes all
@@ -35,37 +22,19 @@ requires an explicit review and a new pin.
 ./ops/bootstrap/preflight verify-toolchain-bundle evidence/bootstrap/io-01b/<run-id>
 ```
 
-`collect` returns exit code 0 only when every required category is represented
-on all three nodes and each measured UTC offset is at most two seconds. Exit
-code 2 means that the sealed bundle is valid but contains an environmental
-blocker. Missing optional probe binaries are recorded rather than installed.
+只有三个节点均包含全部必需类别，且每个测得的 UTC 偏移不超过两秒时，`collect` 才返回退出码 0。退出码 2 表示封存的记录包有效，但存在环境阻塞项。对于缺失的可选探测程序，只记录缺失情况，不执行安装。
 
-The resulting `index.json` status is deliberately
-`bootstrap-complete-awaiting-IO-01c-formal-evidence`. It is not formal gate
-evidence. `IO-01c` must import the bundle, verify its seal and recorder hash,
-rerun stable snapshot fields through the formal runner, and bind the resulting
-environment hash to later work packages.
+生成的 `index.json` 状态固定为 `bootstrap-complete-awaiting-IO-01c-formal-evidence`，它不属于正式门控证据。`IO-01c` 必须导入记录包，验证封存信息和记录器哈希，通过正式运行器重新采集稳定的快照字段，并将所得环境哈希绑定到后续工作包。
 
-## Bundle files
+## 记录包文件
 
-- `manifest.json`: recorder/allowlist hashes, operator, node set, and safety
-  declaration.
-- `recorder`, `recorder.sha256`, `bundle.schema.json`: exact provenance needed
-  to revalidate an older run without treating it as the current recorder.
-- `commands.jsonl`: append-style command records with timestamps, exit codes,
-  durations, redacted summaries, and stdout/stderr hashes.
-- `snapshot-<node>.json`: per-category normalized snapshot and clock gate.
-- `index.json`: overall status and environment snapshot hash.
-- `seal.json`: hashes of every preceding file and the aggregate bundle hash.
+- `manifest.json`：记录器与白名单哈希、操作者、节点集合及安全声明。
+- `recorder`、`recorder.sha256`、`bundle.schema.json`：重新验证旧运行所需的准确来源信息，不将旧记录器视为当前记录器。
+- `commands.jsonl`：按追加形式记录命令，包含时间戳、退出码、耗时、脱敏摘要及标准输出与标准错误哈希。
+- `snapshot-<node>.json`：按类别规范化的节点快照与时钟门控结果。
+- `index.json`：总体状态和环境快照哈希。
+- `seal.json`：上述各文件的哈希及整个记录包的聚合哈希。
 
-`verify-bundle` accepts only the fixed regular-file set, rejects traversal and
-symlinks, validates schema/cross-file invariants, and reports seal integrity,
-provenance completeness, current-recorder match, and trusted-recorder status as
-separate properties. The bootstrap seal is not an operator signature; the
-formal evidence signer is introduced by `IO-01c`.
+`verify-bundle` 仅接受固定的普通文件集合，拒绝路径穿越和符号链接，验证模式定义及跨文件不变量，并分别报告封存完整性、来源信息完整性、是否匹配当前记录器以及记录器是否可信。引导封存不等同于操作者签名；正式证据签名由 `IO-01c` 引入。
 
-`record-toolchain` is the IO-01b side of the same pinned recorder. It executes
-only six local commands: lock validation, Go test/build, and web
-typecheck/test/build. It embeds the exact toolchain lock, QG02 matrix,
-CycloneDX SBOM, provenance schema, recorder, and pin. It never runs SSH or
-changes a target node.
+`record-toolchain` 是同一固定版本记录器的 IO-01b 功能，仅执行六个本地命令：锁文件校验、Go 测试与构建，以及前端类型检查、测试与构建。它嵌入本次使用的工具链锁文件、QG02 矩阵、CycloneDX 软件物料清单、来源证明模式定义、记录器和固定哈希，绝不运行 SSH 或修改目标节点。

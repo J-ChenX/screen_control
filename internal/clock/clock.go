@@ -1,5 +1,5 @@
-// Package clock owns wall-clock and monotonic scheduling abstractions used by
-// domain packages. Tests advance Manual without sleeping.
+// clock 包负责提供业务包使用的墙上时钟与单调时钟调度抽象。
+// 测试通过推进 Manual 时钟运行，无需休眠等待。
 package clock
 
 import (

@@ -11,7 +11,7 @@
   "bootstrap": {
     "environmentRunId": "io-01a-20260903T111038.668468Z-2c672ec8b3",
     "environmentSnapshotHash": "06ac13827049a6681496796abd43bb25b877a01ea17162a2be65d8da4ef95ba5",
-    "recorderSha256": "d0737e7556addc5f11e5f600f404d4b17411718211aaa2350b83384a8800bd79",
+    "recorderSha256": "51277f7b6231316f8c92f1af12c7eb0db8d52e2bc9e0798e16ca6e1ec4bb0e7a",
     "python": {
       "implementation": "cpython",
       "version": "3.12.13",
@@ -92,7 +92,7 @@
       "browserAutomation": "Playwright 1.62.1",
       "playwrightBrowsers": ["Chromium 151.0.7922.34", "Firefox 153.0", "WebKit 26.5", "Edge uses installed stable channel"],
       "lockFile": "web/pnpm-lock.yaml",
-      "lockFileSha256": "73dfb9e3f797c5c118ab67a3bf189aa36ee7fa2b5b6e5520b4210c611ec8278f",
+      "lockFileSha256": "3b58ccbeaf5c7890df082581a80a57be0fd8280298c5c0d86ea862a302c002eb",
       "officialSource": "https://nodejs.org/en/blog/release/v24.20.0",
       "license": "MIT and dependency-specific licenses recorded by the SBOM",
       "supportVerifiedAt": "2026-09-03",
@@ -194,28 +194,28 @@
   "artifacts": {
     "files": [
       {"path": ".mise.toml", "sha256": "c455c5393e5a23a91703b95b8c78f9a2ae6c90e570d44fe2f05f875b243d2a28"},
-      {"path": "go.mod", "sha256": "f6d7f262b5de14464405fde15587ae66a5c9b24cc28341ebe84f38efe0c0bfd9"},
+      {"path": "go.mod", "sha256": "1350a4c3c92e949383f522a0128803236b52014b91ee31554baf4349767ccb54"},
       {"path": "go.sum", "sha256": "8ebfaf41ea4b249ab25815cd95d583ddad1a539ac5a272e29eb63e390d46966d"},
-      {"path": "web/package.json", "sha256": "03c319f2077b3ecb3cd54ea9e0ac5b555c18978603d7e93eb51b28a8cd204728"},
-      {"path": "web/pnpm-lock.yaml", "sha256": "73dfb9e3f797c5c118ab67a3bf189aa36ee7fa2b5b6e5520b4210c611ec8278f"},
+      {"path": "web/package.json", "sha256": "6d359fd00cb20aab6d1229394730e28ee05fe35addd4d5bcc572e4f09093e39a"},
+      {"path": "web/pnpm-lock.yaml", "sha256": "3b58ccbeaf5c7890df082581a80a57be0fd8280298c5c0d86ea862a302c002eb"},
       {"path": "web/pnpm-workspace.yaml", "sha256": "c68333ad4fee8306b204373fb171d96499201df1091fbef1c621b59fdc0839dc"},
       {"path": "deploy/releases/current/qg02-decisions.json", "sha256": "bf93f213f059319eacd7ec89b43b540c775dc1c917cfc5576997e871e0f70db4"},
-      {"path": "deploy/releases/current/provenance/statement.schema.json", "sha256": "f2fdb530703fe9ffdf46763e81a0efe42d571b9f7327b042ac984c234ee68f13"},
+      {"path": "deploy/releases/current/provenance/statement.schema.json", "sha256": "6cad623a6cbece4cd0edd6f053e7d78baa6e6758c7ebf240d6b4bc1a9dbbfab7"},
       {"path": "deploy/releases/current/evidence-policy.json", "sha256": "65befb433f0ca65bec6f3c5c9ba579e7dcedfea67b39c89e156f75fa6da339ad"},
       {"path": "deploy/releases/current/evidence-keys/key_c716f6ffacfe75512ced11ade7428826794e85eadb8d27ecf63489470447f9cb.pem", "sha256": "789622d5e7301d8a930017efc0e5debcaa6bf54dae982c008b6e9f7f24e4aa17"},
-      {"path": "deploy/releases/current/sbom/source.cdx.json", "sha256": "f45becef0bf2658dd6f6749f7a2a22386ba442d5cfa5f207be3b233007aa7b02"}
+      {"path": "deploy/releases/current/sbom/source.cdx.json", "sha256": "30fc7e2dfd5a2e5375e6928e4483edbb5dbc30d000d0a705e376cbb7986d8d76"}
     ],
     "sbom": {
       "path": "deploy/releases/current/sbom/source.cdx.json",
       "format": "CycloneDX 1.7 JSON",
       "componentCount": 130,
-      "sha256": "f45becef0bf2658dd6f6749f7a2a22386ba442d5cfa5f207be3b233007aa7b02",
+      "sha256": "30fc7e2dfd5a2e5375e6928e4483edbb5dbc30d000d0a705e376cbb7986d8d76",
       "generator": "syft 1.51.1"
     },
     "provenanceSchema": {
       "path": "deploy/releases/current/provenance/statement.schema.json",
       "format": "in-toto Statement v1 with SLSA provenance v1 predicate",
-      "sha256": "f2fdb530703fe9ffdf46763e81a0efe42d571b9f7327b042ac984c234ee68f13"
+      "sha256": "6cad623a6cbece4cd0edd6f053e7d78baa6e6758c7ebf240d6b4bc1a9dbbfab7"
     }
   },
   "unresolved": [

@@ -1,0 +1,11 @@
+{
+  "name": "screen-control-meshcentral-spike",
+  "private": true,
+  "version": "0.0.0-g0",
+  "dependencies": {
+    "meshcentral": "1.2.5"
+  },
+  "overrides": {
+    "qs": "6.16.0"
+  }
+}

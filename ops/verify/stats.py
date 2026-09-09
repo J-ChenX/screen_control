@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A07 nearest-rank and packet-loss reference implementation."""
+"""A07 最近秩百分位数与丢包率参考实现。"""
 
 from __future__ import annotations
 

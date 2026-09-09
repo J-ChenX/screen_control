@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed IO-01b toolchain lock validator using only the stdlib."""
+"""仅使用标准库的 IO-01b 工具链锁校验器，失败时默认拒绝继续。"""
 
 from __future__ import annotations
 

@@ -3,11 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Screen Control</title>
+    <meta name="theme-color" content="#122229" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta name="description" content="Screen Control private device portal" />
+    <title>Screen Control · 设备总览</title>
   </head>
   <body>
     <div id="root"></div>
+    <script>window.urlargs = {};</script>
+    <script src="/api/v1/vendor/common.js"></script>
+    <script src="/api/v1/vendor/agent-desktop.js"></script>
+    <script src="/api/v1/vendor/agent-redir.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

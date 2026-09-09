@@ -34,13 +34,13 @@
 |---|---|---|
 | N01 | 三台同一真实局域网 | 三组设备对均在 5 秒稳定窗口后使用 LAN 端点直连并显示“局域网直连”；初始协商可短暂使用 DERP，但稳态不得继续 DERP |
 | N02 | 一台移出局域网 | 无需改地址或手工选择；移出的设备自动变为互联网直连或中继，仍在局域网的设备对继续直连 |
-| N03 | 控屏中网络变化 | 15 秒内恢复画面与控制；无重复按键、连续点击或坐标跳变；UI 更新路径和切换原因 |
+| N03 | 控屏中网络变化 | 15 秒内恢复画面与控制；无重复按键、连续点击或坐标跳变；界面更新路径和切换原因 |
 | N04 | 大文件中网络变化 | 60 秒内从最后确认块续传；最终大小及 SHA-256 一致，不出现伪完整文件 |
-| N05 | 状态真实性 | UI 状态与 Tailscale 连接类型、LocalAPI 或代理采集的实际端点一致；相同私网前缀但不可直达时不得标记为局域网 |
+| N05 | 状态真实性 | 界面状态与 Tailscale 连接类型、LocalAPI 或代理采集的实际端点一致；相同私网前缀但不可直达时不得标记为局域网 |
 
 ## 4. 证据与技术依据
 
 - 当前设备地址、RTT 和连接类型只在 [ENVIRONMENT_AUDIT.md](ENVIRONMENT_AUDIT.md) 维护，避免易变事实重复。
 - Tailscale 节点地址可在设备切换物理网络后保持稳定：[Tailscale IP addresses](https://tailscale.com/docs/concepts/tailscale-ip-addresses)。
-- Tailscale 会在 direct、Peer Relay 与 DERP 之间选择和回退，直连通常具有最低时延和最高吞吐：[Connection types](https://tailscale.com/docs/reference/connection-types)、[Device connectivity](https://tailscale.com/docs/reference/device-connectivity)。
-- MeshCentral WebRTC 是否满足上述直连目标必须实机验证，不能作为既成事实：[MeshCentral WebRTC discussion](https://github.com/Ylianst/MeshCentral/issues/1064)、[MeshAgent WebRTC connectivity report](https://github.com/Ylianst/MeshAgent/issues/324)。
+- Tailscale 会在直连、Peer Relay 与 DERP 之间选择和回退，直连通常具有最低时延和最高吞吐：[Connection types](https://tailscale.com/docs/reference/connection-types)、[Device connectivity](https://tailscale.com/docs/reference/device-connectivity)。
+- MeshCentral WebRTC 是否满足上述直连目标必须实机验证，不能作为既成事实：[MeshCentral WebRTC discussion](https://github.com/Ylianst/MeshCentral/issues/1064)、[MeshAgent WebRTC connectivity 报告](https://github.com/Ylianst/MeshAgent/issues/324)。

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+/usr/bin/systemctl disable --now screen-control-meshagent.service 2>/dev/null || true
+/usr/local/libexec/screen-control-meshagent-firewall remove 2>/dev/null || true
+/usr/bin/sed -i '/[[:space:]]# screen-control-g0$/d' /etc/hosts

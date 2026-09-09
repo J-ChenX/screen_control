@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ylianst/MeshCentral/1.2.5/meshcentral-config-schema.json",
+  "settings": {
+    "cert": "desktop.example.ts.net",
+    "port": 4443,
+    "portBind": "100.64.0.20",
+    "redirPort": 0,
+    "exactPorts": true,
+    "webRTC": true,
+    "selfUpdate": false,
+    "noAgentUpdate": 1,
+    "temporaryAgentUpdate": false,
+    "meshScanner": false,
+    "amtScanner": false,
+    "lockAgentDownload": true,
+    "allowLoginToken": false,
+    "allowFraming": true,
+    "allowedFramingOrigins": [
+      "https://portal.example.ts.net"
+    ],
+    "userAllowedIP": [
+      "100.64.0.10",
+      "100.64.0.20",
+      "100.64.0.30"
+    ],
+    "agentAllowedIP": [
+      "100.64.0.10",
+      "100.64.0.20",
+      "100.64.0.30"
+    ]
+  },
+  "domains": {
+    "": {
+      "title": "Screen Control G0 Spike",
+      "newAccounts": false,
+      "agentNoProxy": true,
+      "allowedFramingOrigins": [
+        "https://portal.example.ts.net"
+      ],
+      "clipboardGet": false,
+      "clipboardSet": false,
+      "localSessionRecording": false
+    }
+  }
+}

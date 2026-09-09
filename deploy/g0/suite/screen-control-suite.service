@@ -1,0 +1,21 @@
+[Unit]
+Description=Screen Control 统一门户与 G0 桥接服务
+Wants=network-online.target syncclipboard.service
+After=network-online.target syncclipboard.service
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/screen-control/screen-control.env
+EnvironmentFile=-%h/.config/screen-control/tailscale.env
+EnvironmentFile=-%h/.config/screen-control/gateway/gateway.env
+EnvironmentFile=-%h/.config/screen-control/metrics.env
+ExecStart=%h/.local/lib/screen-control/current/bin/screen-control --serve --listen 127.0.0.1:8790 --portal-dir %h/.local/lib/screen-control/current/share/portal
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

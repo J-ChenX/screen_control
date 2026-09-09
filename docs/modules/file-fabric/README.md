@@ -1,7 +1,9 @@
-# File Fabric — 统一文件数据面
+# 文件数据面 — 统一文件数据面
+
+> 公开版本已将实际地址与用户路径替换为配置变量/占位符；历史环境记录不表示当前部署配置。变量说明见根目录 `.env.example` 和 `docs/CONFIGURATION.md`。
 
 **最后更新：** 2026-09-03  
-**状态：** ✅ 血肉完成；代码均为 `[计划中 — 代码尚未存在]`
+**状态：** ✅ 生产设计完成；G0 Mesh 文件桥接已可用，统一文件数据面代码仍为 `[计划中]`
 
 ## 一句话职责
 
@@ -10,19 +12,25 @@
 ## 边界
 
 - Linux 从 `/`、Windows 从可用卷根开始；不可访问对象显示权限不足，不提权。
-- `/home/operator/nas` 是普通目录，不拥有独立页面、API、权限或缓存副本。
+- `$HOME/nas` 是普通目录，不拥有独立页面、API、权限或缓存副本。
 - 同设备支持复制/移动；跨设备只支持复制，不出现移动入口。
 - 不开放文件预览执行、回收站恢复/清空、自动同步、任意 URL 拉取或特殊设备访问。
+
+## 当前 G0 实机桥接
+
+门户已用单独的 `g0-files` 最小权限账号接通 MeshCentral 协议 5，可在三台登记设备的普通用户权限内浏览目录、上传、下载、新建、重命名和永久删除。桌面账号仍明确禁止文件权限，文件账号禁止终端并仅授予只读桌面权限；浏览器从同源后端获取协议脚本和一次性中继路径，不接触 Mesh 凭据。
+
+该桥接只用于当前三机 G0：下载上限 512 MB，上传不支持恢复，不具备 SafeFS 逐组件校验、中心意图、端点 journal/outbox、回收站降级状态机、内容哈希或跨设备复制。下述生产契约和工作包仍是权威目标，不能把 G0 可操作性记作文件数据面验收完成。
 
 ## 核心流程
 
 | 场景 | 流程 |
 |---|---|
 | 浏览/搜索 | 设备能力 → SafeFS 逐组件打开 → 类型/权限/挂载分类 → 分页结果 |
-| 变更/批量 | 操作摘要/幂等键 → 中心持久 intent → 租约/capability → 端点 journal 幂等执行 → outbox 回传审计与逐项 effects |
+| 变更/批量 | 操作摘要/幂等键 → 中心持久意图 → 租约/capability → 端点日志幂等执行 → 事务发件箱回传审计与逐项副作用 |
 | 上传/替换 | 预留空间 → 同目录排他临时对象 → 分块确认/SHA-256 → 前置条件重验 → 原子提交 |
-| 下载 | 句柄与能力复核 → Web Worker 携带内存 capability 直连代理 → Range 流式落盘/逐块确认 → 客户端最终哈希 |
-| 跨机复制 | 固定源/目标设备 ID → 双端授权与共同 manifest → 代理直传 → 目标原子提交 |
+| 下载 | 句柄与能力复核 → 网页 Worker 携带内存能力凭据直连代理 → Range 流式落盘/逐块确认 → 客户端最终哈希 |
+| 跨机复制 | 固定源/目标设备 ID → 双端授权与共同清单 → 代理直传 → 目标原子提交 |
 | 删除 | `Trash` → Trashed；仅 Unsupported 可进入二次确认和新授权的永久删除 |
 
 ## 业务规则
@@ -35,19 +43,19 @@
 | 传播性挂载 | 可访问时显示存储类型；覆盖/移动/删除增加外部传播警示 |
 | 回收站 Unsupported | 显式不可恢复二次确认后签发新一次性授权；Failed/Unknown 不可降级永久删除 |
 | 大文件 | 上传、下载、跨机复制均提供 Query/Resume/Abort/Result、>3 GB 断点续传和 SHA-256；浏览器不支持直连流式写盘时触发选型阻断，不回退门户中转 |
-| 审计 | 中心 intent 成功才授权端点；端点 durable journal + outbox 跨崩溃重传，Portal 只在中心 receipt 后显示终态成功 |
+| 审计 | 中心意图成功才授权端点；端点持久化日志 + 事务发件箱跨崩溃重传，门户只在中心回执后显示终态成功 |
 
 ## 对外契约
 
-字段、route、operation、`ItemResult`、传输生命周期、审计一致性和 deadline **只**由[协议契约 §2–§5、§9](../../appendix/protocol-contracts.md)定义。本表仅索引所有权。
+字段、路由、操作、`ItemResult`、传输生命周期、审计一致性和截止时间 **只**由[协议契约 §2–§5、§9](../../appendix/protocol-contracts.md)定义。本表仅索引所有权。
 
 | 接口组 | 权威条目 | 消费者 |
 |---|---|---|
-| 读取/搜索 | File Fabric v1 entries/object/searches | portal |
-| 变更/永久删除 | File Fabric v1 mutations/permanent-delete | portal |
-| 传输 | Transfer Start/Query/Resume/Abort/Result/Commit + data plane | portal/agent |
-| 跨机复制 | `Operation(kind=file.device-copy)` + Transfer lifecycle | portal、两端 agent |
-| 审计 | intent + journal + outbox + `AuditReceipt` | 本模块内部 |
+| 读取/搜索 | 文件数据面 v1 entries/object/searches | 门户 |
+| 变更/永久删除 | 文件数据面 v1 mutations/permanent-delete | 门户 |
+| 传输 | 传输 Start/Query/Resume/Abort/Result/Commit + data plane | portal/agent |
+| 跨机复制 | `Operation(kind=file.device-copy)` + 传输生命周期 | 门户、两端代理 |
+| 审计 | 意图 + 日志 + 事务发件箱 + `AuditReceipt` | 本模块内部 |
 
 详细组件与状态机见 [架构](architecture.md)，安全边界见 [安全](security.md)。
 
@@ -58,8 +66,8 @@
 | FF-00（4h） | 三台锁定浏览器 >3 GiB 流式落盘/恢复能力尖峰 | A11 前置硬门 |
 | FF-01（4h） | SafeFS 与三平台命名空间/对象分类 | A08 |
 | `FF-02a`–`FF-02c` | 列表/搜索、先行审计一致性骨架、其上的变更/部分结果与回收站 | A09–A10、A12、SG04 |
-| `FF-03a`–`FF-03c` | 浏览器直连硬门、Transfer lifecycle、分块续传与原子提交 | A10–A11；>3 GB 硬门 |
+| `FF-03a`–`FF-03c` | 浏览器直连硬门、传输生命周期、分块续传与原子提交 | A10–A11；>3 GB 硬门 |
 | `FF-04a`–`FF-04b` | 双端授权跨机复制、固定设备解析与路径切换 | A09–A11、N04 |
-| `FF-05a`–`FF-05d` | Portal 集成及按目标拆分的三来源/故障矩阵 | A08–A12 |
+| `FF-05a`–`FF-05d` | 门户集成及按目标拆分的三来源/故障矩阵 | A08–A12 |
 
 所属交付流见 [文件数据面任务](../../tasks/private-web-remote-files/_INDEX.md)。

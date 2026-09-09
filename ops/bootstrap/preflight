@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""IO-01a/IO-01b hash-pinned bootstrap recorder.
+"""IO-01a/IO-01b 使用哈希固定版本的引导记录器。
 
-This file is the complete executable allowlist.  It never accepts an arbitrary
-command and it does not write to target nodes.  Remote probes are sent over the
-already-configured SSH transport and all evidence is sealed locally.
+本文件定义完整的可执行命令白名单，不接受任意命令，也不向目标节点写入文件。
+远程探测通过已配置的 SSH 连接发送，所有证据均在本地封存。
 
-IO-01b adds only a fixed local build/validation command set; it never extends
-the remote command surface.
+IO-01b 仅增加固定的本地构建与校验命令集，不扩展远程命令范围。
 """
 
 from __future__ import annotations
@@ -40,7 +38,7 @@ SCRIPT_PATH = Path(__file__).resolve()
 PROJECT_ROOT = SCRIPT_PATH.parents[2]
 PIN_PATH = SCRIPT_PATH.with_name("preflight.sha256")
 BUNDLE_SCHEMA_PATH = SCRIPT_PATH.with_name("bundle.schema.json")
-BUNDLE_SCHEMA_SHA256 = "c6c3677ae9b9ccafca76ce3658bc4e372b0281d4d5e58db87e8338b909818343"
+BUNDLE_SCHEMA_SHA256 = "79d80e4913d7565cfb661078f2ce23dcf707d9aca7b1be8466e4cd1c49c38541"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "evidence" / "bootstrap" / "io-01a"
 TOOLCHAIN_OUTPUT_ROOT = PROJECT_ROOT / "evidence" / "bootstrap" / "io-01b"
 TOOLCHAIN_LOCK_PATH = PROJECT_ROOT / "deploy" / "releases" / "current" / "toolchain.lock.json"
@@ -73,11 +71,26 @@ class Probe:
     stability: str = "stable"
 
 
+# 设备 ID 是稳定的协议键；部署身份属于私有输入。
 NODES = {
-    "nix": Node("nix", "linux", None, "nix", "100.64.0.10"),
-    "echova": Node("echova", "linux", "operator@100.64.0.20", "echova", "100.64.0.20"),
-    "jiang-chenx": Node("jiang-chenx", "windows", "operator@100.64.0.30", "Jiang_ChenX", "100.64.0.30"),
+    "nix": Node("nix", "linux", None, os.getenv("SCREEN_CONTROL_NIX_HOSTNAME", ""), os.getenv("SCREEN_CONTROL_NIX_IP", "")),
+    "echova": Node("echova", "linux", os.getenv("SCREEN_CONTROL_ECHOVA_SSH_TARGET", ""), os.getenv("SCREEN_CONTROL_ECHOVA_HOSTNAME", ""), os.getenv("SCREEN_CONTROL_ECHOVA_IP", "")),
+    "jiang-chenx": Node("jiang-chenx", "windows", os.getenv("SCREEN_CONTROL_WINDOWS_SSH_TARGET", ""), os.getenv("SCREEN_CONTROL_WINDOWS_HOSTNAME", ""), os.getenv("SCREEN_CONTROL_WINDOWS_IP", "")),
 }
+
+
+def validate_node(node: Node) -> None:
+    try:
+        valid_ip = ipaddress.ip_address(node.expected_tailscale_ip) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        valid_ip = False
+    if not valid_ip or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,252}", node.expected_hostname):
+        raise ValueError(f"{node.name}: configure hostname and individual Tailscale IPv4 via SCREEN_CONTROL_* environment")
+    if node.ssh_target is not None:
+        match = re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*@([0-9.]+)", node.ssh_target)
+        if not match or match[1] != node.expected_tailscale_ip:
+            raise ValueError(f"{node.name}: SSH target must be user@configured-Tailscale-IPv4")
+
 
 LINUX_PROBES: tuple[Probe, ...] = (
     Probe("hostname", "recovery", ("hostname",)),
@@ -270,7 +283,7 @@ def hash_tag(value: str, label: str) -> str:
     return f"<{label}:sha256:{sha256_bytes(value.encode())[:12]}>"
 
 
-APPROVED_IPS = {"100.64.0.10", "100.64.0.20", "100.64.0.30", "127.0.0.1", "0.0.0.0"}
+APPROVED_IPS = {"127.0.0.1", "0.0.0.0"} | {node.expected_tailscale_ip for node in NODES.values() if node.expected_tailscale_ip}
 
 
 def redact_text(value: str) -> str:
@@ -305,7 +318,7 @@ def redact_text(value: str) -> str:
 
 
 def decode_output(output: bytes) -> str:
-    """Decode Unix UTF-8 and localized Windows OpenSSH/PowerShell output."""
+    """解码 Unix UTF-8 输出及本地化的 Windows OpenSSH/PowerShell 输出。"""
     if output.startswith((b"\xff\xfe", b"\xfe\xff")) or (len(output) >= 4 and output[1::2].count(0) >= max(2, len(output[1::2]) // 3)):
         try:
             return output.decode("utf-16", errors="strict") if output.startswith((b"\xff\xfe", b"\xfe\xff")) else output.decode("utf-16le", errors="strict")
@@ -458,7 +471,7 @@ def nonempty(value: Any) -> bool:
 
 
 def semantic_fact_checks(node: Node, events: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """Validate facts, rather than treating a zero exit code as sufficient."""
+    """验证实际结果，不能仅凭退出码为零就判定通过。"""
     checks: dict[str, dict[str, Any]] = {}
 
     def record(category: str, conditions: list[tuple[bool, str]]) -> None:
@@ -611,6 +624,7 @@ def command_label(probe: Probe) -> str:
 
 
 def build_command(node: Node, probe: Probe) -> list[str]:
+    validate_node(node)
     if node.os_family == "linux":
         assert isinstance(probe.command, tuple)
         if node.ssh_target is None:
@@ -741,7 +755,7 @@ def run_probe(node: Node, probe: Probe) -> dict[str, Any]:
     if exit_code == 0 and not stdout_truncated and not stderr_truncated:
         try:
             summary = parse_summary(probe.parser, stdout)
-        except Exception as error:  # the recorder must preserve parse failures
+        except Exception as error:  # 记录器必须保留解析失败信息
             parse_error = f"{type(error).__name__}: {error}"
     status = (
         "passed"
@@ -880,6 +894,8 @@ def create_run_dir(output_root: Path, prefix: str = "io-01a") -> tuple[str, Path
 
 
 def collect(selected_names: list[str], output_root: Path) -> Path:
+    for name in selected_names:
+        validate_node(NODES[name])
     executable_hash = verify_self()
     recorder_bytes = SCRIPT_PATH.read_bytes()
     if sha256_bytes(recorder_bytes) != executable_hash:
@@ -1304,7 +1320,7 @@ def verify_bundle(run_dir: Path) -> dict[str, Any]:
             snapshot = json.loads((run_dir / name).read_text(encoding="utf-8"))
             expected_node = name.removeprefix("snapshot-").removesuffix(".json")
             parsed_snapshots[expected_node] = snapshot
-            if snapshot.get("runId") not in (None, run_id):  # legacy v1 omitted runId
+            if snapshot.get("runId") not in (None, run_id):  # 旧版 v1 未包含 runId
                 errors.append(f"snapshot runId mismatch {name}")
             if snapshot.get("node") != expected_node or snapshot.get("workPackage") != WORK_PACKAGE:
                 errors.append(f"snapshot identity mismatch {name}")
@@ -1337,7 +1353,7 @@ def verify_bundle(run_dir: Path) -> dict[str, Any]:
                 seen.add(key)
                 if event.get("node") not in nodes or not event.get("probeId") or event.get("schemaVersion") != manifest.get("schemaVersion"):
                     errors.append(f"invalid command event line {line_number}")
-                if event.get("runId") not in (None, run_id):  # legacy v1 omitted runId
+                if event.get("runId") not in (None, run_id):  # 旧版 v1 未包含 runId
                     errors.append(f"command event runId mismatch line {line_number}")
                 if modern_bundle:
                     required = {"schemaVersion", "runId", "node", "probeId", "category", "commandAllowlistId", "startedUtc", "finishedUtc", "monotonicDurationMs", "status", "stdoutSha256", "stderrSha256", "stdoutBytes", "stderrBytes"}

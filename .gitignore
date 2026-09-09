@@ -1,4 +1,50 @@
+# 私有部署状态与生成的配置
+/.private/
 /evidence/
+.env
+.env.*
+*.env
+*.env.*
+*.local
+*.local.*
+!*.env.example
+!.env.example
+secrets/
+credentials.json
+*.key
+*.pem
+# 已审查的验签公钥是需要保留在仓库中的资源。
+!/deploy/releases/current/evidence-keys/*.pem
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+.ssh/
+meshcentral-data/
+meshcentral-files/
+meshcentral-backups/
+/deploy/spike/meshcentral/config.json
+
+# 运行时数据库、备份与诊断采集文件
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.bak
+*.bak-*
+*.backup
+*.backup.*
+*.dump
+*.before-*
+*.log
+*.har
+*.pcap
+*.pcapng
+
+# 依赖、构建产物与本地工具
 __pycache__/
 *.py[cod]
 /bin/
@@ -9,7 +55,5 @@ __pycache__/
 /web/test-results/
 /web/*.tsbuildinfo
 /.tools/
-*.local
-.env
-.env.*
-!.env.example
+.DS_Store
+Thumbs.db

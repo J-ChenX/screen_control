@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import os
 import hashlib
 from pathlib import Path
 import sys
@@ -20,7 +21,13 @@ def load_preflight():
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[loader.name] = module
-    loader.exec_module(module)
+    fixture_env = {}
+    for line in (PROJECT_ROOT / ".env.example").read_text().splitlines():
+        if line.startswith("SCREEN_CONTROL_"):
+            key, value = line.split("=", 1)
+            fixture_env[key] = value.strip("\"' ")
+    with mock.patch.dict(os.environ, fixture_env):
+        loader.exec_module(module)
     return module
 
 

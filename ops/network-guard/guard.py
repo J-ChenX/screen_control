@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed-surface IO-01d network change rollback exercise."""
+"""IO-01d 网络变更回滚演练，仅开放固定操作范围。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import os
+import ipaddress
 from pathlib import Path
 import re
 import shlex
@@ -19,10 +21,27 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 KNOWN_HOSTS = Path.home() / ".ssh" / "known_hosts"
 NODES = {
-    "nix": {"os": "linux", "target": None, "ip": "100.64.0.10", "verifier": "echova", "verifierIp": "100.64.0.20"},
-    "echova": {"os": "linux", "target": "operator@100.64.0.20", "ip": "100.64.0.20", "verifier": "nix", "verifierIp": "100.64.0.10"},
-    "jiang-chenx": {"os": "windows", "target": "operator@100.64.0.30", "ip": "100.64.0.30", "verifier": "echova", "verifierIp": "100.64.0.20"},
+    "nix": {"os": "linux", "target": None, "ip": os.getenv("SCREEN_CONTROL_NIX_IP", ""), "verifier": "echova", "verifierIp": os.getenv("SCREEN_CONTROL_ECHOVA_IP", "")},
+    "echova": {"os": "linux", "target": os.getenv("SCREEN_CONTROL_ECHOVA_SSH_TARGET", ""), "ip": os.getenv("SCREEN_CONTROL_ECHOVA_IP", ""), "verifier": "nix", "verifierIp": os.getenv("SCREEN_CONTROL_NIX_IP", "")},
+    "jiang-chenx": {"os": "windows", "target": os.getenv("SCREEN_CONTROL_WINDOWS_SSH_TARGET", ""), "ip": os.getenv("SCREEN_CONTROL_WINDOWS_IP", ""), "verifier": "echova", "verifierIp": os.getenv("SCREEN_CONTROL_ECHOVA_IP", "")},
 }
+
+
+def validate_inventory() -> None:
+    addresses = []
+    for name, node in NODES.items():
+        for key in ("ip", "verifierIp"):
+            if ipaddress.ip_address(str(node[key])) not in ipaddress.ip_network("100.64.0.0/10"):
+                raise ValueError(f"{name}: configure individual Tailscale IPv4 addresses")
+        addresses.append(node["ip"])
+        target = node["target"]
+        if target is not None:
+            match = re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*@([0-9.]+)", str(target))
+            if not match or match[1] != node["ip"]:
+                raise ValueError(f"{name}: SSH target must be user@configured-Tailscale-IPv4")
+    if len(set(addresses)) != len(addresses):
+        raise ValueError("target addresses must be distinct")
+
 MAX_OUTPUT = 8 * 1024 * 1024
 
 
@@ -40,6 +59,8 @@ def run(command: list[str], timeout: int = 30, check: bool = True) -> subprocess
 
 
 def ssh_command(target: str, remote: str) -> list[str]:
+    if not target or target.startswith("-") or any(c.isspace() for c in target):
+        raise ValueError("invalid SSH target")
     return [
         "ssh", "-p", "22", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
         "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}",
@@ -77,7 +98,7 @@ def verifier_ping(target: str, should_succeed: bool) -> bool:
     if node["verifier"] == "nix":
         result = run(ping, timeout=5, check=False)
     else:
-        result = run(ssh_command("operator@100.64.0.20", shlex.join(ping)), timeout=8, check=False)
+        result = run(ssh_command(str(NODES[str(node["verifier"])]["target"]), shlex.join(ping)), timeout=8, check=False)
     succeeded = result.returncode == 0
     return succeeded == should_succeed
 
@@ -91,6 +112,7 @@ def target_ssh_health(target: str) -> bool:
 
 
 def exercise_linux(node: str, run_tag: str, rollback_seconds: int) -> dict[str, Any]:
+    validate_inventory()
     source = str(NODES[node]["verifierIp"])
     unit = f"screen-control-rollback-{run_tag}-{node}".replace("_", "-")
     rule = ["INPUT", "-i", "tailscale0", "-p", "icmp", "--icmp-type", "echo-request", "-s", source, "-m", "comment", "--comment", run_tag, "-j", "DROP"]
@@ -138,6 +160,7 @@ def ps_quote(value: str) -> str:
 
 
 def exercise_windows(run_tag: str, rollback_seconds: int) -> dict[str, Any]:
+    validate_inventory()
     node = "jiang-chenx"
     source = str(NODES[node]["verifierIp"])
     rule_name = f"screen-control-io01d-{run_tag}"

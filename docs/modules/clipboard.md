@@ -1,4 +1,4 @@
-# Clipboard — SyncClipboard 集成健康
+# 剪贴板 — SyncClipboard 集成健康
 
 **最后更新：** 2026-09-03  
 **状态：** ✅ 血肉完成；代码均为 `[计划中 — 代码尚未存在]`
@@ -9,14 +9,14 @@
 
 ## 业务背景与边界
 
-本模块不实现第二套剪贴板协议或网页历史列表。Windows 保留系统 Win+V；两台 Ubuntu 由 GNOME 持久绑定 `Super+V` 到 SyncClipboard 官方 `--command-OpenHistoryPanel`，固定中文 locale。远控内核剪贴板必须关闭，避免重复或循环。
+本模块不实现第二套剪贴板协议或网页历史列表。Windows 保留系统 Win+V；两台 Ubuntu 由 GNOME 持久绑定 `Super+V` 到 SyncClipboard 官方 `--command-OpenHistoryPanel`，固定中文区域设置。远控内核剪贴板必须关闭，避免重复或循环。
 
 ## 核心流程
 
 | 场景 | 流程 | 计划代码/配置 |
 |---|---|---|
-| 健康采集 | agent 探测服务端可达、文本往返、历史/文件队列 → 独立状态/诊断 | `internal/agent/clipboard/` |
-| 快捷键检查 | 读取桌面绑定、locale、命令入口和应用状态 → 漂移告警 | `internal/agent/clipboard/hotkey_*` |
+| 健康采集 | 代理探测服务端可达、文本往返、历史/文件队列 → 独立状态/诊断 | `internal/agent/clipboard/` |
+| 快捷键检查 | 读取桌面绑定、区域设置、命令入口和应用状态 → 漂移告警 | `internal/agent/clipboard/hotkey_*` |
 | 版本迁移 | 备份三端配置/数据库/历史 → 一致升级 3.2.0 → A13 → 保留或回滚 | `deploy/clipboard/` |
 | 私网切换 | 验证 Tailscale 私网入口 → 更新三客户端 → 观察 → 关闭 cpolar/多余 5033 | `ops/migrations/clipboard-private/` |
 
@@ -32,11 +32,11 @@
 
 ## 私网认证与加密边界
 
-SyncClipboard 服务本体只监听 `echova` loopback，不直接监听 Tailnet、LAN 或公网。`clipboard-gateway` 在 echova 的固定 Tailscale 地址上终止 TLS 1.3，并要求逐设备 mTLS；三台设备各有不同、不可导出的客户端私钥和证书 serial，证书绑定 identity 登记中的稳定设备 ID、用途 `syncclipboard`、登记代次和有效期。网关同时以真实 socket peer 调用 `WhoIsForIP`，只有“mTLS 设备 ID = socket peer 稳定节点 ID = 当前有效登记”时才代理到 loopback，任一身份源未知或不一致即失败关闭。
+SyncClipboard 服务本体只监听 `echova` 回环地址，不直接监听 Tailscale 私有网络、LAN 或公网。`clipboard-gateway` 在 echova 的固定 Tailscale 地址上终止 TLS 1.3，并要求逐设备 mTLS；三台设备各有不同、不可导出的客户端私钥和证书序列号，证书绑定身份模块登记中的稳定设备 ID、用途 `syncclipboard`、登记代次和有效期。网关同时以真实套接字对端调用 `WhoIsForIP`，只有“mTLS 设备 ID = 套接字对端稳定节点 ID = 当前有效登记”时才代理到回环地址，任一身份源未知或不一致即失败关闭。
 
-若 SyncClipboard 客户端不能直接提供客户端证书，则在每台机器以对应普通用户运行 `screen-control-clipboard-connector`：SyncClipboard 只连接本机 loopback connector，connector 再以 OS 凭据存储中的逐设备证书建立 mTLS；禁止退化成三机共享密码、URL token 或明文 5033。服务端证书按精确 MagicDNS/FQDN 校验并固定受控 CA，不接受跳过验证、自签名任意信任或 HTTP 回退。connector 和 gateway 均不得记录正文或凭据。
+若 SyncClipboard 客户端不能直接提供客户端证书，则在每台机器以对应普通用户运行 `screen-control-clipboard-connector`：SyncClipboard 只连接本机回环地址连接器，连接器再以操作系统凭据存储中的逐设备证书建立 mTLS；禁止退化成三机共享密码、URL 令牌或明文 5033。服务端证书按精确 MagicDNS/FQDN 校验并固定受控 CA，不接受跳过验证、自签名任意信任或 HTTP 回退。连接器和网关均不得记录正文或凭据。
 
-迁移按设备轮换：签发新 serial → 安装到该设备 OS 凭据存储 → 验证三项健康和 peer 双绑定 → 撤销该设备旧 serial；单设备重叠窗口最长 24 小时且旧证书只保留相同设备/用途，不可扩大权限。三机成功并过观察窗后，轮换/撤销旧公网访问凭据和服务密钥，删除 cpolar 配置，关闭公网入口及所有非 loopback 5033；设备替换或丢失不等待观察窗，立即撤销对应 serial。回滚只能回到已记录、仍在时限内的逐设备凭据，不能重新启用已撤销共享/公网凭据；若候选协议无法满足这些约束，私网迁移失败并阻断 G5，而不是降低认证要求。
+迁移按设备轮换：签发新序列号 → 安装到该设备操作系统凭据存储 → 验证三项健康和对端双绑定 → 撤销该设备旧序列号；单设备重叠窗口最长 24 小时且旧证书只保留相同设备/用途，不可扩大权限。三机成功并过观察窗后，轮换/撤销旧公网访问凭据和服务密钥，删除 cpolar 配置，关闭公网入口及所有非回环地址 5033；设备替换或丢失不等待观察窗，立即撤销对应序列号。回滚只能回到已记录、仍在时限内的逐设备凭据，不能重新启用已撤销共享/公网凭据；若候选协议无法满足这些约束，私网迁移失败并阻断 G5，而不是降低认证要求。
 
 ## 对外接口
 
@@ -50,7 +50,7 @@ ReadClipboardHealth(device) -> ClipboardHealth{
 }
 ```
 
-`ClipboardProbe`/`ClipboardProjection` 在普通用户 `platform-agent` 内生成三项 `ComponentFact`，再由唯一 agent report 写入 control-plane；`portal` 只读带 `factsVersion` 的同一 snapshot/events，不直连本模块。状态统一为 `ready|degraded|unavailable|unknown`，每项均带事实时间和安全诊断码；30/90/180 s freshness 只作用于对应三项，设备在线状态仍由 agent 心跳决定。
+`ClipboardProbe`/`ClipboardProjection` 在普通用户 `platform-agent` 内生成三项 `ComponentFact`，再由唯一代理报告写入控制面；`portal` 只读带 `factsVersion` 的同一 snapshot/events，不直连本模块。状态统一为 `ready|degraded|unavailable|unknown`，每项均带事实时间和安全诊断码；30/90/180 s 新鲜度只作用于对应三项，设备在线状态仍由代理心跳决定。
 
 ## 架构与预算
 
@@ -77,12 +77,12 @@ ReadClipboardHealth(device) -> ClipboardHealth{
 
 ## 安全负向门
 
-G5/A13 除正常传播矩阵外，必须从临时未登记 Tailnet 节点、公网探针和非 Tailscale LAN 地址尝试连接，并使用错误设备证书、另一已登记设备的证书、已替换设备证书、已撤销/过期 serial、证书与 socket peer 不匹配、错误服务端名称、无 TLS 和直连 loopback/5033 的路径；全部必须在到达 SyncClipboard 服务前拒绝。还要证明公网域名/cpolar 不可达、非服务端监听不存在、旧公网凭据无效，且日志/证据不含证书私钥、应用 token、文本、图片或文件正文。
+G5/A13 除正常传播矩阵外，必须从临时未登记 Tailscale 私有网络节点、公网探针和非 Tailscale LAN 地址尝试连接，并使用错误设备证书、另一已登记设备的证书、已替换设备证书、已撤销/过期序列号、证书与套接字对端不匹配、错误服务端名称、无 TLS 和直连 loopback/5033 的路径；全部必须在到达 SyncClipboard 服务前拒绝。还要证明公网域名/cpolar 不可达、非服务端监听不存在、旧公网凭据无效，且日志/证据不含证书私钥、应用令牌、文本、图片或文件正文。
 
 ## 测试与工作包
 
 | 工作包 | 内容 | 验收 |
 |---|---|---|
-| `IO-02a`–`IO-02h` | migration、逐设备 mTLS gateway、条件 connector、三项探针、Portal 集成、切换、24h soak 和旧入口退役 | A13、G5 |
+| `IO-02a`–`IO-02h` | 迁移、逐设备 mTLS 网关、条件连接器、三项探针、门户集成、切换、24h 长稳测试和旧入口退役 | A13、G5 |
 
 A13 使用每系统 5 条合成文本、1 张合成图片、1 个 ≤10 MB 合成文件、短断线恢复及两台 Ubuntu 的登录/重启/锁屏/24h `Super+V` 矩阵，并包含上述逐设备认证、加密、旧凭据撤销与未登记/公网负向门。所属交付流见 [集成与运维任务](../tasks/private-web-remote-integration-ops/_INDEX.md)。集中数据分类和残余风险见[项目威胁模型](../appendix/threat-model.md)。

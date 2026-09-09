@@ -1,7 +1,7 @@
-// Package v1 is the single owner of cross-process protocol contracts.
+// v1 包是跨进程协议契约的唯一维护方。
 //
-// IO-01b deliberately contains no wire types yet. Those types are generated
-// from the versioned schema by the work package that implements each contract;
-// consumers must not define parallel request or response shapes.
+// IO-01b 阶段暂不包含传输类型。这些类型由实现各契约的工作包
+// 根据版本化模式定义生成；
+// 使用方不得另行定义请求或响应结构。
 package v1
 

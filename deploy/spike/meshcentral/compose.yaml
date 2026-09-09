@@ -1,0 +1,77 @@
+name: screen-control-meshcentral-g0
+
+services:
+  meshcentral:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: screen-control-meshcentral-g0:1.2.5
+    network_mode: host
+    restart: "no"
+    read_only: true
+    init: true
+    user: node
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    volumes:
+      - meshcentral-g0-data:/opt/meshcentral/meshcentral-data
+      - meshcentral-g0-files:/opt/meshcentral/meshcentral-files
+      - meshcentral-g0-backups:/opt/meshcentral/meshcentral-backups
+      - type: bind
+        source: ./config.json
+        target: /opt/meshcentral/meshcentral-data/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+
+  provisioner:
+    profiles:
+      - tools
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: screen-control-meshcentral-g0:1.2.5
+    network_mode: none
+    restart: "no"
+    read_only: true
+    init: true
+    user: node
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+    entrypoint:
+      - node
+      - /opt/meshcentral/provision.js
+    volumes:
+      - meshcentral-g0-data:/opt/meshcentral/meshcentral-data
+      - meshcentral-g0-files:/opt/meshcentral/meshcentral-files
+      - meshcentral-g0-backups:/opt/meshcentral/meshcentral-backups
+      - type: bind
+        source: ./config.json
+        target: /opt/meshcentral/meshcentral-data/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+
+volumes:
+  meshcentral-g0-data:
+    name: screen-control-meshcentral-g0-data
+  meshcentral-g0-files:
+    name: screen-control-meshcentral-g0-files
+  meshcentral-g0-backups:
+    name: screen-control-meshcentral-g0-backups

@@ -1,9 +1,3 @@
-# Provenance contract
+# 构建来源证明契约
 
-`statement.schema.json` is the IO-01b SLSA/in-toto envelope skeleton. A release
-build must emit one statement per binary, image, and immutable web artifact.
-Each subject is addressed by SHA-256 and binds the source commit/tree,
-`toolchain.lock.json` hash, builder identity, invocation, start/end UTC, and all
-resolved inputs. IO-01c validates the statement and signs its enclosing evidence
-index; this directory contains no signing key and IO-01b claims no signature.
-
+`statement.schema.json` 是 IO-01b 的 SLSA/in-toto 信封结构骨架。发布构建必须为每个二进制文件、镜像和不可变网页产物分别生成一份声明。每个主体均通过 SHA-256 标识，并绑定源代码提交与目录树、`toolchain.lock.json` 哈希、构建者身份、调用信息、起止 UTC 时间以及所有已解析的输入。IO-01c 负责验证声明，并对包含该声明的证据索引签名；本目录不包含签名密钥，IO-01b 也不宣称已签名。

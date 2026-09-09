@@ -5,6 +5,7 @@ go 1.26.6
 toolchain go1.26.8
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/mattn/go-sqlite3 v1.14.50
 	tailscale.com v1.102.3
 )
@@ -12,7 +13,6 @@ require (
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
-	github.com/coder/websocket v1.8.14 // indirect
 	github.com/dblohm7/wingoes v0.0.0-20240119213807-a09d6be7affa // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect

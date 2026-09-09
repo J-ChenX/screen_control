@@ -1,9 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-
-function App() {
-  return <main aria-label="Screen Control bootstrap">Screen Control</main>;
-}
+import { App } from "./app/App";
+import { ErrorBoundary } from "./app/ErrorBoundary";
+import "./styles.css";
 
 const root = document.getElementById("root");
 if (!root) {
@@ -12,7 +11,8 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );
-

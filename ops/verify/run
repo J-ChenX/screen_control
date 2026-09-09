@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single fail-closed verification and signed-evidence entry point."""
+"""统一的验证与签名证据入口，失败时默认拒绝继续。"""
 
 from __future__ import annotations
 

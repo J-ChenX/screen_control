@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+IPT=/usr/sbin/iptables
+IP6T=/usr/sbin/ip6tables
+CHAIN=SC_MESH_OUT
+CGROUP=system.slice/screen-control-meshagent.service
+AGENT=/opt/screen-control/meshagent/meshagent
+CHECKSUM=/opt/screen-control/meshagent/meshagent.sha256
+SERVER_HOST=${SCREEN_CONTROL_MESH_HOST:-}
+SERVER_IP=${SCREEN_CONTROL_MESH_BIND_IP:-}
+ALLOWED_IPS=$(printf '%s' "${SCREEN_CONTROL_REGISTERED_IPS:-}" | tr ',' ' ')
+set -f
+
+validate_config() {
+    # 修改现有规则前先校验；禁止接受地址范围或 CIDR 网段。
+    printf '%s\n' "$SERVER_HOST" | /usr/bin/awk '
+        length($0) < 1 || length($0) > 253 { exit 1 }
+        { n=split($0,a,"."); for(i=1;i<=n;i++) if(a[i] !~ /^[A-Za-z0-9][A-Za-z0-9-]*$/ || a[i] ~ /-$/ || length(a[i])>63) exit 1 }
+    ' || { echo 'set SCREEN_CONTROL_MESH_HOST to a DNS hostname' >&2; exit 1; }
+    printf '%s\n' "$ALLOWED_IPS" | /usr/bin/awk -v server="$SERVER_IP" '
+        { for(i=1;i<=NF;i++) {
+            ip=$i; n=split(ip,a,"."); if(n!=4 || a[1]!=100 || a[2]<64 || a[2]>127) exit 1;
+            for(j=1;j<=4;j++) if(a[j] !~ /^[0-9]+$/ || a[j]>255) exit 1;
+            if(sprintf("%d.%d.%d.%d",a[1],a[2],a[3],a[4])!=ip || seen[ip]++) exit 1;
+            count++; if(ip==server) found=1;
+        }}
+        END { if(count!=3 || !found) exit 1 }
+    ' || { echo 'configure three distinct Tailscale IPv4 addresses including MESH_BIND_IP' >&2; exit 1; }
+}
+
+delete_jump() {
+    table=$1
+    while "$table" -w -C OUTPUT -m cgroup --path "$CGROUP" -j "$CHAIN" 2>/dev/null; do
+        "$table" -w -D OUTPUT -m cgroup --path "$CGROUP" -j "$CHAIN"
+    done
+}
+
+remove_rules() {
+    delete_jump "$IPT"
+    delete_jump "$IP6T"
+    "$IPT" -w -F "$CHAIN" 2>/dev/null || true
+    "$IPT" -w -X "$CHAIN" 2>/dev/null || true
+    "$IP6T" -w -F "$CHAIN" 2>/dev/null || true
+    "$IP6T" -w -X "$CHAIN" 2>/dev/null || true
+}
+
+assert_prerequisites() {
+    validate_config
+    test -x "$AGENT"
+    test -r "$CHECKSUM"
+    (cd /opt/screen-control/meshagent && /usr/bin/sha256sum -c meshagent.sha256 >/dev/null)
+    test -d "/sys/fs/cgroup/$CGROUP"
+    /usr/sbin/ip link show tailscale0 >/dev/null
+    /usr/bin/awk -v ip="$SERVER_IP" -v host="$SERVER_HOST" '
+        $1 == ip { for (i = 2; i <= NF; i++) if ($i == host) found = 1 }
+        END { exit(found ? 0 : 1) }
+    ' /etc/hosts
+}
+
+apply_rules() {
+    assert_prerequisites
+    remove_rules
+
+    "$IPT" -w -N "$CHAIN"
+    for ip in $ALLOWED_IPS; do
+        "$IPT" -w -A "$CHAIN" -o tailscale0 -d "$ip" -j ACCEPT
+    done
+    "$IPT" -w -A "$CHAIN" -o lo -d "$SERVER_IP" -j ACCEPT
+    "$IPT" -w -A "$CHAIN" -j REJECT --reject-with icmp-port-unreachable
+    "$IPT" -w -I OUTPUT 1 -m cgroup --path "$CGROUP" -j "$CHAIN"
+
+    "$IP6T" -w -N "$CHAIN"
+    "$IP6T" -w -A "$CHAIN" -j REJECT --reject-with icmp6-port-unreachable
+    "$IP6T" -w -I OUTPUT 1 -m cgroup --path "$CGROUP" -j "$CHAIN"
+}
+
+status_rules() {
+    assert_prerequisites
+    "$IPT" -w -C OUTPUT -m cgroup --path "$CGROUP" -j "$CHAIN"
+    "$IPT" -w -C "$CHAIN" -o tailscale0 -d "$SERVER_IP" -j ACCEPT
+    "$IPT" -w -C "$CHAIN" -j REJECT --reject-with icmp-port-unreachable
+    "$IP6T" -w -C OUTPUT -m cgroup --path "$CGROUP" -j "$CHAIN"
+    "$IP6T" -w -C "$CHAIN" -j REJECT --reject-with icmp6-port-unreachable
+}
+
+case "${1:-}" in
+    validate) validate_config ;;
+    apply) apply_rules ;;
+    remove) remove_rules ;;
+    status) status_rules ;;
+    *) echo "usage: $0 validate|apply|remove|status" >&2; exit 2 ;;
+esac

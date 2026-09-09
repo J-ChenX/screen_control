@@ -1,7 +1,7 @@
 //go:build tools
 
-// Package builddeps pins build-time Go module dependencies that are selected
-// by the release manifest before their owning packages are implemented.
+// builddeps 包固定发布清单选定的构建期 Go 模块依赖，
+// 供所属功能包尚未实现时使用。
 package builddeps
 
 import (

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed encrypted online-backup and isolated-restore baseline for IO-04a."""
+"""IO-04a 加密在线备份与隔离恢复基线，失败时默认拒绝继续。"""
 
 from __future__ import annotations
 
@@ -199,10 +199,10 @@ def tree_digest(root: Path) -> str:
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             raise ValueError("fixture tree contains symlink")
-        # SQLite may legitimately update shared-memory coordination bytes during a
-        # read-only online backup. Logical DB state is verified through the backup
-        # API and integrity_check; protected-tree drift excludes only these
-        # documented transient sidecars.
+        # SQLite 在只读在线备份期间可能正常更新共享内存中的协调字节。
+        # 通过备份 API 和 integrity_check 验证数据库的逻辑状态；
+        # 受保护目录树的变更检测仅排除这些
+        # 已记录的临时辅助文件。
         if path.is_file() and not path.name.endswith(("-wal", "-shm")):
             relative = path.relative_to(root).as_posix()
             if path.suffix == ".db":
