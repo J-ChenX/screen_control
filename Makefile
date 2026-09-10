@@ -40,13 +40,17 @@ build:
 	mkdir -p bin
 	mise exec -- corepack pnpm --dir web build
 	mise exec -- go build -trimpath -o bin/screen-control ./cmd/screen-control
+	mise exec -- go build -trimpath -o bin/screen-control-files ./cmd/screen-control-files
 
 bundle: build
 	rm -rf dist/suite
 	install -d dist/suite/bin dist/suite/share/portal dist/suite/deploy
 	install -m 0755 bin/screen-control dist/suite/bin/screen-control
+	install -m 0755 bin/screen-control-files dist/suite/bin/screen-control-files
 	cp -a dist/portal/. dist/suite/share/portal/
 	cp -a deploy/g0/suite/. dist/suite/deploy/
+	install -d dist/suite/deploy/files
+	cp -a deploy/g0/files/. dist/suite/deploy/files/
 	install -d dist/suite/deploy/gateway
 	cp -a deploy/gateway/. dist/suite/deploy/gateway/
 	tar -C dist -czf dist/screen-control-suite.tar.gz suite

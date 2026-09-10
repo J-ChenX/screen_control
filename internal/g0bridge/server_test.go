@@ -25,6 +25,7 @@ func (identity fakeIdentity) Resolve(context.Context, net.Addr, net.Addr) (strin
 }
 
 type fakeMesh struct {
+	openedFile     string
 	devices        []Device
 	tunnel         *Tunnel
 	opened         string
@@ -53,10 +54,17 @@ func testServer(mesh MeshClient) http.Handler {
 }
 
 func testServerForDevice(mesh MeshClient, deviceID string, origins ...string) http.Handler {
-	return NewServerWithIdentity(mesh, fakeIdentity(deviceID), slog.New(slog.NewTextHandler(io.Discard, nil)), origins...).Handler()
+	server := NewServerWithIdentity(mesh, fakeIdentity(deviceID), slog.New(slog.NewTextHandler(io.Discard, nil)), origins...)
+	server.fileOpen = func(_ context.Context, device Device) (fileChannel, error) {
+		if fake, ok := mesh.(*fakeMesh); ok {
+			fake.openedFile = device.NodeID
+		}
+		return fakeFileChannel{}, nil
+	}
+	return server.Handler()
 }
 
-func TestCreateFileSessionUsesProtocolFive(t *testing.T) {
+func TestCreateFileSessionUsesOrdinaryUserChannel(t *testing.T) {
 	mesh := &fakeMesh{
 		devices: []Device{{ID: "nix", NodeID: "node/nix", State: "online"}},
 		tunnel:  &Tunnel{Cookie: "must-not-leak"},
@@ -72,8 +80,8 @@ func TestCreateFileSessionUsesProtocolFive(t *testing.T) {
 	if !strings.Contains(response.Body.String(), `"fileSessionId":"fil_`) {
 		t.Fatalf("response did not contain a file session: %s", response.Body.String())
 	}
-	if mesh.openedProtocol != 5 {
-		t.Fatalf("opened protocol = %d, want 5", mesh.openedProtocol)
+	if mesh.openedFile != "node/nix" || mesh.openedProtocol != 0 {
+		t.Fatalf("文件会话错误地使用了 Mesh 通道")
 	}
 }
 
@@ -135,8 +143,8 @@ func TestCreateDesktopUsesRegisteredOnlineNodeAndHidesRelayCredential(t *testing
 	}
 }
 
-func TestCreateSessionRejectsPortalDeviceAsTarget(t *testing.T) {
-	for _, path := range []string{"/api/v1/desktops", "/api/v1/files/sessions"} {
+func TestCreateDesktopRejectsPortalDeviceAsTarget(t *testing.T) {
+	for _, path := range []string{"/api/v1/desktops"} {
 		t.Run(path, func(t *testing.T) {
 			mesh := &fakeMesh{devices: []Device{{ID: "nix", NodeID: "node/local", State: "online"}}, tunnel: &Tunnel{}}
 			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"targetDeviceId":"nix"}`))
@@ -226,7 +234,7 @@ func TestMobileControllerCanOpenDesktopAndFiles(t *testing.T) {
 		request.Header.Set("Origin", "http://127.0.0.1:5173")
 		response := httptest.NewRecorder()
 		testServerForDevice(mesh, "xiaomi-15").ServeHTTP(response, request)
-		if response.Code != http.StatusAccepted || mesh.openedProtocol != protocol {
+		if response.Code != http.StatusAccepted || (protocol == 2 && mesh.openedProtocol != 2) || (protocol == 5 && (mesh.openedFile != "node/nix" || mesh.openedProtocol != 0)) {
 			t.Fatalf("mobile session: %d %s", response.Code, response.Body.String())
 		}
 	}
@@ -391,4 +399,53 @@ func TestGatewayWebSocketOwnershipAndLogout(t *testing.T) {
 	}
 	out = do("POST", "/auth/logout", "", second)
 	out.Body.Close()
+}
+
+// 文件允许以当前电脑为目标，控屏的自身限制不适用于文件协议。
+func TestCreateFileSessionAcceptsPortalDeviceAsTarget(t *testing.T) {
+	for _, id := range []string{"echova", "nix", "jiang-chenx"} {
+		t.Run(id, func(t *testing.T) {
+			mesh := &fakeMesh{devices: []Device{{ID: id, NodeID: "node/local", State: "online"}}, tunnel: &Tunnel{}}
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/files/sessions", strings.NewReader(`{"targetDeviceId":"`+id+`"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "http://127.0.0.1:5173")
+			response := httptest.NewRecorder()
+			testServerForDevice(mesh, id).ServeHTTP(response, request)
+			if response.Code != http.StatusAccepted || mesh.openedFile != "node/local" || mesh.openedProtocol != 0 {
+				t.Fatalf("本机文件会话未使用协议 5：status=%d, node=%q, protocol=%d", response.Code, mesh.opened, mesh.openedProtocol)
+			}
+		})
+	}
+}
+
+type fakeFileChannel struct{}
+
+func (fakeFileChannel) Relay(context.Context, *websocket.Conn) error { return nil }
+func (fakeFileChannel) Close()                                       {}
+
+func TestFileChannelNeverFallsBackToMesh(t *testing.T) {
+	mesh := &fakeMesh{devices: []Device{{ID: "nix", NodeID: "node/nix", State: "online"}}, tunnel: &Tunnel{}}
+	for _, configured := range []bool{false, true} {
+		server := NewServerWithIdentity(mesh, fakeIdentity("echova"), nil)
+		if configured {
+			if err := server.ConfigureFiles(""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/files/sessions", strings.NewReader(`{"targetDeviceId":"nix"}`))
+		request.Header.Set("Origin", "http://127.0.0.1:5173")
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code < 500 || mesh.opened != "" {
+			t.Fatalf("缺少普通用户配置时仍创建了文件通道：%d", response.Code)
+		}
+	}
+}
+func TestFileTargetsRejectRootAndCommandInjection(t *testing.T) {
+	for _, value := range []string{"nix=root@host", "nix=user@host;id", "unknown=user@host", "nix=user@host,nix=user@other", "nix=-oProxyCommand=x"} {
+		server := NewServerWithIdentity(&fakeMesh{}, fakeIdentity("echova"), nil)
+		if server.ConfigureFiles(value) == nil {
+			t.Fatalf("接受了非法文件配置 %q", value)
+		}
+	}
 }

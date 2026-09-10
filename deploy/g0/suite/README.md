@@ -35,3 +35,7 @@ SCREEN_CONTROL_METRICS_SSH_TARGETS=jiang-chenx=${SCREEN_CONTROL_WINDOWS_SSH_TARG
 ```
 
 SSH 使用已有服务用户密钥、严格主机密钥校验与非交互模式；目标仅由服务端配置决定，HTTP 不接受命令或目标地址。页面隐藏时停止轮询并取消未完成请求，恢复可见时立即刷新；单轮采集最多 3 秒；页面在断连或样本超过 15 秒后停止显示旧数值。此功能不再读取硬件型号清单，也不需要额外的 DeviceDetails 权限。
+
+### 普通用户文件通道
+
+安装器同时安装本机文件进程；另外两台电脑按 [文件进程部署说明](../files/README.md) 安装。提供 `SCREEN_CONTROL_FILE_SSH_TARGETS` 时，安装器将其写入独立的 `files.env`（0600）；未提供时保留现有文件。缺少普通用户配置会拒绝文件连接，不回退到 root/SYSTEM 代理。

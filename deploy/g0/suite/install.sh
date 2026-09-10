@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-project_root="$(cd -- "${script_dir}/../../../.." && pwd)"
+project_root="$(cd -- "${script_dir}/../../.." && pwd)"
 bundle_root="$(cd -- "${script_dir}/.." && pwd)"
 service_root="${HOME}/.local/lib/screen-control"
 unit_root="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
@@ -12,10 +12,14 @@ release_root="${service_root}/releases/${release_id}"
 if [[ -x "${bundle_root}/bin/screen-control" && -f "${bundle_root}/share/portal/index.html" ]]; then
   binary_source="${bundle_root}/bin/screen-control"
   portal_source="${bundle_root}/share/portal"
+  worker_source="${bundle_root}/bin/screen-control-files"
+  worker_installer="${script_dir}/files/install.sh"
 else
   make -C "${project_root}" build
   binary_source="${project_root}/bin/screen-control"
   portal_source="${project_root}/dist/portal"
+  worker_source="${project_root}/bin/screen-control-files"
+  worker_installer="${project_root}/deploy/g0/files/install.sh"
 fi
 
 # 服务不会继承调用它的 shell 环境。仅持久化
@@ -42,6 +46,24 @@ finally:
     if os.path.exists(name): os.unlink(name)
 PYENV
 
+if [[ -v SCREEN_CONTROL_FILE_SSH_TARGETS ]]; then
+  python3 - "${config_root}/files.env" <<'PYFILES'
+import os, pathlib, tempfile, sys
+path = pathlib.Path(sys.argv[1])
+value = os.environ["SCREEN_CONTROL_FILE_SSH_TARGETS"]
+if any(c in value for c in "\n\r\0"):
+    raise ValueError("文件账号配置不能包含换行或空字符")
+fd, name = tempfile.mkstemp(dir=path.parent, prefix=".files.env.")
+try:
+    with os.fdopen(fd, "w") as out:
+        out.write('SCREEN_CONTROL_FILE_SSH_TARGETS="' + value.replace('\\', '\\\\').replace('"', '\\"') + '"\n')
+    os.replace(name, path)
+finally:
+    if os.path.exists(name): os.unlink(name)
+PYFILES
+fi
+
+"${worker_installer}" "${worker_source}"
 install -d -m 0755 "${release_root}/bin" "${release_root}/share/portal" "${unit_root}"
 install -m 0755 "${binary_source}" "${release_root}/bin/screen-control"
 cp -a "${portal_source}/." "${release_root}/share/portal/"

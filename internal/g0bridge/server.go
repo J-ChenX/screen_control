@@ -22,6 +22,7 @@ import (
 )
 
 type Server struct {
+	fileOpen       fileOpener
 	mesh           MeshClient
 	logger         *slog.Logger
 	sessions       sync.Map
@@ -32,6 +33,7 @@ type Server struct {
 }
 
 type desktopSession struct {
+	files        fileChannel
 	closed       bool
 	stopExpiry   func() bool
 	tunnel       *Tunnel
@@ -233,12 +235,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 		s.writeError(w, http.StatusBadRequest, reqID, "INVALID_REQUEST", message)
 		return
 	}
-	if input.TargetDeviceID == clientDeviceID {
-		message := "不能控制当前设备"
-		if kind == "files" {
-			message = "不能向当前设备建立文件会话"
-		}
-		s.writeError(w, http.StatusConflict, reqID, "SELF_TARGET_NOT_ALLOWED", message)
+	if protocol == 2 && input.TargetDeviceID == clientDeviceID {
+		s.writeError(w, http.StatusConflict, reqID, "SELF_TARGET_NOT_ALLOWED", "不能控制当前设备")
 		return
 	}
 	if !remoteTargetDeviceID(input.TargetDeviceID) {
@@ -272,13 +270,23 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 	}
 	sessionID := prefix + randomHex(16)
 	tunnelID := randomHex(18)
-	tunnel, err := s.mesh.OpenTunnel(r.Context(), target.NodeID, tunnelID, protocol)
+	var tunnel *Tunnel
+	var files fileChannel
+	if protocol == 5 {
+		if s.fileOpen == nil {
+			s.writeError(w, http.StatusServiceUnavailable, reqID, "FILE_IDENTITY_UNAVAILABLE", "普通用户文件通道未配置，已拒绝高权限文件操作")
+			return
+		}
+		files, err = s.fileOpen(r.Context(), *target)
+	} else {
+		tunnel, err = s.mesh.OpenTunnel(r.Context(), target.NodeID, tunnelID, protocol)
+	}
 	if err != nil {
 		s.logger.Warn("device tunnel setup failed", "requestId", reqID, "deviceId", target.ID, "kind", kind, "error", err)
 		s.writeError(w, http.StatusBadGateway, reqID, "TUNNEL_SETUP_FAILED", "无法建立设备中继")
 		return
 	}
-	activeSession := &desktopSession{tunnel: tunnel, created: time.Now(), owner: sessionOwner(r, clientDeviceID)}
+	activeSession := &desktopSession{files: files, tunnel: tunnel, created: time.Now(), owner: sessionOwner(r, clientDeviceID)}
 	s.sessions.Store(sessionID, activeSession)
 	if p, ok := appidentity.AuthenticatedPrincipal(r.Context()); ok && p.Lifetime != nil {
 		stop := context.AfterFunc(p.Lifetime, func() {
@@ -368,6 +376,13 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	session.cancel = cancel
 	session.mu.Unlock()
+	if session.files != nil {
+		_ = session.files.Relay(ctx, client)
+		cancel()
+		s.sessions.Delete(sessionID)
+		s.closeSession(session, websocket.StatusNormalClosure, "文件会话已结束")
+		return
+	}
 	upstream, response, err := websocket.Dial(ctx, s.mesh.RelayURL(session.tunnel), nil)
 	if err != nil {
 		if response != nil {
@@ -466,7 +481,7 @@ func (s *Server) handleEndSession(w http.ResponseWriter, r *http.Request, identi
 }
 
 func (s *Server) closeSession(session *desktopSession, status websocket.StatusCode, reason string) {
-	if session == nil || session.tunnel == nil {
+	if session == nil {
 		return
 	}
 	session.mu.Lock()
@@ -482,7 +497,10 @@ func (s *Server) closeSession(session *desktopSession, status websocket.StatusCo
 		session.cancel()
 	}
 	session.mu.Unlock()
-	if session.tunnel.Control != nil {
+	if session.files != nil {
+		session.files.Close()
+	}
+	if session.tunnel != nil && session.tunnel.Control != nil {
 		_ = session.tunnel.Control.Close(status, reason)
 	}
 }
@@ -510,10 +528,7 @@ func keepRelayAlive(ctx context.Context, client, upstream *websocket.Conn, resul
 			return
 		case <-ticker.C:
 			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := client.Ping(pingCtx)
-			if err == nil {
-				err = upstream.Ping(pingCtx)
-			}
+			err := pingRelayPeers(pingCtx, client.Ping, upstream.Ping)
 			cancel()
 			if err != nil {
 				select {
@@ -524,4 +539,23 @@ func keepRelayAlive(ctx context.Context, client, upstream *websocket.Conn, resul
 			}
 		}
 	}
+}
+
+// 两段链路同时探测，避免浏览器响应耗尽上游的心跳预算。
+// 任一段失败即取消另一段，并等待探测退出。
+func pingRelayPeers(ctx context.Context, client, upstream func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan error, 2)
+	for _, ping := range []func(context.Context) error{client, upstream} {
+		go func() { results <- ping(ctx) }()
+	}
+	var firstError error
+	for range 2 {
+		if err := <-results; err != nil && firstError == nil {
+			firstError = err
+			cancel()
+		}
+	}
+	return firstError
 }

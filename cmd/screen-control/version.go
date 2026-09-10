@@ -45,6 +45,7 @@ func main() {
 	gatewayListen := flag.String("gateway-listen", envOr("SCREEN_CONTROL_GATEWAY_LISTEN", ""), "dedicated loopback listener behind an HTTPS tunnel")
 	gatewayOrigin := flag.String("gateway-origin", envOr("SCREEN_CONTROL_GATEWAY_ORIGIN", ""), "exact public HTTPS origin")
 	gatewayCredentials := flag.String("gateway-credentials", envOr("SCREEN_CONTROL_GATEWAY_CREDENTIALS", ""), "private JSON file of device access-key hashes")
+	fileSSHTargets := flag.String("file-ssh-targets", envOr("SCREEN_CONTROL_FILE_SSH_TARGETS", ""), "登记设备的普通用户文件 SSH 目标")
 	flag.Parse()
 	if *serve {
 		mesh, err := g0bridge.NewMeshClientWithFiles(*meshURL, *meshUser, *passwordFile, *meshFileUser, *filePasswordFile)
@@ -65,7 +66,12 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		api := g0bridge.NewServerWithIdentity(mesh, identityResolver, slog.Default(), splitValues(*allowedOrigins)...).Handler()
+		bridge := g0bridge.NewServerWithIdentity(mesh, identityResolver, slog.Default(), splitValues(*allowedOrigins)...)
+		if err := bridge.ConfigureFiles(*fileSSHTargets); err != nil {
+			slog.Error("文件通道配置无效")
+			os.Exit(1)
+		}
+		api := bridge.Handler()
 		handler, err := portalui.NewHandler(api, *portalDir)
 		if err != nil {
 			slog.Error("invalid Portal build", "error", err)
@@ -98,7 +104,12 @@ func main() {
 				slog.Error("invalid gateway authentication", "error", authErr)
 				os.Exit(1)
 			}
-			publicAPI := g0bridge.NewServerWithIdentity(mesh, gateway.Resolver{}, slog.Default(), *gatewayOrigin).Handler()
+			publicBridge := g0bridge.NewServerWithIdentity(mesh, gateway.Resolver{}, slog.Default(), *gatewayOrigin)
+			if err := publicBridge.ConfigureFiles(*fileSSHTargets); err != nil {
+				slog.Error("文件通道配置无效")
+				os.Exit(1)
+			}
+			publicAPI := publicBridge.Handler()
 			publicUI, uiErr := portalui.NewHandler(publicAPI, *portalDir)
 			if uiErr != nil {
 				slog.Error("invalid gateway Portal", "error", uiErr)

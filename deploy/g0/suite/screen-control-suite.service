@@ -9,6 +9,7 @@ EnvironmentFile=%h/.config/screen-control/screen-control.env
 EnvironmentFile=-%h/.config/screen-control/tailscale.env
 EnvironmentFile=-%h/.config/screen-control/gateway/gateway.env
 EnvironmentFile=-%h/.config/screen-control/metrics.env
+EnvironmentFile=-%h/.config/screen-control/files.env
 ExecStart=%h/.local/lib/screen-control/current/bin/screen-control --serve --listen 127.0.0.1:8790 --portal-dir %h/.local/lib/screen-control/current/share/portal
 Restart=on-failure
 RestartSec=3

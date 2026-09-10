@@ -307,3 +307,18 @@ ID 只定位对象，不授予权限。持久资源 ID 由其服务端所有者�
 服务端只提供 v1；客户端发送 `Accept-Version: 1`。相邻一个已发布代理 minor 版本可在同一 v1 下共存；新增字段只能 optional 且必须有安全默认，删除/重命名字段或改变枚举语义必须升主版本。部署顺序为 tolerant reader → producer → 收紧校验器；回滚反向进行。更高主版本、未知安全枚举或缺少绑定一律失败关闭。
 
 契约测试至少覆盖：错误 envelope/HTTP 映射、每个权限矩阵的跨主体负测、三种 `ResourceBinding` 分支互斥、service 游标跨 audience/跨 service/旧 deployment generation/重放拒绝、三类主体各自的账本密钥隔离、同密钥同摘要幂等重试/异摘要拒绝/旧认证上下文重放拒绝、游标过期与溢出、操作取消/unknown、PathPolicy 拒绝消费者事实、DesktopBinding 每入口 IDOR、严格 `targetOrigin`/route Cookie/上游 `Set-Cookie` 失败关闭、`PeerBindingProof` 伪造/重放/helper 不可用、`ItemResult.partial/effects`、传输 direction/mode/role/method/expected-peer 映射与 Query/Resume/Abort/Result、`target-pull` 只允许正确目标执行器在暂存区摘要与日志 fsync 后确认（源 agent/错 target/旧 instance/旧代次拒绝；新认证同密钥 + 同摘要安全返回原结果）、>3 GB 浏览器直连门，以及审计六个崩溃切点。
+
+
+## G0 文件桥接的当前设备规则（2026-09-10）
+
+本节仅说明现有 G0 桥接，不改变上文生产文件数据面协议。按用户要求，`POST /api/v1/files/sessions`（Mesh 协议 5）的 `targetDeviceId` 可以是经服务端识别的当前电脑；仍须通过来源身份、登记目标、在线状态和会话归属校验。`POST /api/v1/desktops`（协议 2）仍拒绝当前设备并返回 `409 SELF_TARGET_NOT_ALLOWED`。手机没有文件代理，文件会话仍返回 `403 TARGET_NOT_SUPPORTED`，通过浏览器上传/下载访问手机文件。
+
+多选复制由门户沿用现有单文件协议顺序执行，逐文件等待目标 `uploaddone` 确认，单文件上限 512 MB；覆盖逐项确认，取消、失败、超时或断线停止后续文件，报告已确认数量及未确认结果，不重放。此行为不等同于生产端点直传、断点续传或目录递归复制。
+
+### G0 文件执行身份修复
+
+文件会话 API、所有权与协议 5 消息保持兼容，执行端改为经固定 SSH 目标启动的普通用户文件进程。标准流采用 4 字节大端长度加正文帧，单帧不超过 1 MiB；首次返回 `workerReady/version=1/uid`。进程与门户均拒绝 root/SYSTEM 身份，缺少普通用户配置时返回 `FILE_IDENTITY_UNAVAILABLE` 或 `TUNNEL_SETUP_FAILED`，禁止回退旧 Mesh 文件通道。只接受既有文件操作，未知命令返回 `action:error`；不会传入或执行浏览器提供的命令。
+
+上传沿用 `upload/uploadstart/uploadack/uploaddone/uploaderror` 与 `reqid`，先在目标目录创建临时文件，校验长度及原目标未变化、同步并替换后才发送 `uploaddone`。权限不足不截断已有文件；中断不重试。覆盖不提供权限提升或自动接管历史 root 文件的能力。
+
+文件列表支持名称、修改时间、大小排序及升降序，目录保持优先。Ctrl/⌘ 多选后右键“压缩选中项（当前设备）”，调用设备自带系统 tar 生成 `.tar.gz`，仅保存在当前设备当前目录，不触发跨设备复制。支持普通文件和文件夹，拒绝符号链接、特殊文件、同名输出及目录越界；输入总大小上限 512 MB、执行最长 2 分钟。失败不发布目标包，成功以 `compressed/reqid/name` 确认；断线后结果未确认须检查目录，不自动重试。请求为 `compress/reqid/path/name/names`，后端独立校验且不接受工具路径、命令或跨设备目标。

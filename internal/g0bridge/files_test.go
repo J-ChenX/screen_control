@@ -1,0 +1,76 @@
+package g0bridge
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+	"screencontrol.local/screen-control/internal/g0files"
+)
+
+// 使用真实 WebSocket 验证浏览器在协议号之前发送 RTT 的连接顺序。
+func TestFileRelayBrowserHandshake(t *testing.T) {
+	input, inputWriter := io.Pipe()
+	outputReader, output := io.Pipe()
+	defer input.Close()
+	defer inputWriter.Close()
+	defer output.Close()
+	defer outputReader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		p := &fileProcess{input: inputWriter, output: outputReader}
+		_ = p.Relay(r.Context(), c)
+	}))
+	defer server.Close()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if err = c.Write(ctx, websocket.MessageText, []byte(`{"ctrlChannel":102938,"type":"rtt"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, greeting, err := c.Read(ctx)
+	if err != nil || string(greeting) != "c" {
+		t.Fatalf("连接应答：%q %v", greeting, err)
+	}
+	if err = c.Write(ctx, websocket.MessageText, []byte("5")); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Write(ctx, websocket.MessageText, []byte(`{"ctrlChannel":"102938","type":"rtt"}`)); err != nil {
+		t.Fatal(err)
+	}
+	request := `{"action":"ls","path":""}`
+	if err = c.Write(ctx, websocket.MessageBinary, []byte(request)); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		data, e := g0files.ReadFrame(input)
+		if e == nil && string(data) != request {
+			e = io.ErrUnexpectedEOF
+		}
+		if e == nil {
+			e = g0files.WriteFrame(output, []byte(`{"dir":[]}`))
+		}
+		result <- e
+	}()
+	_, data, err := c.Read(ctx)
+	if err != nil || string(data) != `{"dir":[]}` {
+		t.Fatalf("目录消息：%q %v", data, err)
+	}
+	if err = <-result; err != nil {
+		t.Fatal(err)
+	}
+}

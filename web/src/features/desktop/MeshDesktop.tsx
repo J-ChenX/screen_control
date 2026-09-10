@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ConnectionRecovery } from "../../network/recovery";
+import { normalizeCursorCommand } from "./cursor";
 import { installTouchInput } from "./touch";
 import { createDesktopSession, endDesktopSession } from "../../api/client";
 import type { Device } from "../../app/model";
@@ -23,10 +24,18 @@ export function fitRemoteCanvas(screenWidth: number, screenHeight: number, viewp
   return { width: Math.round(screenWidth * scale), height: Math.round(screenHeight * scale) };
 }
 
-export function MeshDesktop({ device, toolbarTarget }: { device: Device; toolbarTarget: HTMLElement | null }) {
+export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: { device: Device; toolbarTarget: HTMLElement | null; inputSuspended?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const redirectRef = useRef<AgentRedirect<MeshDesktopModule> | null>(null);
+  const inputSuspendedRef = useRef(inputSuspended);
+  inputSuspendedRef.current = inputSuspended;
+  useEffect(() => {
+    const module = redirectRef.current?.m;
+    if (!module) return;
+    if (inputSuspended) { module.UnGrabKeyInput(); module.UnGrabMouseInput(); }
+    else if (state === "connected") { module.GrabKeyInput(); module.GrabMouseInput(); }
+  }, [inputSuspended]);
   const sessionRef = useRef<string | null>(null);
   const wheelCleanupRef = useRef<(() => void) | null>(null);
   const touchCleanupRef = useRef<(() => void) | null>(null);
@@ -145,6 +154,8 @@ export function MeshDesktop({ device, toolbarTarget }: { device: Device; toolbar
       }
       sessionRef.current = session.desktopSessionId;
       const module = window.CreateAgentRemoteDesktop(canvasRef.current);
+      const processCommand = module.ProcessBinaryCommand?.bind(module);
+      if (processCommand) module.ProcessBinaryCommand = (command, size, data) => processCommand(command, size, normalizeCursorCommand(command, size, data));
       // Windows 输入法需要字母按键事件来生成预编辑文本和候选项。
       // MeshCentral 默认的 Unicode 数据包会直接插入已完成的文本。
       module.remoteKeyMap = device.platform === "Windows";
@@ -169,8 +180,10 @@ export function MeshDesktop({ device, toolbarTarget }: { device: Device; toolbar
           window.clearTimeout(handshakeTimer.current);
           busy.current = false;
           recovery.current!.connected();
-          activeRedirect.m.GrabMouseInput();
-          activeRedirect.m.GrabKeyInput();
+          if (!inputSuspendedRef.current) {
+            activeRedirect.m.GrabMouseInput();
+            activeRedirect.m.GrabKeyInput();
+          }
           installWheelInput(activeRedirect.m);
           touchCleanupRef.current?.();
           touchCleanupRef.current = installTouchInput(canvasRef.current!, activeRedirect.m, () => rightClickRef.current);

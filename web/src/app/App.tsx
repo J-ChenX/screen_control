@@ -121,11 +121,13 @@ function StatusPill({ state, detail }: { state: DeviceState | ComponentState; de
   return <span className={`status-pill status-${state}`}><span className="status-dot" />{detail ?? stateLabels[state]}</span>;
 }
 
-function DeviceDropdown({ label, value, devices, disabledDeviceId, onChange }: {
+function DeviceDropdown({ label, value, devices, disabledDeviceId, localDeviceId, locked, onChange }: {
   label: string;
   value: Device["id"];
   devices: Device[];
   disabledDeviceId: Device["id"];
+  localDeviceId: ClientDeviceId;
+  locked: boolean;
   onChange: (value: Device["id"]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -151,17 +153,17 @@ function DeviceDropdown({ label, value, devices, disabledDeviceId, onChange }: {
   return (
     <div className="device-dropdown" ref={rootRef}>
       <span className="device-dropdown-label">{label}</span>
-      <button className="device-dropdown-trigger" type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((currentOpen) => !currentOpen)}>
+      <button className="device-dropdown-trigger" title={`${current.platform} · ${current.role}`} type="button" disabled={locked} aria-label={label} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((currentOpen) => !currentOpen)}>
         <span className={`device-choice-dot status-${current.state}`} />
-        <span className="device-choice-copy"><strong>{current.name}</strong><small>{current.platform} · {current.role}</small></span>
+        <span className="device-choice-copy"><strong>{current.name}{current.id === localDeviceId ? "（本机）" : ""}</strong><small>{current.platform} · {current.role}</small></span>
         <span className="device-dropdown-chevron" aria-hidden="true">⌄</span>
       </button>
       {open && <div className="device-dropdown-menu" role="listbox" aria-label={label}>
         {devices.map((item) => {
           const disabled = item.id === disabledDeviceId;
-          return <button key={item.id} type="button" role="option" aria-selected={item.id === value} disabled={disabled} onClick={() => { onChange(item.id); setOpen(false); }}>
+          return <button key={item.id} type="button" role="option" aria-selected={item.id === value} disabled={disabled || locked} onClick={() => { onChange(item.id); setOpen(false); }}>
             <span className={`device-choice-dot status-${item.state}`} />
-            <span className="device-choice-copy"><strong>{item.name}</strong><small>{item.platform} · {item.role}</small></span>
+            <span className="device-choice-copy"><strong>{item.name}{item.id === localDeviceId ? "（本机）" : ""}</strong><small>{item.platform} · {item.role}</small></span>
             <span className="device-choice-state">{disabled ? "已在另一侧" : stateLabels[item.state]}</span>
           </button>;
         })}
@@ -265,10 +267,10 @@ function DeviceCard({ device, navigate, isLocal, identityReady, metricsFresh }: 
       </div>
       <div className="device-actions">
         <button className="primary-button" onClick={() => navigate(`/devices/${device.id}/desktop`)} disabled={blocked} title={isLocal ? "不能控制当前设备" : "打开远程桌面"}><Icon name="desktop" size={16} />打开桌面</button>
-        <button className="secondary-button" onClick={() => navigate(`/devices/${device.id}/files`)} disabled={blocked} title={isLocal ? "不能向当前设备传输文件" : "管理文件"}><Icon name="file" size={16} />文件</button>
+        <button className="secondary-button" onClick={() => navigate(`/devices/${device.id}/files`)} disabled={!identityReady} title="管理文件"><Icon name="file" size={16} />文件</button>
       </div>
       <DeviceMetrics device={device} fresh={metricsFresh} />
-      <details className="device-diagnostics"><summary>连接详情{isLocal && <span>当前控制端 · 本机操作已禁用</span>}</summary><div><Icon name="route" size={15} /><span>{device.pathLabel}</span><span>状态更新：{device.observedAt}</span><span>实时指标仅在页面前台时每 5 秒采样；内存按总量减去可用量计算。</span></div></details>
+      <details className="device-diagnostics"><summary>连接详情{isLocal && <span>当前控制端 · 本机控屏已禁用</span>}</summary><div><Icon name="route" size={15} /><span>{device.pathLabel}</span><span>状态更新：{device.observedAt}</span><span>实时指标仅在页面前台时每 5 秒采样；内存按总量减去可用量计算。</span></div></details>
     </article>
   );
 }
@@ -306,7 +308,7 @@ function Overview({ navigate, devices, localDeviceId, backendState, backendError
           {visibleDevices.map((device) => <DeviceCard device={device} navigate={navigate} isLocal={device.id === localDeviceId} identityReady={Boolean(localDeviceId)} metricsFresh={backendState === "live"} key={device.id} />)}
           {visibleDevices.length === 0 && <div className="directory-empty" role="status"><Icon name="device" size={28} /><h2>没有符合条件的设备</h2><p>尝试其他关键词，或查看全部登记设备。</p><button className="secondary-button" onClick={() => { setQuery(""); setFilter("all"); }}>清除筛选</button></div>}
         </div>
-        <div className="directory-footer"><span aria-live="polite">显示 {visibleDevices.length} / {summary.total} 台设备</span><span>本机仅作为控制端</span></div>
+        <div className="directory-footer"><span aria-live="polite">显示 {visibleDevices.length} / {summary.total} 台设备</span><span>本机支持文件管理</span></div>
       </section>
       <div className="workspace-note"><Icon name="shield" size={16} /><span>仅限已登记设备访问</span><span className="note-divider">·</span><span>桌面、文件与剪贴板状态独立显示</span><button onClick={() => navigate("/settings/security")}>安全设置 <Icon name="chevron" size={14} /></button></div>
     </div>
@@ -317,7 +319,8 @@ function Breadcrumb({ device, label, currentPath, navigate, goBack }: { device?:
   return <nav className="breadcrumb" aria-label="页面位置"><button className="back-button" onClick={goBack}><Icon name="arrow" size={16} />返回</button><span className="breadcrumb-divider" /><button onClick={() => navigate("/")}>设备总览</button><Icon name="chevron" size={14} />{device && <><button onClick={() => navigate(`/#device-${device.id}`)}>{device.name}</button><Icon name="chevron" size={14} /></>}<button className="breadcrumb-current" aria-current="page" onClick={() => navigate(currentPath)}>{label}</button></nav>;
 }
 
-function DesktopView({ device, goBack, blocked }: { device: Device; goBack: () => void; blocked: boolean }) {
+function DesktopView({ device, devices, localDeviceId, goBack, blocked }: { device: Device; devices: Device[]; localDeviceId: ClientDeviceId; goBack: () => void; blocked: boolean }) {
+  const [filesOpen, setFilesOpen] = useState(false);
   const desktop = device.components.find((component) => component.key === "desktop")!;
   const workspaceRef = useRef<HTMLElement>(null);
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
@@ -340,21 +343,36 @@ function DesktopView({ device, goBack, blocked }: { device: Device; goBack: () =
         <button className="desktop-back" onClick={goBack}><Icon name="arrow" size={18} />返回</button>
         <div><strong>{device.name}</strong><span>{device.platform} · 主屏控制</span><StatusPill state={desktop.state} detail={desktop.detail} /></div>
         <div className="desktop-session-slot" ref={setToolbarTarget} />
+        <button className="desktop-file-transfer" onClick={() => setFilesOpen(true)} aria-haspopup="dialog"><Icon name="file" size={16} />文件传输</button>
         <button onClick={() => void toggleFullscreen()}>{isFullscreen ? "退出全屏" : "进入全屏"}</button>
       </header>
-      <div className="desktop-stage">{blocked ? <div className="self-target-blocked"><Icon name="shield" size={30} /><h2>不能控制当前设备</h2><p>你正在使用 {device.name}，为避免输入回环，已禁止对本机创建控屏会话。</p><button onClick={goBack}>返回设备总览</button></div> : <MeshDesktop key={device.id} device={device} toolbarTarget={toolbarTarget} />}</div>
+      <div className="desktop-stage">{blocked ? <div className="self-target-blocked"><Icon name="shield" size={30} /><h2>不能控制当前设备</h2><p>你正在使用 {device.name}，为避免输入回环，已禁止对本机创建控屏会话。</p><button onClick={goBack}>返回设备总览</button></div> : <MeshDesktop key={device.id} device={device} toolbarTarget={toolbarTarget} inputSuspended={filesOpen} />}</div>
+      {filesOpen && <DesktopFilesDialog device={device} devices={devices} localDeviceId={localDeviceId} onClose={() => setFilesOpen(false)} />}
     </section>
   );
 }
 
-function LiveFilesView({ device, devices, localDeviceId, navigate, goBack }: { device: Device; devices: Device[]; localDeviceId: ClientDeviceId; navigate: (path: string) => void; goBack: () => void }) {
-  const remoteDevices = devices.filter((item) => item.id !== localDeviceId);
-  const initialDevice = remoteDevices.find((item) => item.id === device.id) ?? remoteDevices.find((item) => item.state === "online") ?? remoteDevices[0];
-  const firstTarget = remoteDevices.find((item) => item.id !== initialDevice.id && item.state === "online") ?? remoteDevices.find((item) => item.id !== initialDevice.id)!;
+function DesktopFilesDialog({ device, devices, localDeviceId, onClose }: { device: Device; devices: Device[]; localDeviceId: ClientDeviceId; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current!;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return <dialog className="desktop-files-dialog" ref={dialogRef} aria-labelledby="desktop-files-title" onCancel={onClose}>
+    <header><div><h2 id="desktop-files-title">文件传输 · {device.name}</h2><p>Ctrl/⌘ 多选 · Shift 连选；关闭弹窗会中断传输。</p></div><button autoFocus onClick={onClose} aria-label="关闭文件传输">关闭</button></header>
+    <LiveFilesView device={device} devices={devices} localDeviceId={localDeviceId} navigate={onClose} goBack={onClose} embedded />
+  </dialog>;
+}
+
+function LiveFilesView({ device, devices, localDeviceId, navigate, goBack, embedded = false }: { embedded?: boolean; device: Device; devices: Device[]; localDeviceId: ClientDeviceId; navigate: (path: string) => void; goBack: () => void }) {
+  const fileDevices = devices;
+  const initialDevice = fileDevices.find((item) => item.id === device.id) ?? fileDevices.find((item) => item.state === "online") ?? fileDevices[0];
+  const firstTarget = fileDevices.find((item) => item.id !== initialDevice.id && item.id === localDeviceId) ?? fileDevices.find((item) => item.id !== initialDevice.id && item.state === "online") ?? fileDevices.find((item) => item.id !== initialDevice.id)!;
   const [leftDeviceId, setLeftDeviceId] = useState<Device["id"]>(initialDevice.id);
   const [rightDeviceId, setRightDeviceId] = useState<Device["id"]>(firstTarget.id);
-  const [leftSelection, setLeftSelection] = useState<FilePaneSelection | null>(null);
-  const [rightSelection, setRightSelection] = useState<FilePaneSelection | null>(null);
+  const [leftSelection, setLeftSelection] = useState<FilePaneSelection[]>([]);
+  const [rightSelection, setRightSelection] = useState<FilePaneSelection[]>([]);
   const [transferMessage, setTransferMessage] = useState<string | null>(null);
   const [transferring, setTransferring] = useState(false);
   const leftRef = useRef<MeshFilesHandle>(null);
@@ -364,13 +382,13 @@ function LiveFilesView({ device, devices, localDeviceId, navigate, goBack }: { d
 
   const chooseLeft = (nextId: Device["id"]) => {
     setLeftDeviceId(nextId);
-    if (nextId === rightDeviceId) setRightDeviceId(remoteDevices.find((item) => item.id !== nextId)?.id ?? rightDeviceId);
+    if (nextId === rightDeviceId) setRightDeviceId(fileDevices.find((item) => item.id !== nextId)?.id ?? rightDeviceId);
     setTransferMessage(null);
   };
 
   const chooseRight = (nextId: Device["id"]) => {
     setRightDeviceId(nextId);
-    if (nextId === leftDeviceId) setLeftDeviceId(remoteDevices.find((item) => item.id !== nextId)?.id ?? leftDeviceId);
+    if (nextId === leftDeviceId) setLeftDeviceId(fileDevices.find((item) => item.id !== nextId)?.id ?? leftDeviceId);
     setTransferMessage(null);
   };
 
@@ -383,9 +401,8 @@ function LiveFilesView({ device, devices, localDeviceId, navigate, goBack }: { d
     setTransferMessage(`正在从 ${sourceDevice.name} 读取文件…`);
     try {
       if (!source || !target) throw new Error("文件窗口尚未准备完成");
-      const file = await source.transferSelected();
-      target.receiveTransferred(file);
-      setTransferMessage(`${file.name} 已交给 ${targetDevice.name} 上传`);
+      const count = await source.transferSelected(target, (done, total, name) => setTransferMessage(`已完成 ${done}/${total} 个文件，正在传输 ${name} → ${targetDevice.name}`));
+      setTransferMessage(`已将 ${count} 个文件复制到 ${targetDevice.name}`);
     } catch (caught) {
       setTransferMessage(caught instanceof Error ? caught.message : "设备间传输失败");
     } finally {
@@ -395,23 +412,24 @@ function LiveFilesView({ device, devices, localDeviceId, navigate, goBack }: { d
 
   return (
     <section className="detail-page file-workspace-page">
-      <Breadcrumb device={device.id === localDeviceId ? undefined : device} label="设备间文件管理" currentPath={`/devices/${initialDevice.id}/files`} navigate={navigate} goBack={goBack} />
+      {!embedded && <><Breadcrumb device={device.id === localDeviceId ? undefined : device} label="设备间文件管理" currentPath={`/devices/${initialDevice.id}/files`} navigate={navigate} goBack={goBack} />
       <div className="file-workspace-heading">
-        <div><span className="eyebrow">TWO-DEVICE FILE WORKSPACE</span><h1>设备间文件管理</h1><p>同时打开两台设备，直接比较目录并将选中的单个文件发送到另一端当前地址。</p></div>
+        <div><span className="eyebrow">TWO-DEVICE FILE WORKSPACE</span><h1>设备间文件管理</h1><p>同时打开两台设备，直接比较目录并将选中的多个文件发送到另一端当前目录，也可选择本机接收。</p></div>
         <span className="secure-label"><Icon name="shield" size={17} />端到端通过 G0 中继</span>
       </div>
+      </>}
       <div className="device-pair-bar panel">
-        <DeviceDropdown label="设备 A" value={leftDeviceId} devices={remoteDevices} disabledDeviceId={rightDeviceId} onChange={chooseLeft} />
+        <DeviceDropdown label="设备 A" value={leftDeviceId} devices={fileDevices} disabledDeviceId={rightDeviceId} localDeviceId={localDeviceId} locked={transferring} onChange={chooseLeft} />
         <div className="pair-transfer-actions" aria-label="设备间传输">
-          <button onClick={() => void transfer("left-to-right")} disabled={!leftSelection || transferring || rightDevice.state !== "online"}>发送到 B →</button>
-          <button onClick={() => void transfer("right-to-left")} disabled={!rightSelection || transferring || leftDevice.state !== "online"}>← 发送到 A</button>
+          <button onClick={() => void transfer("left-to-right")} disabled={!leftSelection.length || transferring || rightDevice.state !== "online"}>发送到 B{leftSelection.length ? `（${leftSelection.length}）` : ""} →</button>
+          <button onClick={() => void transfer("right-to-left")} disabled={!rightSelection.length || transferring || leftDevice.state !== "online"}>← 发送到 A{rightSelection.length ? `（${rightSelection.length}）` : ""}</button>
         </div>
-        <DeviceDropdown label="设备 B" value={rightDeviceId} devices={remoteDevices} disabledDeviceId={leftDeviceId} onChange={chooseRight} />
+        <DeviceDropdown label="设备 B" value={rightDeviceId} devices={fileDevices} disabledDeviceId={leftDeviceId} localDeviceId={localDeviceId} locked={transferring} onChange={chooseRight} />
       </div>
       {transferMessage && <div className="pair-transfer-message" role="status">{transferMessage}</div>}
       <div className="file-pair-layout">
-        <div className="file-browser panel"><MeshFiles key={leftDevice.id} ref={leftRef} device={leftDevice} paneLabel="设备 A" onSelectionChange={setLeftSelection} /></div>
-        <div className="file-browser panel"><MeshFiles key={rightDevice.id} ref={rightRef} device={rightDevice} paneLabel="设备 B" onSelectionChange={setRightSelection} /></div>
+        <div className="file-browser panel"><MeshFiles key={leftDevice.id} ref={leftRef} device={leftDevice} paneLabel="设备 A" locked={transferring} onSelectionChange={setLeftSelection} /></div>
+        <div className="file-browser panel"><MeshFiles key={rightDevice.id} ref={rightRef} device={rightDevice} paneLabel="设备 B" locked={transferring} onSelectionChange={setRightSelection} /></div>
       </div>
       <div className="empty-footer live-file-boundary"><Icon name="shield" size={18} />设备间复制会先在当前浏览器会话中读取，再上传到目标目录；单文件上限 512 MB。</div>
     </section>
@@ -540,7 +558,7 @@ export function App() {
       setLocalDeviceId(identity.deviceId);
       setAccessMode(identity.accessMode ?? "tailscale");
       setIdentityState("ready");
-      if ("deviceId" in route && route.deviceId === identity.deviceId) navigate("/");
+      if (route.page === "desktop" && route.deviceId === identity.deviceId) navigate("/");
     } catch (caught) {
       setLocalDeviceId(null);
       setIdentityState("error");
@@ -561,7 +579,7 @@ export function App() {
         <Topbar title={pageTitle} navigate={navigate} backendState={backendState} devices={devices} localDeviceId={localDeviceId} />
         <main className="content">
           {route.page === "overview" && <Overview navigate={navigate} devices={devices} localDeviceId={localDeviceId} backendState={backendState} backendError={backendError} />}
-          {route.page === "desktop" && device && localDeviceId && <DesktopView device={device} goBack={goBack} blocked={device.id === localDeviceId} />}
+          {route.page === "desktop" && device && localDeviceId && <DesktopView device={device} devices={devices} localDeviceId={localDeviceId} goBack={goBack} blocked={device.id === localDeviceId} />}
           {route.page === "files" && device && localDeviceId && <LiveFilesView key={`${device.id}-${localDeviceId}`} device={device} devices={devices} localDeviceId={localDeviceId} navigate={navigate} goBack={goBack} />}
           {route.page === "security" && <SecurityView navigate={navigate} goBack={goBack} accessMode={accessMode} />}
         </main>

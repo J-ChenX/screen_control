@@ -7,6 +7,7 @@ export interface MeshCentralModule {
 }
 
 export interface MeshDesktopModule extends MeshCentralModule {
+  ProcessBinaryCommand?(command: number, size: number, data: Uint8Array): void;
   remoteKeyMap: boolean;
   ImageType: number;
   CompressionLevel: number;
