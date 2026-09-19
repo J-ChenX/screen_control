@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseLiveCPUAndMemory(t *testing.T) {
@@ -65,7 +66,12 @@ func TestMetricsRoutesSamplesToCorrectDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	devices, err := client.Devices(context.Background())
+	_, err = client.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitMetrics(t, client.(*meshClient))
+	devices, err := client.Snapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,4 +82,37 @@ func TestMetricsRoutesSamplesToCorrectDevice(t *testing.T) {
 	if strings.Contains(string(body), "hardware") {
 		t.Fatal("inventory leaked into live status")
 	}
+	concrete := client.(*meshClient)
+	concrete.metrics.mu.Lock()
+	concrete.metrics.completedAt = time.Now().Add(-metricsMaxAge - time.Second)
+	concrete.metrics.mu.Unlock()
+	stale, err := client.Snapshot(context.Background())
+	if err != nil || stale[0].Metrics.CPUPercent != nil {
+		t.Fatal("过期指标仍显示为有效")
+	}
+	concrete.metrics.mu.Lock()
+	concrete.metrics.completedAt = time.Now()
+	sample := concrete.metrics.samples["nix"]
+	sample.nodeID = "node/replaced"
+	concrete.metrics.samples["nix"] = sample
+	concrete.metrics.mu.Unlock()
+	replaced, err := client.Snapshot(context.Background())
+	if err != nil || replaced[0].Metrics.CPUPercent != nil {
+		t.Fatal("新节点复用了旧节点指标")
+	}
+}
+
+func waitMetrics(t *testing.T, client *meshClient) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		client.metrics.mu.Lock()
+		running := client.metrics.running
+		client.metrics.mu.Unlock()
+		if !running {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("指标采样未在截止时间结束")
 }

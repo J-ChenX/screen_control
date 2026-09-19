@@ -74,3 +74,41 @@ func TestFileRelayBrowserHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFileRelayRejectsOversizedFrame(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		input, inputWriter := io.Pipe()
+		outputReader, output := io.Pipe()
+		defer input.Close()
+		defer inputWriter.Close()
+		defer output.Close()
+		defer outputReader.Close()
+		p := &fileProcess{input: inputWriter, output: outputReader}
+		_ = p.Relay(r.Context(), c)
+	}))
+	defer server.Close()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if _, _, err = c.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Write(ctx, websocket.MessageText, []byte("5")); err != nil {
+		t.Fatal(err)
+	}
+	// 超限消息应由 WebSocket 入口以 1009 拒绝，无需工作进程读取任何正文。
+	_ = c.Write(ctx, websocket.MessageBinary, make([]byte, g0files.MaxFrameSize+1))
+	_, _, err = c.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
+		t.Fatalf("未在入口拒绝超限帧：%v", err)
+	}
+}

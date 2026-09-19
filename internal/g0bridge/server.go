@@ -22,6 +22,7 @@ import (
 )
 
 type Server struct {
+	favorites      *FavoriteStore
 	fileOpen       fileOpener
 	mesh           MeshClient
 	logger         *slog.Logger
@@ -33,15 +34,17 @@ type Server struct {
 }
 
 type desktopSession struct {
-	files        fileChannel
-	closed       bool
-	stopExpiry   func() bool
-	tunnel       *Tunnel
-	created      time.Time
-	owner        string
-	cancel       context.CancelFunc
-	mu           sync.Mutex
-	relayClaimed atomic.Bool
+	files         fileChannel
+	closed        bool
+	stopExpiry    func() bool
+	tunnel        *Tunnel
+	created       time.Time
+	owner         string
+	cancel        context.CancelFunc
+	mu            sync.Mutex
+	relayClaimed  atomic.Bool
+	upstream      *websocket.Conn
+	lockRequested bool
 }
 
 type envelope struct {
@@ -79,11 +82,14 @@ func NewServerWithIdentity(mesh MeshClient, identityResolver appidentity.Resolve
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/files/favorites/{deviceID}", s.handleFavorites)
+	mux.HandleFunc("POST /api/v1/files/favorites/{deviceID}", s.handleFavorites)
 	mux.HandleFunc("GET /api/v1/identity/device", s.handleDeviceIdentity)
 	mux.HandleFunc("GET /api/v1/control/snapshot", s.handleSnapshot)
 	mux.HandleFunc("POST /api/v1/desktops", s.handleCreateDesktop)
 	mux.HandleFunc("GET /api/v1/desktops/{sessionID}/relay", s.handleRelay)
 	mux.HandleFunc("POST /api/v1/desktops/{sessionID}/end", s.handleEndDesktop)
+	mux.HandleFunc("POST /api/v1/desktops/{sessionID}/lock-exit", s.handleLockExit)
 	mux.HandleFunc("POST /api/v1/files/sessions", s.handleCreateFileSession)
 	mux.HandleFunc("GET /api/v1/files/sessions/{sessionID}/relay", s.handleRelay)
 	mux.HandleFunc("POST /api/v1/files/sessions/{sessionID}/end", s.handleEndFileSession)
@@ -195,7 +201,7 @@ func (s *Server) handleDeviceIdentity(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	reqID := requestID()
-	devices, err := s.mesh.Devices(r.Context())
+	devices, err := s.mesh.Snapshot(r.Context())
 	if err != nil {
 		s.logger.Warn("device snapshot failed", "requestId", reqID, "error", err)
 		s.writeError(w, http.StatusBadGateway, reqID, "UPSTREAM_UNAVAILABLE", "无法读取实机状态")
@@ -397,6 +403,13 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upstream.CloseNow()
 	upstream.SetReadLimit(64 << 20)
+	session.mu.Lock()
+	if session.closed {
+		session.mu.Unlock()
+		return
+	}
+	session.upstream = upstream
+	session.mu.Unlock()
 
 	errChannel := make(chan error, 3)
 	go proxyWebSocket(ctx, upstream, client, errChannel)

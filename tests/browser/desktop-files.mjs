@@ -22,6 +22,7 @@ try {
     const url = new URL(route.request().url()).pathname;
     if(url.includes('/vendor/')) return route.fulfill({contentType:'application/javascript',body:`(${protocol.toString()})();`});
     let data = {};
+    if(url.includes("/files/favorites/")) data={paths:[]};
     if(url.endsWith('/identity/device')) data={deviceId:'nix'};
     if(url.endsWith('/control/snapshot')) data={mode:'g0-live',devices:['echova','nix','jiang-chenx'].map(id=>({id,name:id,platform:'Ubuntu',role:'测试设备',state:'online',nodeId:id,pathLabel:'测试',observedAt:'测试'}))};
     if(url.endsWith('/desktops')) data={desktopSessionId:'test-desktop',tunnelId:'test',nodeId:'echova',relayPath:'/test',state:'connecting'};

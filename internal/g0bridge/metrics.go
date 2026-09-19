@@ -165,6 +165,8 @@ func collectGPU(ctx context.Context, id, platform string) ([]GPUMetrics, string)
 		}
 		cmd = exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=2", "-o", "ConnectionAttempts=1", "--", target, query)
 	}
+	// 超时后限制子进程遗留输出管道的等待，避免卡住共享采样任务。
+	cmd.WaitDelay = 250 * time.Millisecond
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, "unavailable"

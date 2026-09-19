@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ConnectionRecovery } from "../../network/recovery";
 import { normalizeCursorCommand } from "./cursor";
 import { installTouchInput } from "./touch";
-import { createDesktopSession, endDesktopSession } from "../../api/client";
+import { createDesktopSession, endDesktopSession, lockExitDesktopSession } from "../../api/client";
 import type { Device } from "../../app/model";
 import type { AgentRedirect, MeshDesktopModule } from "../meshcentral";
 
@@ -41,10 +41,15 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
   const touchCleanupRef = useRef<(() => void) | null>(null);
   const rightClickRef = useRef(false);
   const [rightClick, setRightClick] = useState(false);
+  const [smooth, setSmooth] = useState(false);
+  const smoothRef = useRef(false);
   const [inputText, setInputText] = useState("");
   const mountedRef = useRef(true);
   const autoStartAttemptedRef = useRef(false);
   const [state, setState] = useState<SessionState>("idle");
+  const [ending, setEnding] = useState(false);
+  const endingRef = useRef(false);
+  const [lockNotice, setLockNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
   const busy = useRef(false);
@@ -109,6 +114,30 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     }
   };
 
+  const lockAndStop = async () => {
+    if (endingRef.current) return;
+    const sessionId = sessionRef.current;
+    if (state !== "connected" || !sessionId) { await stop(); return; }
+    endingRef.current = true;
+    setEnding(true);
+    setError(null);
+    recovery.current!.stop();
+    // 锁屏期间禁止重连，保留中继直到服务端发出锁屏指令。
+    generation.current++;
+    redirectRef.current?.m.UnGrabKeyInput();
+    redirectRef.current?.m.UnGrabMouseInput();
+    let notice = "锁屏请求已发送，连接已结束；暂无法确认目标是否已锁屏。";
+    try {
+      await lockExitDesktopSession(sessionId);
+    } catch (caught) {
+      notice = `${caught instanceof Error ? caught.message : "锁屏请求失败"}。连接已结束，锁屏结果未知，请检查目标电脑。`;
+    } finally {
+      await stop();
+      endingRef.current = false;
+      if (mountedRef.current) { setEnding(false); setLockNotice(notice); }
+    }
+  };
+
   useEffect(() => {
     mountedRef.current = true;
     const online = () => { if (!busy.current && !redirectRef.current) recovery.current!.online(); };
@@ -130,7 +159,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
   }, []);
 
   const start = async () => {
-    if (!canvasRef.current || busy.current || redirectRef.current) return;
+    if (!canvasRef.current || busy.current || redirectRef.current || endingRef.current) return;
     recovery.current!.enable();
     if (!navigator.onLine) { setState("error"); setError("网络已断开，恢复后将自动连接。"); recovery.current!.failed(); return; }
     busy.current = true;
@@ -142,6 +171,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       void stop("error", true);
     }, 20_000);
     setError(null);
+    setLockNotice(null);
     setState("starting");
     try {
       if (!window.CreateAgentRemoteDesktop || !window.CreateAgentRedirect) {
@@ -160,12 +190,14 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       // MeshCentral 默认的 Unicode 数据包会直接插入已完成的文本。
       module.remoteKeyMap = device.platform === "Windows";
       module.ImageType = 1;
-      module.CompressionLevel = 60;
-      module.ScalingLevel = 1024;
-      module.FrameRateTimer = 80;
+      module.CompressionLevel = smoothRef.current ? 45 : 60;
+      module.ScalingLevel = smoothRef.current ? 512 : 1024;
+      // 40 毫秒允许每秒最多约 25 次采集；实际更新速度取决于代理和链路。
+      module.FrameRateTimer = 40;
       module.onScreenSizeChange = (_desktop, width, height, canvas) => {
-        canvas.width = width;
-        canvas.height = height;
+        // 重复设置相同尺寸也会清空画布并重置绘图状态。
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
         window.requestAnimationFrame(fitCanvas);
       };
 
@@ -254,7 +286,13 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           <span aria-hidden="true" className={state === "connected" ? "live-dot" : "session-state-dot"} />
           <span className="desktop-session-label">{labels[state]}</span>
         </span>
-        <button onClick={() => void stop()} disabled={!active && !recovery.current!.enabled}>结束连接</button>
+        <button aria-pressed={smooth} title="流畅模式降低画质并将传输宽高减半，适合带宽不足时使用" disabled={state !== "connected"} onClick={() => {
+          const next = !smoothRef.current;
+          redirectRef.current?.m.SendCompressionLevel(1, next ? 45 : 60, next ? 512 : 1024, 40);
+          smoothRef.current = next;
+          setSmooth(next);
+        }}>{smooth ? "流畅：开" : "流畅：关"}</button>
+        <button onClick={() => void lockAndStop()} disabled={ending || (!active && !recovery.current!.enabled)} title="锁定被控电脑并结束连接；直接返回不会锁屏">{ending ? "正在结束…" : state === "connected" ? "锁屏并结束连接" : "结束连接"}</button>
       </>, toolbarTarget)}
       <div className="mobile-input-toolbar" aria-label="触屏控制" hidden={state !== "connected"}>
         <span>轻触点击，按住拖动</span>
@@ -272,6 +310,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
         <input aria-label="远程输入文字" placeholder="输入文字后发送" value={inputText} onChange={(event) => setInputText(event.target.value)} onFocus={() => redirectRef.current?.m.UnGrabKeyInput()} onBlur={() => { if (state === "connected") redirectRef.current?.m.GrabKeyInput(); }} />
         <button disabled={!inputText} onClick={() => { redirectRef.current?.m.SendStringUnicode(inputText); setInputText(""); }}>发送文字</button>
       </div>
+      {lockNotice && <div className="mesh-error" role="status">{lockNotice}</div>}
       {error && <div className="mesh-error" role="alert">{error}</div>}
     </div>
   );

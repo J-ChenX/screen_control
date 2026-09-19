@@ -41,6 +41,7 @@ type Tunnel struct {
 
 type MeshClient interface {
 	Devices(context.Context) ([]Device, error)
+	Snapshot(context.Context) ([]Device, error)
 	OpenTunnel(context.Context, string, string, int) (*Tunnel, error)
 	RelayURL(*Tunnel) string
 	PublicAsset(context.Context, string) ([]byte, error)
@@ -53,6 +54,7 @@ type meshClient struct {
 	fileUsername     string
 	filePasswordFile string
 	httpClient       *http.Client
+	metrics          metricsCache
 }
 
 func NewMeshClient(rawURL, username, passwordFile string) (MeshClient, error) {
@@ -269,7 +271,6 @@ func (c *meshClient) Devices(ctx context.Context) ([]Device, error) {
 			Role: role, State: state, ObservedAt: "刚刚", PathLabel: "Tailscale 受限中继", AgentID: agentID,
 		})
 	}
-	c.collectMetrics(ctx, conn, devices)
 	return devices, nil
 }
 

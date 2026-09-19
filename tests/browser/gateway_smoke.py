@@ -52,7 +52,7 @@ try {
  await page.route('**/api/v1/desktops/*/end',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({apiVersion:'v1',data:{state:'ended'}})}));
  await page.goto(origin+'/devices/echova/desktop');await expect(page.getByText('实机桌面已连接',{exact:true})).toBeVisible();
  await page.evaluate(()=>window.testDisconnect());await expect.poll(()=>created).toBe(2);await expect(page.getByText('实机桌面已连接',{exact:true})).toBeVisible();
- await page.getByRole('button',{name:'结束连接',exact:true}).click();await page.waitForTimeout(2200);if(created!==2)throw Error('manual stop reconnected');
+ await page.getByRole('button',{name:'锁屏并结束连接',exact:true}).click();await page.waitForTimeout(2200);if(created!==2)throw Error('manual stop reconnected');
  await page.goto(origin+'/settings/security');await page.getByRole('button',{name:'退出登录'}).first().click();await expect(page.getByRole('heading',{name:'登录私人远控'})).toBeVisible();
  const result=await context.request.get(origin+'/api/v1/health');if(result.status()!==401)throw Error('logout did not revoke');
  if(errors.length)throw Error(errors.join('\n'));

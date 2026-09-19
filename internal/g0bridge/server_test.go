@@ -33,7 +33,8 @@ type fakeMesh struct {
 	relayURL       string
 }
 
-func (f *fakeMesh) Devices(context.Context) ([]Device, error) { return f.devices, nil }
+func (f *fakeMesh) Devices(context.Context) ([]Device, error)      { return f.devices, nil }
+func (f *fakeMesh) Snapshot(ctx context.Context) ([]Device, error) { return f.Devices(ctx) }
 func (f *fakeMesh) OpenTunnel(_ context.Context, nodeID, tunnelID string, protocol int) (*Tunnel, error) {
 	f.opened = nodeID
 	f.openedProtocol = protocol

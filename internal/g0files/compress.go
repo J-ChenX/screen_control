@@ -46,7 +46,7 @@ func compressLocal(dir, name string, names []string) error {
 				return errors.New("压缩不支持符号链接或特殊文件")
 			}
 			total += info.Size()
-			if total > MaxFileSize {
+			if total > MaxCompressSize {
 				return errors.New("当前压缩输入总大小上限为 512 MB")
 			}
 			return nil

@@ -46,6 +46,7 @@ func main() {
 	gatewayOrigin := flag.String("gateway-origin", envOr("SCREEN_CONTROL_GATEWAY_ORIGIN", ""), "exact public HTTPS origin")
 	gatewayCredentials := flag.String("gateway-credentials", envOr("SCREEN_CONTROL_GATEWAY_CREDENTIALS", ""), "private JSON file of device access-key hashes")
 	fileSSHTargets := flag.String("file-ssh-targets", envOr("SCREEN_CONTROL_FILE_SSH_TARGETS", ""), "登记设备的普通用户文件 SSH 目标")
+	favoritesFile := flag.String("favorites-file", envOr("SCREEN_CONTROL_FAVORITES_FILE", statePath("favorites/folders.json")), "服务端共享文件夹收藏存储路径")
 	flag.Parse()
 	if *serve {
 		mesh, err := g0bridge.NewMeshClientWithFiles(*meshURL, *meshUser, *passwordFile, *meshFileUser, *filePasswordFile)
@@ -71,6 +72,12 @@ func main() {
 			slog.Error("文件通道配置无效")
 			os.Exit(1)
 		}
+		favorites, err := g0bridge.NewFavoriteStore(*favoritesFile)
+		if err != nil {
+			slog.Error("无法加载共享收藏存储")
+			os.Exit(1)
+		}
+		bridge.SetFavoriteStore(favorites)
 		api := bridge.Handler()
 		handler, err := portalui.NewHandler(api, *portalDir)
 		if err != nil {
@@ -109,6 +116,7 @@ func main() {
 				slog.Error("文件通道配置无效")
 				os.Exit(1)
 			}
+			publicBridge.SetFavoriteStore(favorites)
 			publicAPI := publicBridge.Handler()
 			publicUI, uiErr := portalui.NewHandler(publicAPI, *portalDir)
 			if uiErr != nil {
@@ -185,6 +193,10 @@ func envBool(name string, fallback bool) bool {
 
 // 这里只允许配置凭据文件的位置；密码始终保存在文件中。
 func secretPath(name string) string {
+	return statePath(filepath.Join("secrets", name))
+}
+
+func statePath(name string) string {
 	state := os.Getenv("XDG_STATE_HOME")
 	if state == "" {
 		home, err := os.UserHomeDir()
@@ -193,5 +205,5 @@ func secretPath(name string) string {
 		}
 		state = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(state, "screen-control", "secrets", name)
+	return filepath.Join(state, "screen-control", name)
 }

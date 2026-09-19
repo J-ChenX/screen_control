@@ -68,6 +68,10 @@ export async function createDesktopSession(targetDeviceId: Device["id"]): Promis
   });
 }
 
+export async function lockExitDesktopSession(sessionId: string): Promise<void> {
+  await request(`/api/v1/desktops/${encodeURIComponent(sessionId)}/lock-exit`, { method: "POST", body: "{}" });
+}
+
 export async function endDesktopSession(sessionId: string): Promise<void> {
   await request(`/api/v1/desktops/${encodeURIComponent(sessionId)}/end`, { method: "POST", body: "{}" });
 }
@@ -81,4 +85,13 @@ export async function createFileSession(targetDeviceId: Device["id"]): Promise<F
 
 export async function endFileSession(sessionId: string): Promise<void> {
   await request(`/api/v1/files/sessions/${encodeURIComponent(sessionId)}/end`, { method: "POST", body: "{}" });
+}
+
+export interface FolderFavorites { paths: string[] }
+export type FavoriteChange = { action: "add" | "remove" | "move"; path: string; before?: string } | { action: "import"; paths: string[]; importId: string };
+export function getFolderFavorites(deviceId: string, signal?: AbortSignal) {
+  return request<FolderFavorites>(`/api/v1/files/favorites/${encodeURIComponent(deviceId)}`, { signal });
+}
+export function changeFolderFavorites(deviceId: string, change: FavoriteChange) {
+  return request<FolderFavorites>(`/api/v1/files/favorites/${encodeURIComponent(deviceId)}`, { method: "POST", body: JSON.stringify(change) });
 }

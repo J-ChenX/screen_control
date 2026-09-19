@@ -64,6 +64,7 @@ PYFILES
 fi
 
 "${worker_installer}" "${worker_source}"
+install -d -m 0700 "${HOME}/.local/state/screen-control/favorites"
 install -d -m 0755 "${release_root}/bin" "${release_root}/share/portal" "${unit_root}"
 install -m 0755 "${binary_source}" "${release_root}/bin/screen-control"
 cp -a "${portal_source}/." "${release_root}/share/portal/"

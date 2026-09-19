@@ -13,6 +13,7 @@ export interface MeshDesktopModule extends MeshCentralModule {
   CompressionLevel: number;
   ScalingLevel: number;
   FrameRateTimer: number;
+  SendCompressionLevel(type: number, level: number, scaling: number, frameTimer: number): void;
   KeyAction: { NONE: number; DOWN: number; UP: number; SCROLL: number };
   SendKeyMsgKC(action: number, keyCode: number): void;
   SendStringUnicode(text: string): void;

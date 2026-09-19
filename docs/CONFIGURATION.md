@@ -98,3 +98,11 @@ $env:SCREEN_CONTROL_REGISTERED_IPS = '100.64.0.10,100.64.0.20,100.64.0.30'
 ## 普通用户文件通道
 
 `SCREEN_CONTROL_FILE_SSH_TARGETS` 是逗号分隔的 `设备ID=普通用户@SSH目标` 映射。开发入口从根 `.env` 加载；安装脚本将其持久化到 `~/.config/screen-control/files.env`（0600），用户服务在基础、Tailscale、网关及指标配置之后加载此文件。文件操作只由该账号执行，配置失败不回退到 root/SYSTEM 代理。三机安装、主机密钥核验、固定命令约束和回滚见 [部署说明](../deploy/g0/files/README.md)。
+
+## 文件夹收藏同步
+
+服务端将已登记电脑及手机的收藏统一按目标电脑分组，私网与已认证 HTTPS 网关共用同一存储。默认路径为 `${XDG_STATE_HOME:-$HOME/.local/state}/screen-control/favorites/folders.json`，可用 `SCREEN_CONTROL_FAVORITES_FILE` 或 `--favorites-file` 指定。目录权限 `0700`、数据文件 `0600`，采用临时文件同步后原子替换；启动时发现损坏数据会拒绝启动，不能删除文件以掩盖故障。
+
+套件安装器创建默认收藏目录，服务仅新增 `%h/.local/state/screen-control/favorites` 的 `ReadWritePaths`。自定义存储路径或 `XDG_STATE_HOME` 时，需先创建私有目录并通过现有服务配置及 systemd drop-in 同步指定可写目录；不要扩大整个用户目录的写权限。浏览器不再作为收藏的权威存储；旧数据成功合并后才清理，迁移标识留在浏览器，服务端保存去重记录。正常增删排序保存失败或结果未知时显示错误，不自动重放；其他页面可见时每 3 秒拉取、重新聚焦时立即拉取。每台目标设备最多 512 项。
+
+备份时复制整个收藏目录；回滚程序和网页时保留该目录，避免丢失更新。旧版门户不支持服务端同步，但不会修改这份数据。

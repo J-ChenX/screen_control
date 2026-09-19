@@ -1,4 +1,4 @@
-// g0files 提供普通用户运行的 G0 文件协议，不执行命令或修改文件属主。
+// g0files 提供普通用户运行的 G0 文件协议，不接受任意命令、不修改文件属主。
 package g0files
 
 import (
@@ -13,7 +13,8 @@ import (
 	"strings"
 )
 
-const MaxFileSize = 512 << 20
+// 压缩菜单保留独立的资源预算；文件传输本身没有固定大小上限。
+const MaxCompressSize = 512 << 20
 const MaxFrameSize = 1 << 20
 
 // ReadFrame/WriteFrame 用于 SSH 标准流；文件字节不会经过文本编码。
@@ -49,6 +50,11 @@ func WriteFrame(w io.Writer, data []byte) error {
 }
 
 type command struct {
+	Window      int      `json:"window"`
+	Ack         int64    `json:"ack"`
+	Paged       bool     `json:"paged"`
+	Page        int      `json:"page"`
+	Folder      bool     `json:"folder"`
 	Names       []string `json:"names"`
 	Action      string   `json:"action"`
 	Sub         string   `json:"sub"`
@@ -65,16 +71,25 @@ type command struct {
 	Type        string   `json:"type"`
 }
 type upload struct {
+	window             int
+	chunks             int64
+	folder             bool
 	file               *os.File
 	destination        string
 	previous           os.FileInfo
 	size, received, id int64
 }
 type worker struct {
-	out        io.Writer
-	upload     *upload
-	download   *os.File
-	downloadID int64
+	downloadWindow  int
+	downloadSent    int64
+	downloadAck     int64
+	downloadStarted bool
+	directory       *directoryListing
+	out             io.Writer
+	upload          *upload
+	download        *os.File
+	downloadID      int64
+	downloadTemp    string
 }
 
 func (w *worker) json(v any) error {
@@ -92,9 +107,14 @@ func (w *worker) abortUpload() {
 	}
 }
 func (w *worker) close() {
+	w.closeDirectory()
 	w.abortUpload()
 	if w.download != nil {
 		w.download.Close()
+		if w.downloadTemp != "" {
+			os.Remove(w.downloadTemp)
+			w.downloadTemp = ""
+		}
 		w.download = nil
 	}
 }
@@ -124,6 +144,10 @@ func (w *worker) failure(c command, err error) error {
 	return w.json(map[string]any{"action": "error", "reqid": c.RequestID, "message": message})
 }
 func (w *worker) list(c command) error {
+	if c.Paged {
+		return w.listPage(c)
+	}
+	w.closeDirectory()
 	entries := []map[string]any{}
 	if runtime.GOOS == "windows" && c.Path == "" {
 		for drive := 'C'; drive <= 'Z'; drive++ {
@@ -132,37 +156,64 @@ func (w *worker) list(c command) error {
 				entries = append(entries, map[string]any{"n": p, "t": 1, "s": 0, "dt": "磁盘"})
 			}
 		}
-		return w.json(map[string]any{"path": c.Path, "dir": entries, "reqid": c.RequestID})
+		return w.json(map[string]any{"path": c.Path, "dir": entries, "reqid": c.RequestID, "folderTransfer": true})
 	}
 	p, err := nativePath(c.Path)
 	if err == nil {
-		var list []os.DirEntry
-		list, err = os.ReadDir(p)
+		var directory *os.File
+		directory, err = openDirectoryStream(p)
 		if err == nil {
-			for _, entry := range list {
-				info, e := entry.Info()
-				if e != nil {
-					continue
+			defer directory.Close()
+			budget := 0
+			for {
+				var list []os.DirEntry
+				list, err = directory.ReadDir(directoryPageSize)
+				for _, entry := range list {
+					info, e := entry.Info()
+					if e != nil {
+						continue
+					}
+					kind := 3
+					if info.IsDir() {
+						kind = 2
+					}
+					item := map[string]any{"n": entry.Name(), "t": kind, "s": info.Size(), "d": info.ModTime().Unix()}
+					encoded, _ := json.Marshal(item)
+					budget += len(encoded) + 1
+					if budget > MaxFrameSize-(64<<10) {
+						return w.directoryFailure(c, errors.New("目录项目过多，请刷新门户以启用分页浏览"))
+					}
+					entries = append(entries, item)
 				}
-				kind := 3
-				if info.IsDir() {
-					kind = 2
+				if errors.Is(err, io.EOF) {
+					err = nil
+					break
 				}
-				entries = append(entries, map[string]any{"n": entry.Name(), "t": kind, "s": info.Size(), "d": info.ModTime().Unix()})
+				if err != nil {
+					break
+				}
 			}
 		}
 	}
 	if err != nil {
 		return w.json(map[string]any{"path": c.Path, "dir": nil, "reqid": c.RequestID})
 	}
-	return w.json(map[string]any{"path": c.Path, "dir": entries, "reqid": c.RequestID})
+	response := map[string]any{"path": c.Path, "dir": entries, "reqid": c.RequestID, "folderTransfer": true}
+	data, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	if len(data) > MaxFrameSize {
+		return w.directoryFailure(c, errors.New("目录项目过多，请刷新门户以启用分页浏览"))
+	}
+	return WriteFrame(w.out, data)
 }
 func (w *worker) startUpload(c command) error {
 	if w.upload != nil || w.download != nil {
 		return w.json(map[string]any{"action": "uploaderror", "reqid": c.RequestID, "message": "已有文件正在传输"})
 	}
 	dir, err := nativePath(c.Path)
-	if err == nil && (!validName(c.Name) || c.Size < 0 || c.Size > MaxFileSize) {
+	if err == nil && (!validName(c.Name) || (runtime.GOOS == "windows" && strings.Contains(c.Name, ":")) || c.Size < 0) {
 		err = errors.New("文件名称或大小无效")
 	}
 	var previous os.FileInfo
@@ -173,7 +224,7 @@ func (w *worker) startUpload(c command) error {
 			previous = nil
 			err = nil
 		} else if err == nil {
-			if !previous.Mode().IsRegular() {
+			if c.Folder || !previous.Mode().IsRegular() {
 				err = errors.New("不能覆盖目录、链接或特殊文件")
 			} else {
 				var f *os.File
@@ -189,10 +240,15 @@ func (w *worker) startUpload(c command) error {
 		f, err = os.CreateTemp(dir, ".screen-control-upload-*")
 	}
 	if err != nil {
-		return w.json(map[string]any{"action": "uploaderror", "reqid": c.RequestID, "message": "无法写入目标目录或文件；请检查普通用户权限"})
+		return w.json(map[string]any{"action": "uploaderror", "reqid": c.RequestID, "message": "无法写入目标目录或文件：" + err.Error()})
 	}
-	w.upload = &upload{file: f, destination: destination, previous: previous, size: c.Size, id: c.RequestID}
-	return w.json(map[string]any{"action": "uploadstart", "reqid": c.RequestID})
+	w.upload = &upload{folder: c.Folder, file: f, destination: destination, previous: previous, size: c.Size, id: c.RequestID, window: transferWindow(c.Window)}
+	response := map[string]any{"action": "uploadstart", "reqid": c.RequestID}
+	if w.upload.window > 1 {
+		response["window"] = w.upload.window
+		response["chunkSize"] = transferChunkSize
+	}
+	return w.json(response)
 }
 func (w *worker) uploadData(data []byte) error {
 	u := w.upload
@@ -201,6 +257,10 @@ func (w *worker) uploadData(data []byte) error {
 	}
 	if data[0] == 0 {
 		data = data[1:]
+	}
+	if u.window > 1 && (len(data) == 0 || len(data) > transferChunkSize) {
+		w.abortUpload()
+		return w.json(map[string]any{"action": "uploaderror", "reqid": u.id, "message": "上传分块大小无效"})
 	}
 	if u.received+int64(len(data)) > u.size {
 		w.abortUpload()
@@ -212,7 +272,12 @@ func (w *worker) uploadData(data []byte) error {
 		w.abortUpload()
 		return w.json(map[string]any{"action": "uploaderror", "reqid": u.id, "message": "文件写入失败，原文件未改变"})
 	}
-	return w.json(map[string]any{"action": "uploadack", "reqid": u.id})
+	u.chunks++
+	response := map[string]any{"action": "uploadack", "reqid": u.id}
+	if u.window > 1 {
+		response["ack"] = u.chunks
+	}
+	return w.json(response)
 }
 func (w *worker) finishUpload(c command) error {
 	u := w.upload
@@ -244,7 +309,14 @@ func (w *worker) finishUpload(c command) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(u.file.Name(), u.destination)
+		if u.folder {
+			err = unpackFolder(u.file.Name(), u.destination, func() error {
+				return w.json(map[string]any{"action": "uploadprogress", "reqid": u.id, "message": "正在解压文件夹"})
+			})
+			os.Remove(u.file.Name())
+		} else {
+			err = os.Rename(u.file.Name(), u.destination)
+		}
 	}
 	if err != nil {
 		w.abortUpload()
@@ -260,48 +332,95 @@ func (w *worker) downloadCommand(c command) error {
 		}
 		p, err := nativePath(c.Path)
 		var f *os.File
-		if err == nil {
-			var s os.FileInfo
-			s, err = os.Stat(p)
-			if err == nil && (!s.Mode().IsRegular() || s.Size() > MaxFileSize) {
-				err = errors.New("文件类型或大小不受支持")
+		if err == nil && c.Folder {
+			f, err = packFolder(p, func() error {
+				return w.json(map[string]any{"action": "download", "sub": "progress", "id": c.ID, "message": "正在打包文件夹"})
+			})
+			if err == nil {
+				w.downloadTemp = f.Name()
 			}
 		}
-		if err == nil {
+		if err == nil && !c.Folder {
+			var s os.FileInfo
+			s, err = os.Stat(p)
+			if err == nil && (!s.Mode().IsRegular()) {
+				err = errors.New("所选项目不是普通文件")
+			}
+		}
+		if err == nil && !c.Folder {
 			f, err = os.Open(p)
 		}
 		if err != nil {
-			return w.json(map[string]any{"action": "download", "sub": "cancel", "id": c.ID})
+			return w.json(map[string]any{"action": "download", "sub": "cancel", "id": c.ID, "message": err.Error()})
 		}
 		w.download = f
 		w.downloadID = c.ID
-		return w.json(map[string]any{"action": "download", "sub": "start", "id": c.ID})
+		w.downloadWindow = transferWindow(c.Window)
+		w.downloadSent, w.downloadAck, w.downloadStarted = 0, 0, false
+		info, _ := f.Stat()
+		response := map[string]any{"action": "download", "sub": "start", "id": c.ID, "size": info.Size()}
+		if w.downloadWindow > 1 {
+			response["window"] = w.downloadWindow
+			response["chunkSize"] = transferChunkSize
+		}
+		return w.json(response)
+	}
+	// 结束帧或取消后的在途累计确认不触发新读取，也不污染后续操作结果。
+	if w.download == nil && w.downloadID == c.ID && w.downloadWindow > 1 && (c.Sub == "ack" || c.Sub == "stop") {
+		return nil
 	}
 	if w.download == nil || w.downloadID != c.ID {
 		return w.failure(c, errors.New("下载标识无效"))
 	}
 	if c.Sub == "stop" {
 		w.download.Close()
+		if w.downloadTemp != "" {
+			os.Remove(w.downloadTemp)
+			w.downloadTemp = ""
+		}
 		w.download = nil
 		return nil
 	}
 	if c.Sub != "ack" && c.Sub != "startack" {
 		return w.failure(c, errors.New("下载操作无效"))
 	}
-	data := make([]byte, 16384)
-	n, err := io.ReadFull(w.download, data[4:])
+	if w.downloadWindow > 1 {
+		return w.advanceDownload(c)
+	}
+	return w.sendDownloadBlock(c.ID, 16380)
+}
+
+func (w *worker) sendDownloadBlock(id int64, chunkSize int) error {
+	headerSize := 4
+	if w.downloadWindow > 1 {
+		headerSize = 12
+	}
+	data := make([]byte, chunkSize+headerSize)
+	if headerSize == 12 {
+		binary.BigEndian.PutUint64(data[4:12], uint64(id))
+	}
+	n, err := io.ReadFull(w.download, data[headerSize:])
 	data[0] = 1
 	if err != nil {
 		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			w.download.Close()
+			if w.downloadTemp != "" {
+				os.Remove(w.downloadTemp)
+				w.downloadTemp = ""
+			}
 			w.download = nil
-			return w.json(map[string]any{"action": "download", "sub": "cancel", "id": c.ID})
+			return w.json(map[string]any{"action": "download", "sub": "cancel", "id": id})
 		}
 		data[3] = 1
 		w.download.Close()
+		if w.downloadTemp != "" {
+			os.Remove(w.downloadTemp)
+			w.downloadTemp = ""
+		}
 		w.download = nil
 	}
-	return WriteFrame(w.out, data[:4+n])
+	w.downloadSent++
+	return WriteFrame(w.out, data[:headerSize+n])
 }
 func (w *worker) handle(data []byte) error {
 	if data[0] != '{' {
@@ -335,6 +454,11 @@ func (w *worker) handle(data []byte) error {
 		return w.failure(c, err)
 	}
 	switch c.Action {
+	case "open-directory":
+		if err = openDirectory(p); err != nil {
+			return w.failure(c, err)
+		}
+		return w.json(map[string]any{"action": "directory-open-requested", "reqid": c.RequestID, "status": "unknown"})
 	case "compress":
 		if err = compressLocal(p, c.Name, c.Names); err != nil {
 			return w.failure(c, err)

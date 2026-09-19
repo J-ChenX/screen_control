@@ -138,6 +138,8 @@ func (p *fileProcess) Close() {
 	})
 }
 func (p *fileProcess) Relay(ctx context.Context, client *websocket.Conn) error {
+	// 在桥接入口即应用文件协议帧限，避免先按桌面上限分配再被工作进程拒绝。
+	client.SetReadLimit(g0files.MaxFrameSize)
 	if err := client.Write(ctx, websocket.MessageText, []byte("c")); err != nil {
 		return err
 	}
