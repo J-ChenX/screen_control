@@ -7,6 +7,13 @@ export interface MeshCentralModule {
 }
 
 export interface MeshDesktopModule extends MeshCentralModule {
+  State?: number;
+  accumulator?: unknown;
+  PendingOperations?: unknown[][];
+  tilesReceived?: number;
+  KillDraw?: number;
+  ProcessPictureMsg?(data: Uint8Array, x: number, y: number): void;
+  DoPendingOperations?(): boolean;
   ProcessBinaryCommand?(command: number, size: number, data: Uint8Array): void;
   remoteKeyMap: boolean;
   ImageType: number;

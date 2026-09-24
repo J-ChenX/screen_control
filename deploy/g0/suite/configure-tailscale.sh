@@ -47,13 +47,17 @@ else
   portal_scheme="http"
   portal_tls="false"
 fi
+lerrem_registration=""
+if [[ -n "${SCREEN_CONTROL_LERREM_DNS_NAME:-}" ]]; then
+  lerrem_registration=",lerrem=$(resolve_stable_node "${SCREEN_CONTROL_LERREM_DNS_NAME}")"
+fi
 canonical_origin="${portal_scheme}://${tailnet_name}:8444"
 identity_env="${config_root}/tailscale.env"
 identity_env_next="${identity_env}.next"
 {
   printf 'SCREEN_CONTROL_TAILSCALE_LISTEN=%s:8444\n' "${tail_ip}"
   printf 'SCREEN_CONTROL_TAILSCALE_TLS=%s\n' "${portal_tls}"
-  printf 'SCREEN_CONTROL_DEVICE_NODES=echova=%s,nix=%s,jiang-chenx=%s,xiaomi-15=%s\n' "${echova_node}" "${nix_node}" "${jiang_node}" "${xiaomi_node}"
+  printf 'SCREEN_CONTROL_DEVICE_NODES=echova=%s,nix=%s,jiang-chenx=%s,xiaomi-15=%s%s\n' "${echova_node}" "${nix_node}" "${jiang_node}" "${xiaomi_node}" "${lerrem_registration}"
   printf 'SCREEN_CONTROL_CANONICAL_ORIGIN=%s\n' "${canonical_origin}"
   printf 'SCREEN_CONTROL_ALLOWED_ORIGINS=%s\n' "${canonical_origin}"
 } >"${identity_env_next}"

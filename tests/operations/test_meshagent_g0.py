@@ -18,6 +18,26 @@ class MeshAgentG0Tests(unittest.TestCase):
         self.assertLess(unit.index("ExecStartPre="), unit.index("ExecStart=/opt/screen-control/meshagent/meshagent"))
         self.assertNotIn("Environment=", unit)
 
+    def test_linux_memory_budget_covers_agent_process_tree(self) -> None:
+        unit = (LINUX / "screen-control-meshagent.service").read_text()
+        for setting in ("MemoryAccounting=yes", "MemoryHigh=infinity", "MemoryMax=768M", "MemorySwapMax=128M", "OOMPolicy=kill", "Restart=always"):
+            self.assertIn(setting, unit)
+        suite = (ROOT / "deploy/g0/suite/screen-control-suite.service").read_text()
+        for setting in ("GOMEMLIMIT=128MiB", "MemoryHigh=192M", "MemoryMax=256M", "MemorySwapMax=64M", "OOMPolicy=kill"):
+            self.assertIn(setting, suite)
+
+    def test_stall_override_matches_fresh_install_and_preserves_hard_budget(self) -> None:
+        unit = (LINUX / "screen-control-meshagent.service").read_text()
+        override = (LINUX / "60-stall-recovery.conf").read_text()
+        for line in override.splitlines():
+            if "=" in line and not line.startswith("#"):
+                self.assertIn(line, unit)
+        for setting in ("MemoryMax=", "MemorySwapMax=", "ExecStart=", "ExecStartPre="):
+            self.assertNotIn(setting, override)
+        for setting in ("TimeoutStopSec=15s", "KillMode=control-group", "SendSIGKILL=yes",
+                        "StartLimitIntervalSec=300", "StartLimitBurst=3"):
+            self.assertIn(setting, override)
+
     def test_linux_firewall_is_cgroup_scoped_and_fail_closed(self) -> None:
         script = (LINUX / "meshagent-firewall").read_text()
         self.assertIn("--path \"$CGROUP\"", script)

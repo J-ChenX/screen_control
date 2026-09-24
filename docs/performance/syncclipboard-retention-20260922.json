@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-22",
+  "serverBefore": {
+    "active": 1000,
+    "expiredNonStarred": 863,
+    "starred": 0
+  },
+  "after": {
+    "server": {
+      "active": 137,
+      "expiredNonStarred": 0,
+      "starred": 0
+    },
+    "echova": {
+      "active": 137,
+      "expiredNonStarred": 0,
+      "starred": 0
+    },
+    "nix": {
+      "active": 137,
+      "expiredNonStarred": 0,
+      "starred": 0
+    },
+    "jiang-chenx": {
+      "active": 137,
+      "expiredNonStarred": 0,
+      "starred": 0
+    }
+  },
+  "sha256": {
+    "server": "e4744a2f423de4da3a4a57202fbff343ffa4f063a98e5f26db31340d31e0f064",
+    "linuxClient": "511a61b31e99952b15718dd04fa305478c145b5eec2992e68696751c840994a6",
+    "windowsClient": "3fda39a0b3cb4db1f424a11c26a6ebaea829db05eca7ba4a6d6a086b1c028ea2"
+  }
+}

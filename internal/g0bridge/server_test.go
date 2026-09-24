@@ -404,7 +404,7 @@ func TestGatewayWebSocketOwnershipAndLogout(t *testing.T) {
 
 // 文件允许以当前电脑为目标，控屏的自身限制不适用于文件协议。
 func TestCreateFileSessionAcceptsPortalDeviceAsTarget(t *testing.T) {
-	for _, id := range []string{"echova", "nix", "jiang-chenx"} {
+	for _, id := range []string{"echova", "nix", "jiang-chenx", "lerrem"} {
 		t.Run(id, func(t *testing.T) {
 			mesh := &fakeMesh{devices: []Device{{ID: id, NodeID: "node/local", State: "online"}}, tunnel: &Tunnel{}}
 			request := httptest.NewRequest(http.MethodPost, "/api/v1/files/sessions", strings.NewReader(`{"targetDeviceId":"`+id+`"}`))

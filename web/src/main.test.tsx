@@ -4,12 +4,14 @@ import { fitRemoteCanvas } from "./features/desktop/MeshDesktop";
 import { defaultDirectoryForDevice, parseEntries, validName } from "./features/files/MeshFiles";
 
 describe("portal foundation", () => {
-  it("models exactly the three registered devices", () => {
-    expect(registeredDevices.map((device) => device.id)).toEqual(["echova", "nix", "jiang-chenx"]);
-    expect(summarizeDevices(registeredDevices)).toEqual({ total: 3, online: 0, attention: 3 });
+  it("登记四台电脑", () => {
+    expect(registeredDevices.map((device) => device.id)).toEqual(["echova", "nix", "jiang-chenx", "lerrem"]);
+    expect(summarizeDevices(registeredDevices)).toEqual({ total: 4, online: 0, attention: 4 });
   });
 
   it("recognizes the documented portal routes", () => {
+    expect(parsePortalRoute("/devices/lerrem/desktop")).toEqual({ page: "desktop", deviceId: "lerrem" });
+    expect(parsePortalRoute("/devices/lerrem/files")).toEqual({ page: "files", deviceId: "lerrem" });
     expect(parsePortalRoute("/login")).toEqual({ page: "login" });
     expect(parsePortalRoute("/")).toEqual({ page: "overview" });
     expect(parsePortalRoute("/devices/nix/desktop")).toEqual({ page: "desktop", deviceId: "nix" });
@@ -24,7 +26,7 @@ describe("portal foundation", () => {
   it("filters status without collapsing component state", () => {
     const live = registeredDevices.map((device) => hydrateLiveDevice({ ...device, state: device.id === "echova" ? "online" : "offline" }));
     expect(filterDevices(live, "online").map((device) => device.id)).toEqual(["echova"]);
-    expect(filterDevices(live, "attention").map((device) => device.id)).toEqual(["nix", "jiang-chenx"]);
+    expect(filterDevices(live, "attention").map((device) => device.id)).toEqual(["nix", "jiang-chenx", "lerrem"]);
     expect(filterDevices(live, "all")).toBe(live);
   });
 

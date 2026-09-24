@@ -1,0 +1,9 @@
+{
+  "upstreamRepository": "https://github.com/Jeric-X/SyncClipboard.git",
+  "upstreamTag": "v3.1.5",
+  "upstreamCommit": "ee38a2502548a1bbf15742ed4b6162d9295630a3",
+  "sdkVersion": "8.0.419",
+  "sdkLinuxX64Url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.419/dotnet-sdk-8.0.419-linux-x64.tar.gz",
+  "sdkLinuxX64Sha512": "fcd6761101395fbda362a217545f3689e2b1ed42ed439bc39406df6d046d2bbcf60902833e868d5aed4d4a9b036628865e019450bb16d744d716e05fcac3c3cd",
+  "runtimeVersion": "8.0.25"
+}

@@ -63,6 +63,11 @@ class EnvironmentMigrationTests(unittest.TestCase):
         self.assertFalse(config["settings"]["allowLoginToken"])
         self.assertFalse(config["domains"][""]["newAccounts"])
 
+    def test_renderer_accepts_four_distinct_registered_addresses(self):
+        ips = "100.64.0.10,100.64.0.20,100.64.0.30,100.64.0.40"
+        config = RENDER.render({**EXAMPLE, "SCREEN_CONTROL_REGISTERED_IPS": ips})
+        self.assertEqual(config["settings"]["agentAllowedIP"], ips.split(","))
+
     def test_renderer_rejects_missing_config_and_broad_allowlists(self):
         for overrides in [
             {"SCREEN_CONTROL_MESH_BIND_IP": ""},
@@ -78,7 +83,9 @@ class EnvironmentMigrationTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "posix", "Linux shell validator")
     def test_linux_guard_validates_before_any_firewall_access(self):
         script = ROOT / "deploy/g0/meshagent/linux/meshagent-firewall"
-        for overrides, success in [({}, True), ({"SCREEN_CONTROL_MESH_HOST": ""}, False),
+        for overrides, success in [({}, True),
+            ({"SCREEN_CONTROL_REGISTERED_IPS": "100.64.0.10,100.64.0.20,100.64.0.30,100.64.0.40"}, True),
+            ({"SCREEN_CONTROL_REGISTERED_IPS": "100.64.0.10,100.64.0.20,100.64.0.30,100.64.0.30"}, False), ({"SCREEN_CONTROL_MESH_HOST": ""}, False),
             ({"SCREEN_CONTROL_REGISTERED_IPS": "0.0.0.0/0,100.64.0.20,100.64.0.30"}, False),
             ({"SCREEN_CONTROL_REGISTERED_IPS": "100.64.0.20,100.64.0.20,100.64.0.30"}, False),
             ({"SCREEN_CONTROL_REGISTERED_IPS": "100.64.0.10,100.64.0.30,100.64.0.40"}, False)]:

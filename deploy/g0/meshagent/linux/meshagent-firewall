@@ -25,8 +25,8 @@ validate_config() {
             if(sprintf("%d.%d.%d.%d",a[1],a[2],a[3],a[4])!=ip || seen[ip]++) exit 1;
             count++; if(ip==server) found=1;
         }}
-        END { if(count!=3 || !found) exit 1 }
-    ' || { echo 'configure three distinct Tailscale IPv4 addresses including MESH_BIND_IP' >&2; exit 1; }
+        END { if((count!=3 && count!=4) || !found) exit 1 }
+    ' || { echo '请配置三个或四个不同的 Tailscale IPv4 地址，并包含 MESH_BIND_IP' >&2; exit 1; }
 }
 
 delete_jump() {

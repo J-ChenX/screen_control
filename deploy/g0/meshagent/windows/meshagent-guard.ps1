@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet("Validate", "Preblock", "PrepareHost", "Apply", "Assert", "Boot", "Watchdog", "Rollback")]
@@ -53,8 +53,8 @@ function Initialize-NetworkConfig {
     $script:ServerIp = Get-DeploymentValue "SCREEN_CONTROL_MESH_BIND_IP"
     [void](ConvertTo-IPv4Number $ServerIp)
     $script:AllowedIps = @((Get-DeploymentValue "SCREEN_CONTROL_REGISTERED_IPS").Split(',') | ForEach-Object { $_.Trim() })
-    if ($AllowedIps.Count -ne 3 -or @($AllowedIps | Sort-Object -Unique).Count -ne 3 -or $ServerIp -notin $AllowedIps) {
-        throw "configure three distinct addresses including MESH_BIND_IP"
+    if (($AllowedIps.Count -notin @(3, 4)) -or @($AllowedIps | Sort-Object -Unique).Count -ne $AllowedIps.Count -or $ServerIp -notin $AllowedIps) {
+        throw "请配置三个或四个不同地址，并包含 MESH_BIND_IP"
     }
     $numbers = @($AllowedIps | ForEach-Object { ConvertTo-IPv4Number $_ } | Sort-Object)
     $script:BlockedIpv4 = @()

@@ -45,7 +45,7 @@ Vite 的服务端配置使用相同字面值规则读取根目录 `.env` 或显�
 | `SCREEN_CONTROL_CLIPBOARD_URL` | 剪贴板迁移目标；缺失时不修改客户端配置 |
 | `SCREEN_CONTROL_PROJECT_ROOT` | 系统级 MeshCentral 服务的项目绝对路径 |
 
-已有 `echova`、`nix`、`jiang-chenx`、`xiaomi-15` 保留为应用协议/登记 ID，本次没有更换这些 ID。系统主机名与 Tailscale DNS_NAME 分别由环境配置（Windows 两者常不相同），MeshCentral 当前仍通过既有设备名称映射这三个电脑 ID；不要仅在环境中修改设备 ID。它们仍可关联个人身份，若希望完全匿名开源，需要单独迁移 ID 和历史记录。
+原有 `echova`、`nix`、`jiang-chenx`、`xiaomi-15` 保留为应用协议/登记 ID，第四台电脑使用 `lerrem`，不更换原有 ID。系统主机名与 Tailscale DNS_NAME 分别由环境配置（Windows 两者常不相同），MeshCentral 当前仍通过既有设备名称映射这些电脑 ID；不要仅在环境中修改设备 ID。它们仍可关联个人身份，若希望完全匿名开源，需要单独迁移 ID 和历史记录。
 
 ## MeshCentral 与系统服务
 
@@ -106,3 +106,21 @@ $env:SCREEN_CONTROL_REGISTERED_IPS = '100.64.0.10,100.64.0.20,100.64.0.30'
 套件安装器创建默认收藏目录，服务仅新增 `%h/.local/state/screen-control/favorites` 的 `ReadWritePaths`。自定义存储路径或 `XDG_STATE_HOME` 时，需先创建私有目录并通过现有服务配置及 systemd drop-in 同步指定可写目录；不要扩大整个用户目录的写权限。浏览器不再作为收藏的权威存储；旧数据成功合并后才清理，迁移标识留在浏览器，服务端保存去重记录。正常增删排序保存失败或结果未知时显示错误，不自动重放；其他页面可见时每 3 秒拉取、重新聚焦时立即拉取。每台目标设备最多 512 项。
 
 备份时复制整个收藏目录；回滚程序和网页时保留该目录，避免丢失更新。旧版门户不支持服务端同步，但不会修改这份数据。
+
+### 第四台电脑 lerrem
+
+应用登记支持 `lerrem` 作为 Linux 控屏和普通用户文件目标。私有配置可设置 `SCREEN_CONTROL_LERREM_DNS_NAME`（Tailscale DNS 首段），由套件配置脚本解析稳定节点 ID；未设置时保持原三台电脑及手机的身份配置。`SCREEN_CONTROL_REGISTERED_IPS` 支持三个或四个不同的 Tailscale IPv4 地址，必须包含控制面地址，仍拒绝网段和重复地址。
+
+接入需同步控制面地址白名单、`SCREEN_CONTROL_DEVICE_NODES`、普通用户 `SCREEN_CONTROL_FILE_SSH_TARGETS`，并在目标安装现有 MeshAgent 和文件进程。首次 SSH 连接先核验主机密钥；代理网络规则按既有回滚与救援流程部署。仅修改登记代码不代表设备已安装、上线或通过实机控屏验收。新电脑不会自动获得公网网关访问密钥。
+
+## 服务内存预算
+
+Linux 默认预算定义在 `deploy/g0/suite/screen-control-suite.service` 与 `deploy/g0/meshagent/linux/screen-control-meshagent.service`。Go 的 `GOMEMLIMIT=128MiB` 是软预算，不能替代服务组硬上限；MeshAgent 禁用高水位节流并保留 768 MiB 硬上限，避免同步诊断子进程因节流导致主进程等待；门户 192/256 MiB 分别为高水位/硬上限。调整应使用既有 systemd drop-in 并保留回滚，先按并发数、分辨率和峰值测量；不要把上限当作预留内存或空闲占用。运行环境变量等启动配置生效需要 daemon-reload 和对应服务重启，可能结束当前会话。当前部署采用 `50-memory.conf`；MeshAgent 另用 `60-stall-recovery.conf` 覆盖高水位、15 秒停止超时及 5 分钟最多 3 次启动限制。该覆盖支持热更新并核对实际 cgroup 值，操作和回滚见 [MeshAgent 部署说明](../deploy/g0/meshagent/README.md#既有-linux-部署的卡死修复)。升级模板时须同时核对这些覆盖项。具体限制、测量口径与回滚见[内存评估](performance/MEMORY.md)。
+
+SyncClipboard 主程序通过其既有 `.runtimeconfig.json` 设置 Workstation GC、`ConserveMemory=5` 与托管堆预算；不要设置影响所有 .NET 程序的全局变量。`SCREEN_CONTROL_SYNC_SERVER_RUNTIMECONFIG` 和 `SCREEN_CONTROL_SYNC_DESKTOP_RUNTIMECONFIG` 是配置工具的运维路径参数，可经 `ops/with-env` 加载，工具与回滚步骤见[套件说明](../deploy/g0/suite/README.md#syncclipboard-内存配置)。
+
+Linux SyncClipboard 客户端的现有服务覆盖包含 `MALLOC_ARENA_MAX=2`、`MALLOC_TRIM_THRESHOLD_=131072`、`MALLOC_MMAP_THRESHOLD_=131072`，用于减少 glibc 原生分配器保留量。这些是第三方运行时固定参数，仅配置在客户端单元内，不作为系统全局环境变量；Windows 不使用这些参数。部署与回滚见[套件配置说明](../deploy/g0/suite/README.md#syncclipboard-内存配置)。
+
+## SyncClipboard 非收藏历史保留
+
+同步历史由已打补丁的现有服务端通过 `AppSettings__HistoryRetentionHours=48` 清理；本机独有历史由客户端 `History.HistoryRetentionMinutes=2880` 清理。超过创建时间 48 小时、未收藏的记录自动清除，置顶未收藏不豁免；保留原有数量限制及删除同步机制。配置必须与 [SyncClipboard 3.1.5 补丁](../deploy/g0/suite/syncclipboard-retention/README.md) 配套，原版开启历史同步后仅改客户端时间值不能完整生效。已部署状态与备份见[保留规则验收](performance/SYNCCLIPBOARD_RETENTION.md)。

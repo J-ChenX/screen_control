@@ -248,7 +248,7 @@ func (c *meshClient) Devices(ctx context.Context) ([]Device, error) {
 	devices := make([]Device, 0, len(nodes))
 	for _, node := range nodes {
 		id := normalizeDeviceID(node.Name)
-		if id != "echova" && id != "nix" && id != "jiang-chenx" {
+		if !remoteTargetDeviceID(id) {
 			continue
 		}
 		platform, role := "Ubuntu", "开发机"

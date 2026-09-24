@@ -74,7 +74,7 @@ func New(origin string, credentials []Credential) (*Gateway, error) {
 	g := &Gateway{origin: origin, host: u.Host, credentials: make(map[[32]byte]string), sessions: make(map[[32]byte]*session)}
 	devices := map[string]bool{}
 	for _, c := range credentials {
-		if c.DeviceID != "echova" && c.DeviceID != "nix" && c.DeviceID != "jiang-chenx" && c.DeviceID != "xiaomi-15" {
+		if c.DeviceID != "echova" && c.DeviceID != "nix" && c.DeviceID != "jiang-chenx" && c.DeviceID != "xiaomi-15" && c.DeviceID != "lerrem" {
 			return nil, errors.New("unknown gateway device")
 		}
 		b, err := hex.DecodeString(c.SHA256)

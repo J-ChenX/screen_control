@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -27,6 +28,7 @@ type Server struct {
 	mesh           MeshClient
 	logger         *slog.Logger
 	sessions       sync.Map
+	sessionSlots   chan struct{}
 	allowedOrigins map[string]struct{}
 	originPatterns []string
 	assetCache     sync.Map
@@ -37,6 +39,8 @@ type desktopSession struct {
 	files         fileChannel
 	closed        bool
 	stopExpiry    func() bool
+	stopPending   *time.Timer
+	releaseSlot   func()
 	tunnel        *Tunnel
 	created       time.Time
 	owner         string
@@ -67,7 +71,7 @@ func NewServerWithIdentity(mesh MeshClient, identityResolver appidentity.Resolve
 	if len(origins) == 0 {
 		origins = []string{"http://127.0.0.1:5173", "http://localhost:5173"}
 	}
-	server := &Server{mesh: mesh, logger: logger, identity: identityResolver, allowedOrigins: make(map[string]struct{})}
+	server := &Server{sessionSlots: make(chan struct{}, 16), mesh: mesh, logger: logger, identity: identityResolver, allowedOrigins: make(map[string]struct{})}
 	for _, origin := range origins {
 		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
 		parsed, err := url.Parse(origin)
@@ -249,6 +253,20 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 		s.writeError(w, http.StatusForbidden, reqID, "TARGET_NOT_SUPPORTED", "该设备不提供远程桌面或文件代理；手机请通过浏览器上传和下载文件")
 		return
 	}
+	// 建连中的请求也占用配额，防止并发请求绕过存量会话上限。
+	select {
+	case s.sessionSlots <- struct{}{}:
+	default:
+		s.writeError(w, http.StatusServiceUnavailable, reqID, "SESSION_CAPACITY_EXCEEDED", "会话数量已达上限，请结束不用的连接后重试")
+		return
+	}
+	releaseSlot := sync.OnceFunc(func() { <-s.sessionSlots })
+	retained := false
+	defer func() {
+		if !retained {
+			releaseSlot()
+		}
+	}()
 	devices, err := s.mesh.Devices(r.Context())
 	if err != nil {
 		s.writeError(w, http.StatusBadGateway, reqID, "UPSTREAM_UNAVAILABLE", "无法确认目标设备状态")
@@ -292,7 +310,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 		s.writeError(w, http.StatusBadGateway, reqID, "TUNNEL_SETUP_FAILED", "无法建立设备中继")
 		return
 	}
-	activeSession := &desktopSession{files: files, tunnel: tunnel, created: time.Now(), owner: sessionOwner(r, clientDeviceID)}
+	activeSession := &desktopSession{files: files, tunnel: tunnel, created: time.Now(), owner: sessionOwner(r, clientDeviceID), releaseSlot: releaseSlot}
+	retained = true
 	s.sessions.Store(sessionID, activeSession)
 	if p, ok := appidentity.AuthenticatedPrincipal(r.Context()); ok && p.Lifetime != nil {
 		stop := context.AfterFunc(p.Lifetime, func() {
@@ -303,7 +322,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 		activeSession.stopExpiry = stop
 		activeSession.mu.Unlock()
 	}
-	time.AfterFunc(90*time.Second, func() {
+	activeSession.mu.Lock()
+	activeSession.stopPending = time.AfterFunc(90*time.Second, func() {
 		if value, ok := s.sessions.Load(sessionID); ok {
 			session := value.(*desktopSession)
 			if !session.relayClaimed.Load() {
@@ -312,6 +332,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 			}
 		}
 	})
+	activeSession.mu.Unlock()
 	identifier := "desktopSessionId"
 	basePath := "/api/v1/desktops/"
 	if kind == "files" {
@@ -328,7 +349,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request, pro
 }
 
 func remoteTargetDeviceID(id string) bool {
-	return id == "echova" || id == "nix" || id == "jiang-chenx"
+	return id == "echova" || id == "nix" || id == "jiang-chenx" || id == "lerrem"
 }
 
 func registeredDeviceID(id string) bool {
@@ -366,6 +387,16 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 领取之后无论握手、拨号还是转发失败，都必须归还会话资源。
+	defer func() {
+		s.sessions.Delete(sessionID)
+		s.closeSession(session, websocket.StatusNormalClosure, "中继已结束")
+	}()
+	session.mu.Lock()
+	if session.stopPending != nil {
+		session.stopPending.Stop()
+	}
+	session.mu.Unlock()
 	client, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: s.originPatterns})
 	if err != nil {
 		return
@@ -452,13 +483,26 @@ func (s *Server) handleVendorAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func proxyWebSocket(ctx context.Context, destination, source *websocket.Conn, result chan<- error) {
+	// 每个方向只保留一个固定缓冲，写端背压直接传到读端。
+	buffer := make([]byte, 32<<10)
 	for {
-		messageType, payload, err := source.Read(ctx)
+		messageType, reader, err := source.Reader(ctx)
 		if err != nil {
 			result <- err
 			return
 		}
-		if err := destination.Write(ctx, messageType, payload); err != nil {
+		writer, err := destination.Writer(ctx, messageType)
+		if err != nil {
+			result <- err
+			return
+		}
+		if _, err = io.CopyBuffer(writer, reader, buffer); err != nil {
+			// 不正常结束部分消息；关闭连接使接收端明确知道传输失败。
+			_ = destination.CloseNow()
+			result <- err
+			return
+		}
+		if err = writer.Close(); err != nil {
 			result <- err
 			return
 		}
@@ -503,6 +547,12 @@ func (s *Server) closeSession(session *desktopSession, status websocket.StatusCo
 		return
 	}
 	session.closed = true
+	if session.stopPending != nil {
+		session.stopPending.Stop()
+	}
+	if session.releaseSlot != nil {
+		defer session.releaseSlot()
+	}
 	if session.stopExpiry != nil {
 		session.stopExpiry()
 	}

@@ -5,6 +5,13 @@ After=network-online.target syncclipboard.service
 
 [Service]
 Type=simple
+# Go 软预算保留本机库、SSH 子进程与内核缓冲余量；服务组另设硬上限。
+Environment=GOMEMLIMIT=128MiB
+MemoryAccounting=yes
+MemoryHigh=192M
+MemoryMax=256M
+MemorySwapMax=64M
+OOMPolicy=kill
 EnvironmentFile=%h/.config/screen-control/screen-control.env
 EnvironmentFile=-%h/.config/screen-control/tailscale.env
 EnvironmentFile=-%h/.config/screen-control/gateway/gateway.env

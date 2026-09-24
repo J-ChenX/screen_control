@@ -1,0 +1,437 @@
+{
+  "date": "2026-09-22",
+  "scenario": "真实 nix 桌面 2880×1800，每视口三轮连接/结束，每轮约5秒，不注入远端输入；停止后主动GC仅供测量",
+  "browserBefore": [
+    {
+      "target": "nix",
+      "width": 1440,
+      "cycle": 0,
+      "active": {
+        "heapBytes": 4994800,
+        "browserPssKiB": 597617,
+        "draws": 216,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3347128,
+        "browserPssKiB": 582914,
+        "draws": 217,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      }
+    },
+    {
+      "target": "nix",
+      "width": 1440,
+      "cycle": 1,
+      "active": {
+        "heapBytes": 4561864,
+        "browserPssKiB": 617564,
+        "draws": 671,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3514484,
+        "browserPssKiB": 609293,
+        "draws": 671,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      }
+    },
+    {
+      "target": "nix",
+      "width": 1440,
+      "cycle": 2,
+      "active": {
+        "heapBytes": 4639588,
+        "browserPssKiB": 645473,
+        "draws": 1247,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3551048,
+        "browserPssKiB": 638021,
+        "draws": 1247,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      }
+    },
+    {
+      "target": "nix",
+      "width": 390,
+      "cycle": 0,
+      "active": {
+        "heapBytes": 4965724,
+        "browserPssKiB": 456680,
+        "draws": 181,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3342772,
+        "browserPssKiB": 445537,
+        "draws": 181,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      }
+    },
+    {
+      "target": "nix",
+      "width": 390,
+      "cycle": 1,
+      "active": {
+        "heapBytes": 4522576,
+        "browserPssKiB": 482357,
+        "draws": 605,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3502856,
+        "browserPssKiB": 474588,
+        "draws": 605,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      }
+    },
+    {
+      "target": "nix",
+      "width": 390,
+      "cycle": 2,
+      "active": {
+        "heapBytes": 5166800,
+        "browserPssKiB": 511651,
+        "draws": 1400,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3549096,
+        "browserPssKiB": 503647,
+        "draws": 1400,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      }
+    }
+  ],
+  "browserAfter": [
+    {
+      "target": "nix",
+      "width": 1440,
+      "cycle": 0,
+      "active": {
+        "heapBytes": 4743456,
+        "browserPssKiB": 562907,
+        "draws": 207,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3364612,
+        "browserPssKiB": 488386,
+        "draws": 207,
+        "liveBitmaps": 0,
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "target": "nix",
+      "width": 1440,
+      "cycle": 1,
+      "active": {
+        "heapBytes": 5080796,
+        "browserPssKiB": 539260,
+        "draws": 599,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3522252,
+        "browserPssKiB": 478572,
+        "draws": 599,
+        "liveBitmaps": 0,
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "target": "nix",
+      "width": 1440,
+      "cycle": 2,
+      "active": {
+        "heapBytes": 4075976,
+        "browserPssKiB": 540188,
+        "draws": 1361,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3574428,
+        "browserPssKiB": 489366,
+        "draws": 1361,
+        "liveBitmaps": 0,
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "target": "nix",
+      "width": 390,
+      "cycle": 0,
+      "active": {
+        "heapBytes": 5170416,
+        "browserPssKiB": 447415,
+        "draws": 286,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3377148,
+        "browserPssKiB": 376684,
+        "draws": 286,
+        "liveBitmaps": 0,
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "target": "nix",
+      "width": 390,
+      "cycle": 1,
+      "active": {
+        "heapBytes": 4188904,
+        "browserPssKiB": 425578,
+        "draws": 848,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3537240,
+        "browserPssKiB": 377526,
+        "draws": 848,
+        "liveBitmaps": 0,
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "target": "nix",
+      "width": 390,
+      "cycle": 2,
+      "active": {
+        "heapBytes": 4103848,
+        "browserPssKiB": 424186,
+        "draws": 1598,
+        "liveBitmaps": 0,
+        "width": 2880,
+        "height": 1800
+      },
+      "ended": {
+        "heapBytes": 3595540,
+        "browserPssKiB": 364798,
+        "draws": 1598,
+        "liveBitmaps": 0,
+        "width": 1,
+        "height": 1
+      }
+    }
+  ],
+  "relayBenchmark": {
+    "messageBytes": 1048576,
+    "iterations": 50,
+    "buffered": {
+      "bytesPerOp": 2269806,
+      "allocsPerOp": 935,
+      "nsPerOp": 1533373
+    },
+    "streamed": {
+      "bytesPerOp": 47242,
+      "allocsPerOp": 1300,
+      "nsPerOp": 746240
+    }
+  },
+  "limitations": [
+    "被动画面未固定内容",
+    "未测离线设备、Android真机或24小时稳定性",
+    "PSS涵盖测试浏览器实例；JS堆不含全部图像/GPU资源"
+  ],
+  "syncClipboardHistory": {
+    "echova": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 432888,
+          "VmSwap": 0
+        },
+        "closedKiB": {
+          "VmRSS": 432920,
+          "VmSwap": 0
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 441008,
+          "VmSwap": 0
+        },
+        "closedKiB": {
+          "VmRSS": 441012,
+          "VmSwap": 0
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 436932,
+          "VmSwap": 0
+        },
+        "closedKiB": {
+          "VmRSS": 436948,
+          "VmSwap": 0
+        }
+      }
+    ],
+    "nix": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 473380,
+          "VmSwap": 0
+        },
+        "closedKiB": {
+          "VmRSS": 473516,
+          "VmSwap": 0
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 473780,
+          "VmSwap": 0
+        },
+        "closedKiB": {
+          "VmRSS": 473816,
+          "VmSwap": 0
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 474100,
+          "VmSwap": 0
+        },
+        "closedKiB": {
+          "VmRSS": 474144,
+          "VmSwap": 0
+        }
+      }
+    ]
+  },
+  "finalLocalSample": {
+    "portal": {
+      "rssKiB": 13592,
+      "cgroupBytes": 2359296,
+      "swapBytes": 0,
+      "autoRestarts": 0,
+      "active": "active",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "meshagent": {
+      "rssKiB": 18008,
+      "cgroupBytes": 29528064,
+      "swapBytes": 0,
+      "autoRestarts": 0,
+      "active": "active",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "clipboard_server": {
+      "rssKiB": 191468,
+      "cgroupBytes": 163176448,
+      "swapBytes": 0,
+      "autoRestarts": 0,
+      "active": "active",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "clipboard_desktop": {
+      "rssKiB": 436752,
+      "cgroupBytes": 352542720,
+      "swapBytes": 0,
+      "autoRestarts": 0,
+      "active": "active",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    }
+  },
+  "finalNixSample": {
+    "meshagent": {
+      "rssKiB": 20888,
+      "cgroupBytes": 34082816,
+      "swapBytes": 0,
+      "autoRestarts": 0,
+      "active": "active",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "clipboard_desktop": {
+      "rssKiB": 476236,
+      "cgroupBytes": 536195072,
+      "swapBytes": 0,
+      "autoRestarts": 0,
+      "active": "active",
+      "events": "low 0\nhigh 170972\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    }
+  },
+  "syncClipboardHighWaterAdjustment": {
+    "desktopHighBytes": 671088640,
+    "desktopMaxBytes": 805306368,
+    "nixHighEventsSamples": [
+      170973,
+      170973,
+      170973
+    ],
+    "intervalSeconds": 10,
+    "oomEvents": 0,
+    "note": "提高高水位后连续20秒未新增回收节流事件；不代表长期稳定性验收"
+  },
+  "windowsFollowup": {
+    "tailscaleOnline": true,
+    "sshReachable": true,
+    "meshAgentRunning": false,
+    "meshAgentBlocker": "安全守护发现活动网卡18缺少阻断规则，修复等待授权",
+    "clipboardBefore": {
+      "workingSetBytes": 574517248,
+      "privateBytes": 438951936
+    },
+    "clipboardAfter": {
+      "workingSetBytes": 306581504,
+      "privateBytes": 162689024
+    },
+    "managedHeapLimitBytes": 402653184,
+    "processHardLimitApplied": false,
+    "healthStatuses": [
+      200,
+      200,
+      200
+    ],
+    "temporaryRestartTasksRemaining": 0
+  }
+}

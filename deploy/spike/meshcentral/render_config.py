@@ -24,8 +24,8 @@ def deployment(env) -> dict:
     bind = required("MESH_BIND_IP")
     ips = required("REGISTERED_IPS").split(",")
     ips = [ip.strip() for ip in ips]
-    if len(ips) != 3 or len(set(ips)) != 3 or bind not in ips:
-        raise ValueError("REGISTERED_IPS must contain three distinct addresses including MESH_BIND_IP")
+    if len(ips) not in (3, 4) or len(set(ips)) != len(ips) or bind not in ips:
+        raise ValueError("REGISTERED_IPS 必须包含三个或四个不同地址，并包含 MESH_BIND_IP")
     for value in [bind, *ips]:
         if ipaddress.ip_address(value) not in ipaddress.ip_network("100.64.0.0/10"):
             raise ValueError("only individual Tailscale IPv4 addresses are allowed")

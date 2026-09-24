@@ -1,0 +1,127 @@
+diff --git a/src/SyncClipboard.Core/Utilities/History/HistoryManager.cs b/src/SyncClipboard.Core/Utilities/History/HistoryManager.cs
+index 3edb5fd..bb7a330 100644
+--- a/src/SyncClipboard.Core/Utilities/History/HistoryManager.cs
++++ b/src/SyncClipboard.Core/Utilities/History/HistoryManager.cs
+@@ -442,7 +442,7 @@ public class HistoryManager : IHistoryEntityRepository<HistoryRecord, DateTime>
+             if (_runtimeHistoryConfig.EnableSyncHistory)
+             {
+                 await RemoveSoftDeletedOutOfDateRecords(token);
+-                return;
++                // 同步历史由服务端清理，本机独有历史仍需遵守保留期限。
+             }
+ 
+             if (_historyConfig.HistoryRetentionMinutes == 0)
+@@ -456,8 +456,9 @@ public class HistoryManager : IHistoryEntityRepository<HistoryRecord, DateTime>
+             using var guard = new ScopeGuard(() => _dbSemaphore.Release());
+ 
+             var expiredRecords = _dbContext.HistoryRecords
+-                .Where(r => r.Timestamp < cutoffTime && !r.Stared && !r.Pinned && r.SyncStatus == HistorySyncStatus.LocalOnly)
+-                .ToList();
++                .Where(r => !r.IsDeleted && r.Timestamp < cutoffTime && !r.Stared && r.SyncStatus == HistorySyncStatus.LocalOnly)
++                .OrderBy(r => r.Timestamp).ThenBy(r => r.ID)
++                .Take(100).ToList();
+ 
+             foreach (var record in expiredRecords)
+             {
+diff --git a/src/SyncClipboard.Server.Core/Models/AppSettings.cs b/src/SyncClipboard.Server.Core/Models/AppSettings.cs
+index 21ac865..cd3da99 100644
+--- a/src/SyncClipboard.Server.Core/Models/AppSettings.cs
++++ b/src/SyncClipboard.Server.Core/Models/AppSettings.cs
+@@ -4,5 +4,7 @@ public sealed class AppSettings
+ {
+     public string UserName { get; set; } = "admin";
+     public string Password { get; set; } = "admin";
++    // 0 保持上游行为；部署时显式启用非收藏历史的保留时长。
++    public uint HistoryRetentionHours { get; set; } = 0;
+     public uint MaxSavedHistoryCount { get; set; } = 1000;
+ }
+\ No newline at end of file
+diff --git a/src/SyncClipboard.Server.Core/Services/History/HistoryCleaner.cs b/src/SyncClipboard.Server.Core/Services/History/HistoryCleaner.cs
+index b261f46..4b84a6f 100644
+--- a/src/SyncClipboard.Server.Core/Services/History/HistoryCleaner.cs
++++ b/src/SyncClipboard.Server.Core/Services/History/HistoryCleaner.cs
+@@ -10,6 +10,7 @@ class HistoryCleaner(IServiceProvider serviceProvider, IOptions<AppSettings> opt
+     {
+         CleanDeletedHistoryTask();
+         LimitHistoryCountTask();
++        CleanupExpiredHistoryTask();
+         CleanOrphanedFoldersTask();
+ 
+         return Task.CompletedTask;
+@@ -21,6 +22,37 @@ class HistoryCleaner(IServiceProvider serviceProvider, IOptions<AppSettings> opt
+         return Task.CompletedTask;
+     }
+ 
++    private void CleanupExpiredHistoryTask()
++    {
++        Task.Run(async () =>
++        {
++            while (!_cts.IsCancellationRequested)
++            {
++                try
++                {
++                    // 每批释放 DbContext 与锁，限制一次扫描的工作量并让出交互请求。
++                    for (var batch = 0; batch < 10; batch++)
++                    {
++                        using var scope = serviceProvider.CreateScope();
++                        var historyService = scope.ServiceProvider.GetRequiredService<HistoryService>();
++                        var removed = await historyService.CleanupExpiredHistory(
++                            options.Value.HistoryRetentionHours, DateTime.UtcNow, _cts.Token);
++                        if (removed > 0) logger.LogInformation("已清理 {Count} 条过期非收藏历史记录", removed);
++                        if (removed < 100) break;
++                        await Task.Delay(TimeSpan.FromMilliseconds(250), _cts.Token);
++                    }
++                }
++                catch (OperationCanceledException) when (_cts.IsCancellationRequested) { return; }
++                catch (Exception ex)
++                {
++                    logger.LogError(ex, "过期非收藏历史清理失败");
++                }
++                try { await Task.Delay(TimeSpan.FromMinutes(1), _cts.Token); }
++                catch (OperationCanceledException) when (_cts.IsCancellationRequested) { return; }
++            }
++        });
++    }
++
+     private void LimitHistoryCountTask()
+     {
+         Task.Factory.StartNew(async () =>
+diff --git a/src/SyncClipboard.Server.Core/Services/History/HistoryService.cs b/src/SyncClipboard.Server.Core/Services/History/HistoryService.cs
+index c4e1f87..244d073 100644
+--- a/src/SyncClipboard.Server.Core/Services/History/HistoryService.cs
++++ b/src/SyncClipboard.Server.Core/Services/History/HistoryService.cs
+@@ -433,6 +433,34 @@ public class HistoryService : IHistoryEntityRepository<HistoryRecordEntity, Date
+     //     await DeleteProfileData(existing, token);
+     // }
+ 
++    /// <summary>按创建时间清理过期非收藏记录；置顶不豁免，保留删除标记供离线客户端同步。</summary>
++    public async Task<int> CleanupExpiredHistory(uint retentionHours, DateTime utcNow, CancellationToken token = default)
++    {
++        if (retentionHours == 0) return 0;
++        if (utcNow.Kind != DateTimeKind.Utc) throw new ArgumentException("清理时钟必须为 UTC", nameof(utcNow));
++        var cutoff = utcNow.AddHours(-(double)retentionHours);
++        // 与收藏更新共用锁，避免先查后删期间误删刚收藏的记录。
++        await _sem.WaitAsync(token);
++        using var guard = new ScopeGuard(() => _sem.Release());
++        var expired = await _dbContext.HistoryRecords
++            .Where(r => r.UserId == HARD_CODED_USER_ID && !r.IsDeleted && !r.Stared && r.CreateTime < cutoff)
++            .OrderBy(r => r.CreateTime).ThenBy(r => r.ID)
++            .Take(100).ToListAsync(token);
++        foreach (var record in expired)
++        {
++            record.IsDeleted = true;
++            record.LastModified = utcNow;
++            record.Version = checked(record.Version + 1);
++        }
++        await _dbContext.SaveChangesAsync(token);
++        foreach (var record in expired)
++        {
++            await NotifyProfileChangeAsync(record);
++            await DeleteProfileDataIfNeed(record, token);
++        }
++        return expired.Count;
++    }
++
+     public async Task RemoveOutOfDateDeletedRecords(CancellationToken token = default)
+     {
+         await _sem.WaitAsync(token);

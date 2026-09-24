@@ -3,6 +3,8 @@ Description=Screen Control G0 MeshAgent（仅限 Tailscale）
 Documentation=https://github.com/Ylianst/MeshCentral
 After=network-online.target tailscaled.service
 Wants=network-online.target tailscaled.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -11,6 +13,15 @@ WorkingDirectory=/opt/screen-control/meshagent
 ExecStartPre=/usr/local/libexec/screen-control-meshagent-firewall apply
 ExecStart=/opt/screen-control/meshagent/meshagent
 ExecStopPost=/usr/local/libexec/screen-control-meshagent-firewall remove
+# 同步诊断子进程不能因高水位无限节流；保留硬上限和整组 OOM 清理。
+MemoryAccounting=yes
+MemoryHigh=infinity
+MemoryMax=768M
+MemorySwapMax=128M
+OOMPolicy=kill
+TimeoutStopSec=15s
+KillMode=control-group
+SendSIGKILL=yes
 Restart=always
 RestartSec=5s
 User=root

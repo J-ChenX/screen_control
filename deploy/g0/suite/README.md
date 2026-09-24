@@ -15,7 +15,7 @@
 ./deploy/g0/suite/configure-tailscale.sh
 ```
 
-安装使用版本化目录和原子 `current` 软链接，不覆盖旧版本；用户服务在 `127.0.0.1:8790` 保留健康检查与兼容入口，并在 echova 的 Tailscale IPv4 `:8444` 直接终止 TLS。配置脚本从本机 Tailscale 状态生成三台电脑及 xiaomi-15 手机的稳定节点映射，写入权限为 `0600` 的 `%h/.config/screen-control/tailscale.env`。Tailscale 配置前会备份，任一步失败会自动恢复。
+安装使用版本化目录和原子 `current` 软链接，不覆盖旧版本；用户服务在 `127.0.0.1:8790` 保留健康检查与兼容入口，并在 echova 的 Tailscale IPv4 `:8444` 直接终止 TLS。配置脚本从本机 Tailscale 状态生成原三台电脑及 xiaomi-15 手机的稳定节点映射；设置 `SCREEN_CONTROL_LERREM_DNS_NAME` 后同时登记第四台电脑 `lerrem`，写入权限为 `0600` 的 `%h/.config/screen-control/tailscale.env`。Tailscale 配置前会备份，任一步失败会自动恢复。
 
 若 Tailscale 私有网络尚未启用 HTTPS 证书，直接入口的证书获取会失败；配置脚本会恢复原 Tailscale Serve 配置并保留 HTTP 回退入口。管理员启用 HTTPS 后重新运行脚本，它会同时验证门户健康检查、自动识别结果和剪贴板入口，再关闭 HTTP 回退。
 
@@ -47,3 +47,31 @@ SSH 使用已有服务用户密钥、严格主机密钥校验与非交互模式�
 共享收藏由门户桥接进程持久化到 `~/.local/state/screen-control/favorites/folders.json`（可配置，见[配置指南](../../../docs/CONFIGURATION.md)）。该目录必须在服务启动前创建为 `0700`；服务通过精确的 `ReadWritePaths` 放行此目录，其他用户目录继续只读。私网与网关共用存储，升级时不得复制空文件覆盖已有收藏。
 
 本次能力涉及桥接二进制和门户静态资源，需一起发布并重启既有 `screen-control-suite` 服务；重启会结束正在使用的桌面和文件会话。发布前备份当前版本链接、服务文件和已有收藏目录。健康检查除 `/api/v1/health` 与静态资源外，还须从可信入口读取收藏 API；用隔离测试数据验证跨入口更新并清理本次测试项。失败时恢复旧版本链接和服务文件、执行 `daemon-reload` 和服务重启，保留收藏数据用于再次升级。
+
+### 内存预算
+
+门户使用 Go 128 MiB 软预算，服务组高水位 192 MiB、硬上限 256 MiB、Swap 上限 64 MiB；同时最多 16 个桌面/文件会话（包含建连中）。内存超限可能导致服务组重启，桌面与文件操作的未确认结果仍视为未知。预算不包含独立 MeshCentral、SyncClipboard 或远端文件进程。浏览器图块采用有界解码与显式释放，部署、测量和回滚见[内存评估](../../../docs/performance/MEMORY.md)。
+
+### SyncClipboard 内存配置
+
+先确认已安装主程序路径、现有服务和运行版本，禁止把桌面程序误加入门户服务组。以下配置针对当前 .NET 8 / SyncClipboard 3.1.5，升级后需要复核并重新应用，不能自动覆盖未知版本。
+
+```bash
+# 路径从本机实际安装位置取得，不把私有账号和路径写入仓库。
+python3 deploy/g0/suite/configure-syncclipboard-memory.py server "${SCREEN_CONTROL_SYNC_SERVER_RUNTIMECONFIG}"
+sudo python3 deploy/g0/suite/configure-syncclipboard-memory.py desktop "${SCREEN_CONTROL_SYNC_DESKTOP_RUNTIMECONFIG}"
+```
+
+上述两个 `SCREEN_CONTROL_*` 变量仅是运维命令的显式文件路径参数，不由应用读取；可通过既有 `ops/with-env` 加载。工具会保存同目录原始备份。把 `syncclipboard-server-memory.conf` 安装为既有 `syncclipboard.service.d/50-memory.conf`，把 `syncclipboard-desktop-memory.conf` 安装为既有 `app-xyz.jericx.desktop.syncclipboard@autostart.service.d/50-memory.conf`；目录位于用户 systemd 配置目录。已有同名覆盖时先比较、备份，不直接覆盖。不得对包含浏览器或其他程序的混合 cgroup 限内存。
+
+停止旧桌面实例后，`systemctl --user daemon-reload` 并重启对应的已有单元，确认单实例、GC 配置、cgroup 和内存属性。此流程不安装新的服务。未由 XDG 生成该客户端单元、没有图形会话或不是该版本时，先完成环境核对，不直接执行。服务端/客户端分别保留 256/384 MiB 托管堆；进程组分别最多 512/768 MiB，为本机图像库等保留余量。内存不足可能中断同步，不能视为成功。
+
+健康检查应包含已有鉴权的 `/api/version`、`/SyncClipboard.json`、`POST /api/history/query` 和 SignalR 协商，凭据仅在内存读取，禁止输出到命令、日志或 URL。只读查询不能代替跨设备图片/文件写入同步验收。不要为了测试清空或降低既有历史数量。回滚恢复工具保存的原 runtimeconfig，移除本次内存覆盖、重新加载并重启；账号、历史库和同步内容不参与本次修改。实测与限制见[内存评估](../../../docs/performance/MEMORY.md#syncclipboard-附加优化)。
+
+Windows 已安装客户端可使用 `configure-syncclipboard-memory-windows.ps1 -RuntimeConfig <主程序.runtimeconfig.json>` 设置同样的 384 MiB 托管堆预算；`-WhatIf` 可只检查拟执行操作。工具保留原文件备份与 ACL，必须重启实际图形会话中的客户端才能生效。Windows 实测为 .NET 9，尚未提供等同 Linux cgroup 的全进程硬上限；不要把托管堆限额写成整进程限额。当前 Windows 状态和回滚见[内存报告](../../../docs/performance/MEMORY.md#windows-在线状态纠正与补充部署)。
+
+Linux 客户端覆盖还设置 glibc 原生分配参数：`MALLOC_ARENA_MAX=2`，`MALLOC_TRIM_THRESHOLD_` 与 `MALLOC_MMAP_THRESHOLD_` 均为 131072 字节。它们仅影响客户端进程，不适用于 Windows；不通过清理历史或缩小托管堆实现下降。两机对照结果、CPU 检查和二次优化独立回滚见[二次优化记录](../../../docs/performance/MEMORY.md#syncclipboard-客户端原生内存二次优化)。
+
+### SyncClipboard 历史保留
+
+用户要求的“非收藏超过 48 小时清除”由现有服务端和客户端清理任务执行，收藏保留，置顶未收藏不豁免。原有数量限制继续生效，离线设备重新同步后收敛。此能力依赖 SyncClipboard 3.1.5 的小范围源码补丁，不能仅改原版客户端的保留时间；固定工具链、测试、部署与回滚见[保留规则部署](syncclipboard-retention/README.md)，实机结果见[验收记录](../../../docs/performance/SYNCCLIPBOARD_RETENTION.md)。

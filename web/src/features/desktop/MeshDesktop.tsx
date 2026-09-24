@@ -1,3 +1,4 @@
+import { manageDesktopMemory } from "./memory";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ConnectionRecovery } from "../../network/recovery";
@@ -26,6 +27,7 @@ export function fitRemoteCanvas(screenWidth: number, screenHeight: number, viewp
 
 export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: { device: Device; toolbarTarget: HTMLElement | null; inputSuspended?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const memoryCleanupRef = useRef<(() => void) | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const redirectRef = useRef<AgentRedirect<MeshDesktopModule> | null>(null);
   const inputSuspendedRef = useRef(inputSuspended);
@@ -105,8 +107,13 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     if (redirect) {
       redirect.m.UnGrabKeyInput();
       redirect.m.UnGrabMouseInput();
+      redirect.onStateChanged = null;
+      redirect.onConsoleMessageChange = null;
+      redirect.m.onScreenSizeChange = null;
       redirect.Stop();
     }
+    memoryCleanupRef.current?.();
+    memoryCleanupRef.current = null;
     if (mountedRef.current) setState(nextState);
     if (recover) recovery.current!.failed();
     if (sessionId) {
@@ -184,6 +191,10 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       }
       sessionRef.current = session.desktopSessionId;
       const module = window.CreateAgentRemoteDesktop(canvasRef.current);
+      memoryCleanupRef.current = manageDesktopMemory(module, canvasRef.current, message => {
+        setError(message);
+        void stop("error");
+      });
       const processCommand = module.ProcessBinaryCommand?.bind(module);
       if (processCommand) module.ProcessBinaryCommand = (command, size, data) => processCommand(command, size, normalizeCursorCommand(command, size, data));
       // Windows 输入法需要字母按键事件来生成预编辑文本和候选项。

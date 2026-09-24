@@ -19,7 +19,7 @@ export interface Device {
     gpuStatus: "live" | "offline" | "unavailable" | "unsupported";
     gpus: { name: string; utilization: number | null; memoryUsedBytes: number | null; memoryTotalBytes: number | null; sampledAt: string }[] | null;
   };
-  id: "echova" | "nix" | "jiang-chenx";
+  id: "echova" | "nix" | "jiang-chenx" | "lerrem";
   name: string;
   platform: "Ubuntu" | "Windows";
   role: string;
@@ -76,6 +76,21 @@ export const registeredDevices: Device[] = [
     name: "jiang-chenx",
     platform: "Windows",
     role: "个人电脑",
+    state: "offline",
+    observedAt: "等待后端",
+    pathLabel: "尚未取得权威路径",
+    components: [
+      { key: "host", label: "主机", state: "unknown", detail: "等待状态" },
+      { key: "desktop", label: "桌面", state: "unknown", detail: "等待状态" },
+      { key: "files", label: "文件", state: "unknown", detail: "等待状态" },
+      { key: "clipboard", label: "剪贴板", state: "unavailable", detail: "策略禁用" },
+    ],
+  },
+  {
+    id: "lerrem",
+    name: "lerrem",
+    platform: "Ubuntu",
+    role: "开发机",
     state: "offline",
     observedAt: "等待后端",
     pathLabel: "尚未取得权威路径",

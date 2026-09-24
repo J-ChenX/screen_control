@@ -1,0 +1,965 @@
+{
+  "date": "2026-09-22",
+  "scope": "Linux 客户端原生分配器对照；只显示/隐藏历史面板，不注入剪贴板内容",
+  "runs": {
+    "native-baseline-local": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 427816,
+          "VmSwap": 0,
+          "Pss": 402380,
+          "cpuSeconds": 4.14
+        },
+        "closedKiB": {
+          "VmRSS": 432004,
+          "VmSwap": 0,
+          "Pss": 406464,
+          "cpuSeconds": 6.76
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 450996,
+          "VmSwap": 0,
+          "Pss": 425192,
+          "cpuSeconds": 7.27
+        },
+        "closedKiB": {
+          "VmRSS": 451032,
+          "VmSwap": 0,
+          "Pss": 425240,
+          "cpuSeconds": 7.3
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 451320,
+          "VmSwap": 0,
+          "Pss": 425512,
+          "cpuSeconds": 7.37
+        },
+        "closedKiB": {
+          "VmRSS": 451388,
+          "VmSwap": 0,
+          "Pss": 425596,
+          "cpuSeconds": 7.42
+        }
+      },
+      {
+        "cycle": 3,
+        "activeKiB": {
+          "VmRSS": 451548,
+          "VmSwap": 0,
+          "Pss": 425446,
+          "cpuSeconds": 7.47
+        },
+        "closedKiB": {
+          "VmRSS": 451892,
+          "VmSwap": 0,
+          "Pss": 426088,
+          "cpuSeconds": 7.53
+        }
+      },
+      {
+        "cycle": 4,
+        "activeKiB": {
+          "VmRSS": 456124,
+          "VmSwap": 0,
+          "Pss": 430324,
+          "cpuSeconds": 7.58
+        },
+        "closedKiB": {
+          "VmRSS": 456164,
+          "VmSwap": 0,
+          "Pss": 430372,
+          "cpuSeconds": 7.6
+        }
+      },
+      {
+        "cycle": 5,
+        "activeKiB": {
+          "VmRSS": 457312,
+          "VmSwap": 0,
+          "Pss": 431512,
+          "cpuSeconds": 7.63
+        },
+        "closedKiB": {
+          "VmRSS": 457060,
+          "VmSwap": 0,
+          "Pss": 431260,
+          "cpuSeconds": 7.66
+        }
+      },
+      {
+        "cycle": 6,
+        "activeKiB": {
+          "VmRSS": 462420,
+          "VmSwap": 0,
+          "Pss": 436620,
+          "cpuSeconds": 7.71
+        },
+        "closedKiB": {
+          "VmRSS": 462432,
+          "VmSwap": 0,
+          "Pss": 436642,
+          "cpuSeconds": 7.73
+        }
+      },
+      {
+        "cycle": 7,
+        "activeKiB": {
+          "VmRSS": 460404,
+          "VmSwap": 0,
+          "Pss": 434210,
+          "cpuSeconds": 7.82
+        },
+        "closedKiB": {
+          "VmRSS": 460620,
+          "VmSwap": 0,
+          "Pss": 434430,
+          "cpuSeconds": 7.86
+        }
+      },
+      {
+        "cycle": 8,
+        "activeKiB": {
+          "VmRSS": 460664,
+          "VmSwap": 0,
+          "Pss": 434474,
+          "cpuSeconds": 7.9
+        },
+        "closedKiB": {
+          "VmRSS": 460668,
+          "VmSwap": 0,
+          "Pss": 434494,
+          "cpuSeconds": 7.92
+        }
+      },
+      {
+        "cycle": 9,
+        "activeKiB": {
+          "VmRSS": 464816,
+          "VmSwap": 0,
+          "Pss": 438626,
+          "cpuSeconds": 7.98
+        },
+        "closedKiB": {
+          "VmRSS": 464916,
+          "VmSwap": 0,
+          "Pss": 438746,
+          "cpuSeconds": 7.99
+        }
+      }
+    ],
+    "native-tuned-local": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 415648,
+          "VmSwap": 0,
+          "Pss": 389670
+        },
+        "closedKiB": {
+          "VmRSS": 415672,
+          "VmSwap": 0,
+          "Pss": 389698
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 415764,
+          "VmSwap": 0,
+          "Pss": 389782
+        },
+        "closedKiB": {
+          "VmRSS": 415868,
+          "VmSwap": 0,
+          "Pss": 389894
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 416056,
+          "VmSwap": 0,
+          "Pss": 389791
+        },
+        "closedKiB": {
+          "VmRSS": 416084,
+          "VmSwap": 0,
+          "Pss": 389765
+        }
+      },
+      {
+        "cycle": 3,
+        "activeKiB": {
+          "VmRSS": 416100,
+          "VmSwap": 0,
+          "Pss": 389785
+        },
+        "closedKiB": {
+          "VmRSS": 416108,
+          "VmSwap": 0,
+          "Pss": 389793
+        }
+      },
+      {
+        "cycle": 4,
+        "activeKiB": {
+          "VmRSS": 412048,
+          "VmSwap": 0,
+          "Pss": 385729
+        },
+        "closedKiB": {
+          "VmRSS": 412148,
+          "VmSwap": 0,
+          "Pss": 385837
+        }
+      },
+      {
+        "cycle": 5,
+        "activeKiB": {
+          "VmRSS": 408076,
+          "VmSwap": 0,
+          "Pss": 381753
+        },
+        "closedKiB": {
+          "VmRSS": 408076,
+          "VmSwap": 0,
+          "Pss": 381761
+        }
+      },
+      {
+        "cycle": 6,
+        "activeKiB": {
+          "VmRSS": 412236,
+          "VmSwap": 0,
+          "Pss": 385917
+        },
+        "closedKiB": {
+          "VmRSS": 412332,
+          "VmSwap": 0,
+          "Pss": 386013
+        }
+      },
+      {
+        "cycle": 7,
+        "activeKiB": {
+          "VmRSS": 412372,
+          "VmSwap": 0,
+          "Pss": 386057
+        },
+        "closedKiB": {
+          "VmRSS": 412452,
+          "VmSwap": 0,
+          "Pss": 386129
+        }
+      },
+      {
+        "cycle": 8,
+        "activeKiB": {
+          "VmRSS": 408416,
+          "VmSwap": 0,
+          "Pss": 382113
+        },
+        "closedKiB": {
+          "VmRSS": 408416,
+          "VmSwap": 0,
+          "Pss": 382113
+        }
+      },
+      {
+        "cycle": 9,
+        "activeKiB": {
+          "VmRSS": 408568,
+          "VmSwap": 0,
+          "Pss": 382265
+        },
+        "closedKiB": {
+          "VmRSS": 408568,
+          "VmSwap": 0,
+          "Pss": 382273
+        }
+      }
+    ],
+    "native-tuned2-local": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 408820,
+          "VmSwap": 0,
+          "Pss": 383026,
+          "cpuSeconds": 4.2
+        },
+        "closedKiB": {
+          "VmRSS": 415404,
+          "VmSwap": 0,
+          "Pss": 389486,
+          "cpuSeconds": 6.72
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 417772,
+          "VmSwap": 0,
+          "Pss": 391614,
+          "cpuSeconds": 7.0
+        },
+        "closedKiB": {
+          "VmRSS": 417808,
+          "VmSwap": 0,
+          "Pss": 391654,
+          "cpuSeconds": 7.03
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 422088,
+          "VmSwap": 0,
+          "Pss": 395926,
+          "cpuSeconds": 7.12
+        },
+        "closedKiB": {
+          "VmRSS": 422184,
+          "VmSwap": 0,
+          "Pss": 396032,
+          "cpuSeconds": 7.16
+        }
+      },
+      {
+        "cycle": 3,
+        "activeKiB": {
+          "VmRSS": 422420,
+          "VmSwap": 0,
+          "Pss": 396258,
+          "cpuSeconds": 7.21
+        },
+        "closedKiB": {
+          "VmRSS": 424940,
+          "VmSwap": 0,
+          "Pss": 398806,
+          "cpuSeconds": 7.27
+        }
+      },
+      {
+        "cycle": 4,
+        "activeKiB": {
+          "VmRSS": 425172,
+          "VmSwap": 0,
+          "Pss": 399014,
+          "cpuSeconds": 7.31
+        },
+        "closedKiB": {
+          "VmRSS": 425204,
+          "VmSwap": 0,
+          "Pss": 399054,
+          "cpuSeconds": 7.34
+        }
+      },
+      {
+        "cycle": 5,
+        "activeKiB": {
+          "VmRSS": 425328,
+          "VmSwap": 0,
+          "Pss": 399170,
+          "cpuSeconds": 7.4
+        },
+        "closedKiB": {
+          "VmRSS": 425060,
+          "VmSwap": 0,
+          "Pss": 398906,
+          "cpuSeconds": 7.44
+        }
+      },
+      {
+        "cycle": 6,
+        "activeKiB": {
+          "VmRSS": 424960,
+          "VmSwap": 0,
+          "Pss": 398798,
+          "cpuSeconds": 7.49
+        },
+        "closedKiB": {
+          "VmRSS": 424900,
+          "VmSwap": 0,
+          "Pss": 398734,
+          "cpuSeconds": 7.5
+        }
+      },
+      {
+        "cycle": 7,
+        "activeKiB": {
+          "VmRSS": 416920,
+          "VmSwap": 0,
+          "Pss": 390654,
+          "cpuSeconds": 7.57
+        },
+        "closedKiB": {
+          "VmRSS": 417188,
+          "VmSwap": 0,
+          "Pss": 390936,
+          "cpuSeconds": 7.65
+        }
+      },
+      {
+        "cycle": 8,
+        "activeKiB": {
+          "VmRSS": 421296,
+          "VmSwap": 0,
+          "Pss": 395030,
+          "cpuSeconds": 7.69
+        },
+        "closedKiB": {
+          "VmRSS": 421296,
+          "VmSwap": 0,
+          "Pss": 395040,
+          "cpuSeconds": 7.71
+        }
+      },
+      {
+        "cycle": 9,
+        "activeKiB": {
+          "VmRSS": 425444,
+          "VmSwap": 0,
+          "Pss": 399182,
+          "cpuSeconds": 7.77
+        },
+        "closedKiB": {
+          "VmRSS": 425540,
+          "VmSwap": 0,
+          "Pss": 399627,
+          "cpuSeconds": 7.8
+        }
+      }
+    ],
+    "native-baseline-nix": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 404828,
+          "VmSwap": 0,
+          "Pss": 355089
+        },
+        "closedKiB": {
+          "VmRSS": 410620,
+          "VmSwap": 0,
+          "Pss": 360797
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 411688,
+          "VmSwap": 0,
+          "Pss": 361803
+        },
+        "closedKiB": {
+          "VmRSS": 435916,
+          "VmSwap": 0,
+          "Pss": 385933
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 450032,
+          "VmSwap": 0,
+          "Pss": 400025
+        },
+        "closedKiB": {
+          "VmRSS": 453696,
+          "VmSwap": 0,
+          "Pss": 403573
+        }
+      },
+      {
+        "cycle": 3,
+        "activeKiB": {
+          "VmRSS": 458568,
+          "VmSwap": 0,
+          "Pss": 408545
+        },
+        "closedKiB": {
+          "VmRSS": 458340,
+          "VmSwap": 0,
+          "Pss": 408637
+        }
+      },
+      {
+        "cycle": 4,
+        "activeKiB": {
+          "VmRSS": 486684,
+          "VmSwap": 0,
+          "Pss": 436569
+        },
+        "closedKiB": {
+          "VmRSS": 460256,
+          "VmSwap": 0,
+          "Pss": 410145
+        }
+      },
+      {
+        "cycle": 5,
+        "activeKiB": {
+          "VmRSS": 464584,
+          "VmSwap": 0,
+          "Pss": 414465
+        },
+        "closedKiB": {
+          "VmRSS": 468876,
+          "VmSwap": 0,
+          "Pss": 418757
+        }
+      },
+      {
+        "cycle": 6,
+        "activeKiB": {
+          "VmRSS": 469060,
+          "VmSwap": 0,
+          "Pss": 418941
+        },
+        "closedKiB": {
+          "VmRSS": 469072,
+          "VmSwap": 0,
+          "Pss": 418957
+        }
+      },
+      {
+        "cycle": 7,
+        "activeKiB": {
+          "VmRSS": 469384,
+          "VmSwap": 0,
+          "Pss": 419177
+        },
+        "closedKiB": {
+          "VmRSS": 469516,
+          "VmSwap": 0,
+          "Pss": 419307
+        }
+      },
+      {
+        "cycle": 8,
+        "activeKiB": {
+          "VmRSS": 470760,
+          "VmSwap": 0,
+          "Pss": 420547
+        },
+        "closedKiB": {
+          "VmRSS": 470808,
+          "VmSwap": 0,
+          "Pss": 420611
+        }
+      },
+      {
+        "cycle": 9,
+        "activeKiB": {
+          "VmRSS": 470908,
+          "VmSwap": 0,
+          "Pss": 420703
+        },
+        "closedKiB": {
+          "VmRSS": 471332,
+          "VmSwap": 0,
+          "Pss": 421129
+        }
+      }
+    ],
+    "native-baseline2-nix": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 400756,
+          "VmSwap": 0,
+          "Pss": 350990,
+          "cpuSeconds": 4.53
+        },
+        "closedKiB": {
+          "VmRSS": 406772,
+          "VmSwap": 0,
+          "Pss": 356902,
+          "cpuSeconds": 7.26
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 413040,
+          "VmSwap": 0,
+          "Pss": 363426,
+          "cpuSeconds": 10.0
+        },
+        "closedKiB": {
+          "VmRSS": 448384,
+          "VmSwap": 0,
+          "Pss": 398410,
+          "cpuSeconds": 18.81
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 460580,
+          "VmSwap": 0,
+          "Pss": 410494,
+          "cpuSeconds": 27.95
+        },
+        "closedKiB": {
+          "VmRSS": 462944,
+          "VmSwap": 0,
+          "Pss": 412748,
+          "cpuSeconds": 35.34
+        }
+      },
+      {
+        "cycle": 3,
+        "activeKiB": {
+          "VmRSS": 467496,
+          "VmSwap": 0,
+          "Pss": 417308,
+          "cpuSeconds": 43.82
+        },
+        "closedKiB": {
+          "VmRSS": 481688,
+          "VmSwap": 0,
+          "Pss": 431588,
+          "cpuSeconds": 55.64
+        }
+      },
+      {
+        "cycle": 4,
+        "activeKiB": {
+          "VmRSS": 498436,
+          "VmSwap": 0,
+          "Pss": 448240,
+          "cpuSeconds": 65.54
+        },
+        "closedKiB": {
+          "VmRSS": 498640,
+          "VmSwap": 0,
+          "Pss": 448454,
+          "cpuSeconds": 74.27
+        }
+      },
+      {
+        "cycle": 5,
+        "activeKiB": {
+          "VmRSS": 509616,
+          "VmSwap": 0,
+          "Pss": 459674,
+          "cpuSeconds": 83.16
+        },
+        "closedKiB": {
+          "VmRSS": 503796,
+          "VmSwap": 0,
+          "Pss": 453604,
+          "cpuSeconds": 94.47
+        }
+      },
+      {
+        "cycle": 6,
+        "activeKiB": {
+          "VmRSS": 503916,
+          "VmSwap": 0,
+          "Pss": 453716,
+          "cpuSeconds": 94.55
+        },
+        "closedKiB": {
+          "VmRSS": 503940,
+          "VmSwap": 0,
+          "Pss": 453740,
+          "cpuSeconds": 94.58
+        }
+      },
+      {
+        "cycle": 7,
+        "activeKiB": {
+          "VmRSS": 504116,
+          "VmSwap": 0,
+          "Pss": 453872,
+          "cpuSeconds": 94.66
+        },
+        "closedKiB": {
+          "VmRSS": 504528,
+          "VmSwap": 0,
+          "Pss": 454292,
+          "cpuSeconds": 94.81
+        }
+      },
+      {
+        "cycle": 8,
+        "activeKiB": {
+          "VmRSS": 505224,
+          "VmSwap": 0,
+          "Pss": 454976,
+          "cpuSeconds": 94.89
+        },
+        "closedKiB": {
+          "VmRSS": 505104,
+          "VmSwap": 0,
+          "Pss": 454860,
+          "cpuSeconds": 94.92
+        }
+      },
+      {
+        "cycle": 9,
+        "activeKiB": {
+          "VmRSS": 505148,
+          "VmSwap": 0,
+          "Pss": 454908,
+          "cpuSeconds": 94.98
+        },
+        "closedKiB": {
+          "VmRSS": 505352,
+          "VmSwap": 0,
+          "Pss": 455120,
+          "cpuSeconds": 95.02
+        }
+      }
+    ],
+    "native-tuned-nix": [
+      {
+        "cycle": 0,
+        "activeKiB": {
+          "VmRSS": 391792,
+          "VmSwap": 0,
+          "Pss": 342030,
+          "cpuSeconds": 4.64
+        },
+        "closedKiB": {
+          "VmRSS": 394012,
+          "VmSwap": 0,
+          "Pss": 344194,
+          "cpuSeconds": 7.45
+        }
+      },
+      {
+        "cycle": 1,
+        "activeKiB": {
+          "VmRSS": 395588,
+          "VmSwap": 0,
+          "Pss": 345714,
+          "cpuSeconds": 9.89
+        },
+        "closedKiB": {
+          "VmRSS": 432996,
+          "VmSwap": 0,
+          "Pss": 383026,
+          "cpuSeconds": 19.25
+        }
+      },
+      {
+        "cycle": 2,
+        "activeKiB": {
+          "VmRSS": 445020,
+          "VmSwap": 0,
+          "Pss": 394978,
+          "cpuSeconds": 28.37
+        },
+        "closedKiB": {
+          "VmRSS": 445464,
+          "VmSwap": 0,
+          "Pss": 395310,
+          "cpuSeconds": 36.24
+        }
+      },
+      {
+        "cycle": 3,
+        "activeKiB": {
+          "VmRSS": 447892,
+          "VmSwap": 0,
+          "Pss": 397750,
+          "cpuSeconds": 44.09
+        },
+        "closedKiB": {
+          "VmRSS": 468172,
+          "VmSwap": 0,
+          "Pss": 418132,
+          "cpuSeconds": 55.99
+        }
+      },
+      {
+        "cycle": 4,
+        "activeKiB": {
+          "VmRSS": 487560,
+          "VmSwap": 0,
+          "Pss": 437412,
+          "cpuSeconds": 64.98
+        },
+        "closedKiB": {
+          "VmRSS": 437440,
+          "VmSwap": 0,
+          "Pss": 387292,
+          "cpuSeconds": 73.1
+        }
+      },
+      {
+        "cycle": 5,
+        "activeKiB": {
+          "VmRSS": 441568,
+          "VmSwap": 0,
+          "Pss": 391422,
+          "cpuSeconds": 81.31
+        },
+        "closedKiB": {
+          "VmRSS": 437340,
+          "VmSwap": 0,
+          "Pss": 387196,
+          "cpuSeconds": 92.5
+        }
+      },
+      {
+        "cycle": 6,
+        "activeKiB": {
+          "VmRSS": 441128,
+          "VmSwap": 0,
+          "Pss": 390984,
+          "cpuSeconds": 94.15
+        },
+        "closedKiB": {
+          "VmRSS": 441192,
+          "VmSwap": 0,
+          "Pss": 391051,
+          "cpuSeconds": 94.19
+        }
+      },
+      {
+        "cycle": 7,
+        "activeKiB": {
+          "VmRSS": 441000,
+          "VmSwap": 0,
+          "Pss": 390795,
+          "cpuSeconds": 94.3
+        },
+        "closedKiB": {
+          "VmRSS": 441116,
+          "VmSwap": 0,
+          "Pss": 390913,
+          "cpuSeconds": 94.35
+        }
+      },
+      {
+        "cycle": 8,
+        "activeKiB": {
+          "VmRSS": 441252,
+          "VmSwap": 0,
+          "Pss": 391047,
+          "cpuSeconds": 94.46
+        },
+        "closedKiB": {
+          "VmRSS": 441484,
+          "VmSwap": 0,
+          "Pss": 391283,
+          "cpuSeconds": 94.55
+        }
+      },
+      {
+        "cycle": 9,
+        "activeKiB": {
+          "VmRSS": 439672,
+          "VmSwap": 0,
+          "Pss": 389467,
+          "cpuSeconds": 94.61
+        },
+        "closedKiB": {
+          "VmRSS": 439920,
+          "VmSwap": 0,
+          "Pss": 389727,
+          "cpuSeconds": 94.66
+        }
+      }
+    ]
+  },
+  "deploymentChecks": {
+    "echova": {
+      "active": true,
+      "automaticRestarts": 0,
+      "oom": 0,
+      "healthHttpStatus": [
+        200,
+        200,
+        200
+      ]
+    },
+    "nix": {
+      "active": true,
+      "automaticRestarts": 0,
+      "oom": 0,
+      "healthHttpStatus": [
+        200,
+        200,
+        200
+      ]
+    }
+  },
+  "finalNix": [
+    {
+      "cycle": 0,
+      "activeKiB": {
+        "VmRSS": 400012,
+        "VmSwap": 0,
+        "Pss": 349867,
+        "cpuSeconds": 67.93
+      },
+      "closedKiB": {
+        "VmRSS": 409348,
+        "VmSwap": 0,
+        "Pss": 359195,
+        "cpuSeconds": 76.4
+      }
+    },
+    {
+      "cycle": 1,
+      "activeKiB": {
+        "VmRSS": 410032,
+        "VmSwap": 0,
+        "Pss": 359883,
+        "cpuSeconds": 84.2
+      },
+      "closedKiB": {
+        "VmRSS": 415888,
+        "VmSwap": 0,
+        "Pss": 365739,
+        "cpuSeconds": 92.18
+      }
+    },
+    {
+      "cycle": 2,
+      "activeKiB": {
+        "VmRSS": 411936,
+        "VmSwap": 0,
+        "Pss": 361786,
+        "cpuSeconds": 92.27
+      },
+      "closedKiB": {
+        "VmRSS": 411992,
+        "VmSwap": 0,
+        "Pss": 361843,
+        "cpuSeconds": 92.32
+      }
+    },
+    {
+      "endpoint": "/api/version",
+      "status": 200,
+      "bytes": 5,
+      "sha256": null
+    },
+    {
+      "endpoint": "/SyncClipboard.json",
+      "status": 200,
+      "bytes": 164,
+      "sha256": "a0526eff33e0b2ab015e8beaca7bf50348055841af1819021422b946c2b4f832"
+    },
+    {
+      "endpoint": "/api/history/query",
+      "status": 200,
+      "bytes": 25899,
+      "sha256": "8dd10d5712af0314493d8ddd08fe277040e22f5b8a6242517328db31e819c8f8"
+    }
+  ]
+}
