@@ -14,7 +14,7 @@
 - GNU Make
 - Docker（仅运行 MeshCentral G0 尖峰时需要）
 
-项目由 [.mise.toml](.mise.toml) 固定 Go 1.26.8 和 Node.js 24.20.0，前端由 `web/package.json` 固定 pnpm 11.25.0。不要用系统中的近似版本替代正式验证。
+项目由 [.mise.toml](.mise.toml) 固定 Go、Node.js 和 Rust，前端由 `web/package.json` 固定 pnpm；Rust 同时由 `rust-toolchain.toml` 固定并接受一致性校验。不要用系统中的近似版本替代正式验证。
 
 ## 第一次安装
 
@@ -22,7 +22,15 @@
 make setup
 ```
 
-该命令安装锁定的 Go/Node 工具链，并按锁文件安装前端依赖。
+该命令安装锁定的 Go/Node/Rust 工具链，并按锁文件安装前端依赖。
+
+## Rust 的实际接入范围
+
+当前日常套件仍由 Go 门户后端、Go 普通用户文件进程和 React/TypeScript 前端组成，`make build`、`make bundle` 不会构建或安装 Rust MeshAgent。`native/protocol-core` 与 `native/protocol-ffi` 提供 WebSocket 帧、分片和图像缓冲处理，由[独立候选构建](deploy/g0/meshagent/rust-native/README.md)接入上游 MeshAgent；候选尚未完成正式发布和长期验收，不能表述为“全项目已完成 Rust 优化”。
+
+2026-09-29，含 Rust 的 Windows 工件已接入已登记设备并按摘要管理，实际运行状态见[工件清单](deploy/g0/meshagent/rust-native/windows-runtime-manifest.json)。Rust 负责分片缓冲所有权与释放、帧处理和 Windows 图块边界；最后分片扩容不再预留倍增空间，正常输入对照中输出容量从 20,000 降至 10,003 字节，连接结束本条消息后保留容量为零。Ubuntu 设备 `nix`、`echova`、`lerrem` 同日已同步共享 Rust 优化和 Linux 图像处理，并修正采集暂停；逐机状态、回滚与回收限制见[Ubuntu 更新记录](docs/performance/UBUNTU_RUST_RUNTIME_20260929.md)及[Linux 工件清单](deploy/g0/meshagent/rust-native/linux-runtime-manifest.json)。Windows 的主进程常驻增加、整体内存和长期回收限制仍见[实机记录](docs/performance/RUST_RUNTIME_20260929.md)，不能把局部分配收益外推为整机降幅。
+
+Python 负责运维、构建编排和跨语言验证；JS/MJS 负责 MeshCentral 管理包装与浏览器回归。文件扩展名比例不代表运行时性能或迁移完成度。脚本分工、清理依据和测试入口见[测试与流程维护](tests/README.md)。
 
 ## 启动 G0 门户
 
@@ -85,7 +93,16 @@ make test
 make verify
 ```
 
-`make test` 运行 Python 运维/安全测试、Go 普通与竞态测试、前端测试和类型检查；`make verify` 额外检查锁定工具链和验证场景模式定义。
+`make test` 汇总 Rust/C ABI、Python 运维、Go 普通与竞态测试、前端测试和类型检查；也可分别执行 `make test-native`、`make test-operations`、`make test-go`、`make test-web`。`make verify` 检查锁定工具链、验证场景模式及 MeshCentral 静态配置。
+
+隔离浏览器回归使用独立入口，自动构建前端、启动回环预览、顺序运行六项场景并关闭预览，不需要手工启动 Go 或 Vite：
+
+```bash
+mise exec -- corepack pnpm --dir web exec playwright install chromium
+make test-browser
+```
+
+浏览器默认使用锁定 Playwright 配套的 Chromium；实机对照可显式设置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`，该结果需注明所用浏览器。CI 也运行这六项隔离场景。真实设备、网关与原生候选专项的前置条件见[测试入口说明](tests/README.md)。
 
 ## MeshCentral G0 尖峰
 

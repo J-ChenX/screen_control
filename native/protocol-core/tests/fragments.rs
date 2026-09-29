@@ -10,6 +10,8 @@ fn large_first_fragment_grows_to_required_size() {
     assert_eq!(status, Status::Complete);
     assert_eq!(&bytes[..10000], first);
     assert_eq!(&bytes[10000..], &[8; 3]);
+    // 消息已经完整，输出不应为不存在的后续分片保留翻倍容量。
+    assert!(bytes.capacity() < first.len() * 2);
     assert_eq!(state.retained_capacity(), 0);
     drop(state);
     assert_eq!(bytes.len(), 10003); // 输出在连接销毁后仍然有效。

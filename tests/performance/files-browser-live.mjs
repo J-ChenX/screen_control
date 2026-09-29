@@ -2,13 +2,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect } from '../support/browser.mjs';
 const origin = process.env.SCREEN_CONTROL_CANONICAL_ORIGIN;
 const fixtures = JSON.parse(process.env.SCREEN_CONTROL_PERF_FIXTURES ?? '{}');
 for (const id of ['echova', 'nix', 'jiang-chenx']) assert.ok(fixtures[id]?.replaceAll('\\', '/').split('/').at(-1)?.startsWith('screen-control-perf-'));
 assert.ok(origin);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
+const browser = await launchBrowser();
 let stage = '连接';
 try {
   for (const target of ['nix', 'jiang-chenx']) {

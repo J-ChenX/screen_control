@@ -1,8 +1,8 @@
 // 隔离验证控屏文件入口：弹窗直连当前设备，不结束原控屏会话。
 import assert from 'node:assert/strict';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
-const base = process.argv[2] || 'http://127.0.0.1:4175';
+import { launchBrowser, expect, testOrigin } from '../support/browser.mjs';
+const base = testOrigin();
+const browser = await launchBrowser();
 function protocol() {
   window.desktopInputActive = false;
   window.CreateAgentRemoteDesktop = () => ({ protocol: 2, GrabMouseInput() {}, GrabKeyInput() { window.desktopInputActive = true; }, UnGrabMouseInput() {}, UnGrabKeyInput() { window.desktopInputActive = false; } });
@@ -43,7 +43,7 @@ try {
   const popup=page.getByRole('dialog',{name:'文件传输 · echova',exact:true});
   await expect(popup).toBeVisible();
   const bounds=await popup.boundingBox();assert.ok(bounds.width<=width && bounds.height>=760 && bounds.height<=880);
-  if(width===1440) assert.ok(bounds.width>=1200 && bounds.width<1400);
+  if(width===1440) assert.ok(bounds.width>=width-40 && bounds.width<=width-24);
   for(const name of ['多选','全选文件','取消选择','下载到本机']) await expect(popup.getByRole('button',{name,exact:true})).toHaveCount(0);
   await expect(popup.getByRole('button',{name:'设备 A',exact:true})).toContainText('echova');
   await expect(popup.getByRole('button',{name:'设备 B',exact:true})).toContainText('nix（本机）');

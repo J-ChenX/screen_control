@@ -1,0 +1,316 @@
+{
+  "status": "retained-for-observation",
+  "platform": "linux-x64",
+  "source": {
+    "status": "built-not-deployed",
+    "baselineCommit": "62b206e0b485b296e8a73a6547cef02bbf5a2d62",
+    "archiveSha256": "90931268906e6dd174a048949fa2e28200cca56f909d99aa4be843bfa918e602",
+    "backportSha256": "43718a55230bdba8f7e0cfdced8a7ec23bc4a7eeae8e594d212be4257aa95adf",
+    "rustPatchSha256": "3d1773f9c16c71a24a867202398750fa89e7135d1d063153b5797bb9df8a7344",
+    "metadataPatchSha256": "8225e2f2ef28a60529e97484bf49303f6cce34f07d3f4c9aaf2d59c5932b734b",
+    "tilePatchSha256": "68343646412d74a312f061b12410579c37f8708a938151a39936c3b46cb842a3",
+    "ximagePatchSha256": "75c8e5d38678ee70b5acf085add974cda5e0da99a8cd9a5b7b64ffe7d0e442ab",
+    "windowsTilePatchSha256": "1cb4be11be6b9c95e49c86a83d1cf5c1783360f35b3541e335f7e1af5496c8a6",
+    "jpegPatchSha256": "27e07788a5c485b9b81334acb76cf84cf1a97903d3a87c600ab9a51e21d5a612",
+    "checksumPatchSha256": "e71e17a0dcd60ab10286ac4bf038e8aea4fd53bd892df37e536b7d44c1679983",
+    "readablePipePatchSha256": "4ceb59d47bfef5a59bd5d90d18d8ea66b0ff15d1b134772612e17ed87b400aad",
+    "readablePipeStashPatchSha256": "00f4429576507a14413f1eba17f82085c875598a210466c1edca59c0d1de77b8",
+    "timerPatchSha256": "9eab1930e045a9979523f6c771cebc0c817ef338c11fd43d8bd0da3380ed4b97",
+    "headerSha256": "92dddb50ba950dd604e9a3f231acddb49154f45dddf4e359dd66f5360b3adae7",
+    "jpegConfigSha256": "9b1d54be18cf09997fd066850a7499479b847e9c4f55520580f84e67ae9fe657",
+    "binarySha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+    "librarySha256": "f0c163e170cdb7c20ff5a3dba41ec64bedaea9769e5067196cbddd24ae792980",
+    "captureHarness": "passed-with-real-linux-tile-and-ximage-c-callsites",
+    "jpegPipelineHarness": "32-512-2048-passed-with-vendored-headers-and-static-jpeg",
+    "receiveDestructorHarness": "passed-as-an-isolated-C-harness",
+    "scriptNetworkHarness": "passed-on-loopback-without-agent-identity",
+    "readablePipeHarness": "two-sequential-unpipe-cases-passed-on-loopback",
+    "timerHarness": "nested-discarded-timeout-handles-passed-in-full-process"
+  },
+  "excludedOptionalLifetimePatches": true,
+  "formalLongTermAcceptance": false,
+  "asan": {
+    "source": {
+      "status": "built-not-deployed",
+      "baselineCommit": "62b206e0b485b296e8a73a6547cef02bbf5a2d62",
+      "archiveSha256": "90931268906e6dd174a048949fa2e28200cca56f909d99aa4be843bfa918e602",
+      "backportSha256": "43718a55230bdba8f7e0cfdced8a7ec23bc4a7eeae8e594d212be4257aa95adf",
+      "rustPatchSha256": "3d1773f9c16c71a24a867202398750fa89e7135d1d063153b5797bb9df8a7344",
+      "metadataPatchSha256": "8225e2f2ef28a60529e97484bf49303f6cce34f07d3f4c9aaf2d59c5932b734b",
+      "tilePatchSha256": "68343646412d74a312f061b12410579c37f8708a938151a39936c3b46cb842a3",
+      "ximagePatchSha256": "c406b2a18b7844b6ab011fa1c8f8d0303313297c33a0fa081ef173bd43f33e22",
+      "windowsTilePatchSha256": "1cb4be11be6b9c95e49c86a83d1cf5c1783360f35b3541e335f7e1af5496c8a6",
+      "jpegPatchSha256": "27e07788a5c485b9b81334acb76cf84cf1a97903d3a87c600ab9a51e21d5a612",
+      "checksumPatchSha256": "e71e17a0dcd60ab10286ac4bf038e8aea4fd53bd892df37e536b7d44c1679983",
+      "readablePipePatchSha256": "4ceb59d47bfef5a59bd5d90d18d8ea66b0ff15d1b134772612e17ed87b400aad",
+      "readablePipeStashPatchSha256": "00f4429576507a14413f1eba17f82085c875598a210466c1edca59c0d1de77b8",
+      "timerPatchSha256": "9eab1930e045a9979523f6c771cebc0c817ef338c11fd43d8bd0da3380ed4b97",
+      "headerSha256": "92dddb50ba950dd604e9a3f231acddb49154f45dddf4e359dd66f5360b3adae7",
+      "jpegConfigSha256": "9b1d54be18cf09997fd066850a7499479b847e9c4f55520580f84e67ae9fe657",
+      "binarySha256": "291907634f9e4aa9f75facc9624c9ea3923c58aa89aa50f885df9bee2702d639",
+      "librarySha256": "f0c163e170cdb7c20ff5a3dba41ec64bedaea9769e5067196cbddd24ae792980",
+      "sanitizers": "address,undefined; Linux C and C-callable path",
+      "captureHarness": "passed-with-real-linux-tile-and-ximage-c-callsites",
+      "jpegPipelineHarness": "32-512-2048-passed-with-vendored-headers-and-static-jpeg",
+      "receiveDestructorHarness": "passed-as-an-isolated-C-harness",
+      "scriptNetworkHarness": "passed-on-loopback-without-agent-identity",
+      "readablePipeHarness": "two-sequential-unpipe-cases-passed-on-loopback",
+      "timerHarness": "nested-discarded-timeout-handles-passed-in-full-process"
+    },
+    "identicalCompiledSourceFiles": 290
+  },
+  "runtimeSourceSha256": {
+    "Cargo.lock": "88c117ca6fd07adb0a26572a4853608f3526cf735f3c2ce9d2edafde0655078d",
+    "Cargo.toml": "39088edf0f6c9ae8aac3812cf5ce89c9c4dfb8f3541d6de4d2495c97bb541d01",
+    "rust-toolchain.toml": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167",
+    "native/protocol-ffi/src/lib.rs": "d6c5067c8492a81d7af538ca3384fd8e5771391957eff48a4a5cded879dbf10c",
+    "native/protocol-ffi/src/lifecycle.rs": "693e2e08c3f9db2c90def4cbea36575eb9de0b3483fb9cc9717b4158457f4803",
+    "native/protocol-core/src/ximage.rs": "ee15f25bb5bce35ce8194896ec0beb6830f1bcb21cd72750938eb60dd8dafaf5",
+    "native/protocol-core/src/lib.rs": "b436f0a5b14dbc99ce5ad7f89ce085c9693feb50e26589c74b82fa83e0a3a087",
+    "native/protocol-core/src/tile.rs": "0168a06a7930701f8bed2803cafdbe1753a27a8d1f4d4298a194a763c5ad8afc",
+    "native/protocol-core/src/fragments.rs": "fb6c7f024773c7b03de2de6cb208231ebd54dc05cca8ff3d86339af2990ed521",
+    "native/protocol-core/src/windows_tile.rs": "bfcba8a19d5c543af8ea5889e29510e5b341fcc2cb69294d508d29223e0e4faf",
+    "native/protocol-core/tests/ximage.rs": "f1d5cc7d9f41531b930056511afff670b30019595863cdcf33ec6798b5585a18",
+    "native/protocol-core/tests/tile.rs": "f551eec203c50e88ede14de0cf4e23f7a9d43e2503abdbe108a8e5b604a2a7f5",
+    "native/protocol-core/tests/fragments.rs": "d1411e2b026645929a055b6e710b7d1c4a1851ba8ed9ca2d005137fffe5a170b",
+    "native/protocol-core/tests/windows_tile.rs": "98f3a62e61dc64372cec470c39b7bbbecb7193f13dc6481f95208869d39cd9f7",
+    "native/protocol-core/tests/websocket.rs": "e539bb1d04c00a15d1806250e0dc05c12318ed2b4ee3621c272daec47086dd25",
+    "deploy/g0/meshagent/rust-native/linux-canary.py": "bcebb2c09cf64db0e3988c89ff7a6051fb3044de4894730518ef5a48581de2eb",
+    "deploy/g0/meshagent/rust-native/linux-ximage-rust.patch": "75c8e5d38678ee70b5acf085add974cda5e0da99a8cd9a5b7b64ffe7d0e442ab",
+    "tests/performance/desktop-session-live.mjs": "3c59e3150a607cc2dd1782927adde526ac5dd8e6fca08e096f05e082e9deec5f"
+  },
+  "verification": {
+    "rustTests": 22,
+    "linuxCanaryTests": 9,
+    "existingMeshagentOperationsTests": 10,
+    "rustBuildAndMetricsTests": 6,
+    "makeVerify": "passed",
+    "portalHealthHttpStatus": 200,
+    "portalSnapshotHttpStatus": 200,
+    "liveSessionProbeSyntax": "passed",
+    "diffCheck": "passed",
+    "rollbackRehearsal": "nix: restored original binary/checksum; real session passed with current identity database",
+    "updatedDevicesOnline": [
+      {
+        "id": "echova",
+        "state": "online"
+      },
+      {
+        "id": "lerrem",
+        "state": "online"
+      },
+      {
+        "id": "nix",
+        "state": "online"
+      }
+    ]
+  },
+  "devices": [
+    {
+      "registeredDevice": "nix",
+      "status": "retained-for-observation",
+      "sameMainPidAcrossRetain": true,
+      "inputApplicationAcknowledged": false,
+      "browser": "locked Playwright Chromium",
+      "health": {
+        "NRestarts": "0",
+        "OOMPolicy": "kill",
+        "ControlGroup": "/system.slice/screen-control-meshagent.service",
+        "MemoryMax": "805306368",
+        "MemorySwapMax": "134217728",
+        "ActiveState": "active",
+        "binarySha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+        "runningSha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+        "fixedChecksumValid": true,
+        "networkRulesValid": true
+      },
+      "preRetainSessions": 6,
+      "preRetainMemory": {
+        "samples": 90,
+        "intervalSeconds": 2,
+        "firstPssMiB": 34.54,
+        "sampledPeakPssMiB": 50.55,
+        "lastPssMiB": 15.57,
+        "lastProcessCount": 1,
+        "lastTenSamplesOnlyMainProcess": true
+      },
+      "postRetainSessions": 6,
+      "postRetainMemory": {
+        "samples": 45,
+        "intervalSeconds": 2,
+        "firstPssMiB": 47.58,
+        "sampledPeakPssMiB": 51.17,
+        "lastPssMiB": 15.94,
+        "lastProcessCount": 1,
+        "lastTenSamplesOnlyMainProcess": true
+      },
+      "lifecycle": {
+        "target": "nix",
+        "pauseResume": "passed",
+        "controlPacketsSent": 2,
+        "freshFrameAfterInput": true,
+        "ordinaryEnd": "passed",
+        "inputApplicationAcknowledged": false
+      },
+      "automaticAfterRetain": "already-retained-for-observation",
+      "idleReclaimVerified": true
+    },
+    {
+      "registeredDevice": "echova",
+      "status": "retained-for-observation",
+      "sameMainPidAcrossRetain": true,
+      "inputApplicationAcknowledged": false,
+      "browser": "Google Chrome 152.0.7977.82 (explicit comparison)",
+      "health": {
+        "NRestarts": "0",
+        "OOMPolicy": "kill",
+        "ControlGroup": "/system.slice/screen-control-meshagent.service",
+        "MemoryMax": "805306368",
+        "MemorySwapMax": "134217728",
+        "ActiveState": "active",
+        "binarySha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+        "runningSha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+        "fixedChecksumValid": true,
+        "networkRulesValid": true
+      },
+      "preRetainSessions": 6,
+      "preRetainMemory": {
+        "samples": 90,
+        "intervalSeconds": 2,
+        "firstPssMiB": 72.57,
+        "sampledPeakPssMiB": 92.79,
+        "lastPssMiB": 76.13,
+        "lastProcessCount": 2,
+        "lastTenSamplesOnlyMainProcess": false
+      },
+      "postRetainSessions": 6,
+      "postRetainMemory": {
+        "samples": 45,
+        "intervalSeconds": 2,
+        "firstPssMiB": 81.07,
+        "sampledPeakPssMiB": 94.86,
+        "lastPssMiB": 76.73,
+        "lastProcessCount": 2,
+        "lastTenSamplesOnlyMainProcess": false
+      },
+      "lifecycle": {
+        "target": "echova",
+        "pauseResume": "passed",
+        "controlPacketsSent": 2,
+        "freshFrameAfterInput": true,
+        "ordinaryEnd": "passed",
+        "inputApplicationAcknowledged": false
+      },
+      "automaticAfterRetain": "already-retained-for-observation",
+      "idleReclaimVerified": false
+    },
+    {
+      "registeredDevice": "lerrem",
+      "status": "retained-for-observation",
+      "sameMainPidAcrossRetain": true,
+      "inputApplicationAcknowledged": false,
+      "browser": "locked Playwright Chromium",
+      "health": {
+        "NRestarts": "0",
+        "OOMPolicy": "stop",
+        "ControlGroup": "/system.slice/screen-control-meshagent.service",
+        "MemoryMax": "infinity",
+        "MemorySwapMax": "infinity",
+        "ActiveState": "active",
+        "binarySha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+        "runningSha256": "e9747a1857b8b9b143af651cdf9b9b4ce94cc05f040f107da509621e721f5b27",
+        "fixedChecksumValid": true,
+        "networkRulesValid": true
+      },
+      "preRetainSessions": 6,
+      "preRetainMemory": {
+        "samples": 60,
+        "intervalSeconds": 2,
+        "firstPssMiB": 38.55,
+        "sampledPeakPssMiB": 45.86,
+        "lastPssMiB": 15.29,
+        "lastProcessCount": 1,
+        "lastTenSamplesOnlyMainProcess": true
+      },
+      "postRetainSessions": 6,
+      "postRetainMemory": {
+        "samples": 45,
+        "intervalSeconds": 2,
+        "firstPssMiB": 40.0,
+        "sampledPeakPssMiB": 46.0,
+        "lastPssMiB": 15.29,
+        "lastProcessCount": 1,
+        "lastTenSamplesOnlyMainProcess": true
+      },
+      "lifecycle": {
+        "target": "lerrem",
+        "pauseResume": "passed",
+        "controlPacketsSent": 2,
+        "freshFrameAfterInput": true,
+        "ordinaryEnd": "passed",
+        "inputApplicationAcknowledged": false
+      },
+      "automaticAfterRetain": "already-retained-for-observation",
+      "idleReclaimVerified": true,
+      "existingServicePolicyPreserved": true
+    }
+  ],
+  "recordedUtc": "2026-09-29T08:01:48.517406+00:00",
+  "limitations": [
+    "长期稳定性、完整画质与输入应用语义尚未正式验收",
+    "未进行同负载旧版内存对照，不能推算整机降幅",
+    "echova仍有采集子进程，未确认是否存在其他控制端连接，不认定为空闲回收通过",
+    "lerrem沿用既有服务策略：MemoryMax/MemorySwapMax均为infinity、OOMPolicy=stop；本次未套用其他两机的硬预算"
+  ],
+  "evidenceSha256": {
+    "post-retain-sessions-nix.jsonl": "7a7cde76bf84b4ee043373f30cabb1d081a079b1fda330b95b1797d230969251",
+    "final-sessions-nix.jsonl": "ba2d5c872fb48ca57f9297305b4de773f7837c11f49c1ab8f3b20dd19fa1dfc9",
+    "final-lifecycle-nix.jsonl": "d5709b553a02a4edcb4438b732de85c0c2b132342a54aa8447b61326f2299d13",
+    "release-memory-nix.jsonl": "8ed4f7a8b1f0b8ab7e391bab96cdfd0b17bb7108fb812615c0e02ab9e9cf2539",
+    "final-memory-nix.jsonl": "0842353aa9a836274528e7c16859dd319ad2f388654366e11ac78fea8363cd99",
+    "release-sessions-nix.jsonl": "82ffa188eccc92d8d1ec45dc9db4f7c645590f53b3061d2d34b09d296c1ffbc9",
+    "nix-restore.json": "cbb89fc9b34254fa55c628bf0a6434feea9f2b97f5dbef0c5b2f9136eac43d8d",
+    "nix-health.json": "209dc4f76707f7937e4dbb57dfec8209c9bd7b3dac2926d4aa74c25ce2f3295e",
+    "post-retain-memory-nix.jsonl": "42dd46de7b1de60d77e7b758acd551eecf6f651097e67fed19c5b3991f2ae07f",
+    "nix-retain.json": "85145eee3af4b4436ab45c11c2e81a0fa476dde4e396d99af6b52cd34273ca48",
+    "candidate-retry-nix.jsonl": "45cb5f889bb1e053f98c532e1b2be79fc7cac596d5d21bee0e2f06c25d000b76",
+    "rollback-lifecycle-nix.jsonl": "d5709b553a02a4edcb4438b732de85c0c2b132342a54aa8447b61326f2299d13",
+    "release-lifecycle-nix.jsonl": "d5709b553a02a4edcb4438b732de85c0c2b132342a54aa8447b61326f2299d13",
+    "candidate-memory-nix.jsonl": "ef6cc7d929124aabbb4387892f21d62f1b92896dff9b611c992943f49a62d3a1",
+    "post-retain-memory-echova.jsonl": "7465f031d3d9a3c125cea26e3c9807349fc66ba9a27dcc003204a1c832d2cee7",
+    "release-lifecycle-echova.jsonl": "537473ad7f6fc479f0a710b4a0622c3bf4624205ed0a631f9774a17292580744",
+    "baseline-chrome-echova.jsonl": "37458368c94d3030dac9b46c8c7bc77c81fc25ff63df181beca01b37ede23f0f",
+    "post-retain-sessions-echova.jsonl": "bbb3c62bd884a0bbd3f35279cf1a249d99cc1bbaac4e362ed2c4b1e5585cc19e",
+    "echova-retain.json": "0405aec3f5b94bb257a1bac202b88b3e891b664c6c87f76fd4dd63e0d3faaa7e",
+    "echova-health.json": "af12546e209411679389db01ef728a6f0c1a3baa84a7ef7e853aaffaebe9f74e",
+    "release-memory-echova.jsonl": "675922e5f432c775152385cca59254f32314448f966af8556a2ac0644256e4f0",
+    "echova-restore.json": "cbb89fc9b34254fa55c628bf0a6434feea9f2b97f5dbef0c5b2f9136eac43d8d",
+    "release-sessions-echova.jsonl": "7921a1455c8cd74af2b0b43d2954b31c70f44fd8e9790d9a5990bb0c33859796",
+    "device-snapshot.json": "735c2cf7cc607e3a33f9acb4691fbaf27b7e5260152c6fa817c6a253f50defdd",
+    "desktop-session-live-before-lerrem.mjs": "4b8fa2932bf369c03c5c085b2f32bc86dc121a6834b894866b6c5bd864c5d45e",
+    "lerrem/pre-retain-sessions.jsonl": "24c8f3d1b373805b29b7ed1e04aef19465ab1bb385972eb963a1a4c8de279e74",
+    "lerrem/baseline-health.json": "a33ba7ef01cef7f2fb3cbdb2cf56aee27f54afffa8506fa72f429425b098223b",
+    "lerrem/health.json": "7048e7354ebb4bfedb32435bca20e083fb94130ce5430a8fdff9577c702e5859",
+    "lerrem/retain.json": "bb8789f1139998b1bb4d6e5fbd2e1b6eb305f98e7419659728b881d1caf6843c",
+    "lerrem/baseline-sessions.jsonl": "efd93c60a7bf87625f7ec682658b953d0bacfdcc0fbb0d7167297100746e1498",
+    "lerrem/pre-retain-memory.jsonl": "0023d7736bf60d2b9b678e68c3a6e16d3c6fbe23185be6d335ef0b1421bcf760",
+    "lerrem/arm.json": "3ae800b342e04e42ed9510d1545edf9942f3954cf8541aef52e746ced9745056",
+    "lerrem/post-retain-sessions.jsonl": "4410c303d29a939ddda87ce761f9e035f058b6ac5bc58c8b51087fadba68318f",
+    "lerrem/post-retain-memory.jsonl": "7ddfb8ca2b69a8be6725a3261b22cef59c20c5ee464bc2ac257145817d4550f0",
+    "lerrem/device-snapshot.json": "1a56a9653d28099de217836d4970d3eec79a765ecc49168490dd0888ad48c504",
+    "lerrem/restore-automatic.json": "cbb89fc9b34254fa55c628bf0a6434feea9f2b97f5dbef0c5b2f9136eac43d8d",
+    "lerrem/lifecycle.jsonl": "60474fa484ae64e797a5b1002f9ec6f5369f5886b59fa47f7c3720070a0a31d0"
+  },
+  "compiledSourceTreeSha256": "3781ffe084d9dce66941e49687dc651770b304562736d56dceaa237fd1e0fa16",
+  "previousVerificationTools": [
+    {
+      "path": "tests/performance/desktop-session-live.mjs",
+      "sha256": "4b8fa2932bf369c03c5c085b2f32bc86dc121a6834b894866b6c5bd864c5d45e",
+      "applicableDevices": [
+        "nix",
+        "echova"
+      ],
+      "archive": "desktop-session-live-before-lerrem.mjs"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 // 隔离的文件协议回归：全部 API 和文件内容均为测试数据，不连接真实设备。
 // 用法：mise exec -- node tests/browser/files.mjs http://127.0.0.1:5179
 import assert from 'node:assert/strict';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect, testOrigin, screenshotPath } from '../support/browser.mjs';
 
 function installFileProtocol() {
   const test = window.fileTest = { events: [], sessions: [], redirects: {}, failName: '', disconnectName: '', holdName: '', uploads: [] };
@@ -59,8 +59,19 @@ function installFileProtocol() {
     return redirect;
   };
 }
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--no-proxy-server', '--host-resolver-rules=MAP screen-control.test 127.0.0.1'] });
+const base = testOrigin();
+const browser = await launchBrowser();
 const context = await browser.newContext({ acceptDownloads: true, extraHTTPHeaders: { Accept: '*/*' } });
+async function routeStatic(context) {
+  if (new URL(base).hostname !== 'screen-control.test') return;
+  // 通过本进程转取回环静态资源，避免测试域名依赖系统 DNS 或代理；页面仍为非安全上下文。
+  await context.route(`${base}/**`, async route => {
+    const local = new URL(route.request().url());
+    local.hostname = '127.0.0.1';
+    await route.fulfill({ response: await route.fetch({ url: local.href }) });
+  });
+}
+await routeStatic(context);
 await context.addInitScript(() => {
   // 模拟用户当前无法使用 OPFS 的页面，设备间传输不得访问该接口。
   Object.defineProperty(navigator, 'storage', { configurable: true, get() { throw new Error('设备间传输不应依赖浏览器磁盘'); } });
@@ -106,7 +117,6 @@ const routeAPI = async route => {
   return route.fulfill({ json: { apiVersion: 'v1', data } });
 };
 await context.route('**/api/v1/**', routeAPI);
-const base = process.argv[2] || 'http://127.0.0.1:5179';
 const left = page.locator('.file-browser').nth(0);
 const right = page.locator('.file-browser').nth(1);
 const option = name => left.getByRole('listbox').getByRole('option', { name: new RegExp(`^${name.replace('.', '\\.')}`) });
@@ -132,12 +142,12 @@ try {
     const buttonBox = await desktopButton.boundingBox(), paneBox = await left.boundingBox();
     assert.ok(buttonBox.x >= paneBox.x && buttonBox.x + buttonBox.width <= paneBox.x + paneBox.width);
     await expect(right.locator('.file-desktop-entry')).toContainText('当前设备不支持控屏');
-    await page.screenshot({ path: `/tmp/directory-button-after-${width}.png` });
+    await page.screenshot({ path: screenshotPath(`directory-button-after-${width}.png`) });
     await option('a.txt').dblclick();
     const preview = page.getByRole('dialog', { name: '预览 a.txt', exact: true });
     await expect(preview.locator('pre')).toHaveText('a');
     await expect(right.getByRole('button', { name: '在控屏中打开目录', exact: true })).toBeDisabled();
-    await page.screenshot({ path: `/tmp/file-preview-${width}.png` });
+    await page.screenshot({ path: screenshotPath(`file-preview-${width}.png`) });
     await preview.getByRole('button', { name: '关闭预览' }).click();
     await expect(preview).toHaveCount(0);
     await page.evaluate(() => { window.fileTest.sourceError = '读取权限不足'; });
@@ -202,7 +212,6 @@ try {
   await expect(embeddedFiles).toBeVisible();
   await embeddedFiles.getByRole('button', { name: '关闭文件传输', exact: true }).click();
   await expect(page.getByRole('status', { name: '实机桌面已连接', exact: true })).toBeVisible();
-  if (process.env.SCREEN_CONTROL_PREVIEW_ONLY === '1') { console.log('通过：预览专项（桌面/手机、图片、文本、PDF 入口、资源释放、格式和大小限制、路径请求及超时）'); process.exitCode = 0; await browser.close(); process.exit(0); }
   console.log('通过：桌面与手机文本预览、关闭、读取失败、大小限制、控屏路径请求及超时不重放');
   await open();
   await option('目录').dblclick();
@@ -245,11 +254,11 @@ try {
   await favorites.getByRole('button', { name: '打开收藏 home/echova/目录', exact: true }).click();
   await expect(left.getByRole('textbox', { name: '设备 A地址' })).toHaveValue('home/echova/目录');
   await expect(option('a.txt').locator('.entry-kind-document')).toHaveCount(1);
-  await page.screenshot({ path: '/tmp/files-favorites-desktop.png', fullPage: true });
+  await page.screenshot({ path: screenshotPath('files-favorites-desktop.png'), fullPage: true });
   await open(390);
   await expect(favorites.getByRole('button', { name: '打开收藏 home/echova/目录', exact: true })).toBeVisible();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: '/tmp/files-favorites-mobile.png', fullPage: true });
+  await page.screenshot({ path: screenshotPath('files-favorites-mobile.png'), fullPage: true });
   await favorites.getByRole('button', { name: '取消收藏 home/echova/目录', exact: true }).click();
   await expect(option('目录').locator('.entry-favorite-icon')).toHaveCount(0);
   await open();
@@ -298,9 +307,9 @@ try {
   await favorites.getByRole('button', { name: '取消收藏 home/echova/目录', exact: true }).click();
   await touchDrag(option('目录').locator('.folder-touch-drag'), favorites.locator('.favorite-drop-end'));
   await expect(favorites.locator('.favorite-open')).toHaveCount(2);
-  await page.screenshot({ path: '/tmp/files-drag-mobile.png', fullPage: true });
+  await page.screenshot({ path: screenshotPath('files-drag-mobile.png'), fullPage: true });
   await open();
-  await page.screenshot({ path: '/tmp/files-drag-desktop.png', fullPage: true });
+  await page.screenshot({ path: screenshotPath('files-drag-desktop.png'), fullPage: true });
   await favorites.getByRole('button', { name: '取消收藏 home/echova/目录', exact: true }).click();
   await favorites.getByRole('button', { name: '取消收藏 home/echova', exact: true }).click();
   await cdp.detach();
@@ -326,7 +335,7 @@ try {
       await page.mouse.move(bounds.x + dx, bounds.y + dy);
       await expect(favorites).toHaveClass(/favorite-drop-active/);
       await expect(favorites.locator('.favorite-drop-surface')).toBeVisible();
-      if (dx === 8 && dy === 8) await page.screenshot({ path: `/tmp/files-droparea-${width}.png`, fullPage: true });
+      if (dx === 8 && dy === 8) await page.screenshot({ path: screenshotPath(`files-droparea-${width}.png`), fullPage: true });
       await page.mouse.up();
       await expect(favorites.locator('.favorite-open')).toHaveCount(1);
       await favorites.getByRole('button', { name: '取消收藏 home/echova/目录', exact: true }).click();
@@ -342,6 +351,7 @@ try {
   console.log('通过：桌面/手机整栏六处放下均可收藏，离开区域不误触发');
   // 第二个浏览器上下文没有共享 localStorage，模拟另一台电脑。
   const otherContext = await browser.newContext({ extraHTTPHeaders: { Accept: '*/*' } });
+  await routeStatic(otherContext);
   await otherContext.route('**/api/v1/**', routeAPI);
   const otherPage = await otherContext.newPage();
   await otherPage.goto(base + '/devices/echova/files');

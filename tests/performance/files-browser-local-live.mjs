@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect } from '../support/browser.mjs';
 
 const origin = process.env.SCREEN_CONTROL_CANONICAL_ORIGIN;
 const directory = process.env.SCREEN_CONTROL_PERF_DIRECTORY;
@@ -16,7 +16,7 @@ assert.ok(width === 1440 || width === 390);
 assert.ok(Number.isInteger(sizeMiB) && sizeMiB >= 1 && sizeMiB <= 128);
 if (emulateSecureContext) assert.equal(new URL(origin).protocol, 'http:');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', ...(emulateSecureContext ? [`--unsafely-treat-insecure-origin-as-secure=${origin}`] : [])] });
+const browser = await launchBrowser({ args: [...(emulateSecureContext ? [`--unsafely-treat-insecure-origin-as-secure=${origin}`] : [])] });
 const context = await browser.newContext({ viewport: { width, height: 1000 }, acceptDownloads: true });
 const page = await context.newPage();
 const sourceDirectory = await mkdtemp(join(tmpdir(), 'screen-control-perf-source-'));

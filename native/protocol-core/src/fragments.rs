@@ -84,8 +84,12 @@ impl Decoder {
                 self.streaming = true;
             } else {
                 if total > self.buffer.capacity() {
-                    let capacity =
-                        total.max(self.buffer.capacity().saturating_mul(2).min(self.limit));
+                    // 最后一个分片后立即交付，不再为后续增长预留翻倍容量。
+                    let capacity = if fin {
+                        total
+                    } else {
+                        total.max(self.buffer.capacity().saturating_mul(2).min(self.limit))
+                    };
                     self.buffer
                         .try_reserve_exact(capacity - self.buffer.len())
                         .map_err(|_| Error::Allocation)?;

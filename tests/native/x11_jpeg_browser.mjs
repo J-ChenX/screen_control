@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { launchBrowser } from "../support/browser.mjs";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
@@ -26,12 +26,10 @@ if (width !== 32 || height !== 32 || rgbLength !== 32 * 32 * 3 ||
 }
 const jpeg = Array.from(data.subarray(28, 28 + jpegLength));
 const expected = Array.from(data.subarray(28 + jpegLength));
-const { chromium } = await import(pathToFileURL(resolve(root, "web/node_modules/@playwright/test/index.mjs")).href);
 const memorySource = readFileSync(resolve(root, "web/src/features/desktop/memory.ts"), "utf8");
 const memoryScript = stripTypeScriptTypes(memorySource).replace("export function manageDesktopMemory", "function manageDesktopMemory") +
   "\nwindow.__manageDesktopMemory = manageDesktopMemory;\n";
-const browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", headless: true,
-  args: ["--no-sandbox", "--force-color-profile=srgb"] });
+const browser = await launchBrowser({ args: ["--force-color-profile=srgb"] });
 let result;
 try {
   const page = await browser.newPage();

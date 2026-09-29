@@ -1,6 +1,6 @@
 // 被动实机测量：不注入键鼠、不保存画面、不锁屏。正常/流畅各观测 20 秒。
 // 用法：SCREEN_CONTROL_CANONICAL_ORIGIN=<可信门户> mise exec -- node tests/performance/desktop-live.mjs <登记目标>
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect } from '../support/browser.mjs';
 
 const origin = process.env.SCREEN_CONTROL_CANONICAL_ORIGIN;
 const target = process.argv[2];
@@ -48,7 +48,7 @@ function instrument() {
   });
 }
 
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
+const browser = await launchBrowser();
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const sessions = new Set();
 let page;

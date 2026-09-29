@@ -1,8 +1,8 @@
 // 隔离检查显式锁屏、直接返回、失败提示和桌面/手机布局。
 import assert from 'node:assert/strict';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
-const browser = await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome',headless:true,args:['--no-sandbox']});
-const base=process.argv[2] || 'http://127.0.0.1:4176';
+import { launchBrowser, expect, testOrigin, screenshotPath } from '../support/browser.mjs';
+const base = testOrigin();
+const browser = await launchBrowser();
 function protocol() {
  window.CreateAgentRemoteDesktop=()=>({protocol:2,GrabMouseInput(){},GrabKeyInput(){},UnGrabMouseInput(){},UnGrabKeyInput(){}});
  window.CreateAgentRedirect=(_,m)=>{const r={m,Start(){setTimeout(()=>r.onStateChanged(r,3),0)},Stop(){}};return r;};
@@ -32,7 +32,7 @@ try {
   const button=page.getByRole('button',{name:'锁屏并结束连接',exact:true});
   const rect=await button.boundingBox(); assert.ok(rect.x>=0 && rect.x+rect.width<=width);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  await page.screenshot({path:`/tmp/screen-control-lock-${width}.png`});
+  await page.screenshot({path:screenshotPath(`screen-control-lock-${width}.png`)});
   await button.click(); await expect(page.getByRole('button',{name:'正在结束…'})).toBeDisabled();
   await expect(page.getByText('锁屏请求已发送，连接已结束；暂无法确认目标是否已锁屏。')).toBeVisible();
   assert.equal(requests.filter(p=>p.endsWith('/lock-exit')).length,1);

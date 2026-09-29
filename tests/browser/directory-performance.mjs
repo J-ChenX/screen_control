@@ -1,6 +1,6 @@
 // 隔离检查目录分页、过期响应、大目录有界渲染和键盘/手机操作。
 import assert from 'node:assert/strict';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect, testOrigin, screenshotPath } from '../support/browser.mjs';
 
 function protocol() {
   window.directoryTest = { requests: [], modules: {}, legacy: false, hold: false };
@@ -25,7 +25,8 @@ function protocol() {
     return redirect;
   };
 }
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
+const base = testOrigin();
+const browser = await launchBrowser();
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, extraHTTPHeaders: { Accept: '*/*' } });
@@ -41,7 +42,7 @@ try {
     });
     const page = await context.newPage();
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.goto((process.argv[2] || 'http://127.0.0.1:4175') + '/devices/echova/files');
+    await page.goto(base + '/devices/echova/files');
     const pane = page.locator('.file-browser').first();
     const grid = pane.getByRole('listbox');
     await expect(grid.getByRole('option').first()).toHaveAttribute('aria-setsize', '20000');
@@ -61,7 +62,7 @@ try {
       test.modules.echova.ProcessData(JSON.stringify({ path: request.path, reqid: -1, dir: [{ n: '过期数据', t: 3 }] }));
     });
     await expect(grid.getByRole('option').first()).toHaveAttribute('aria-setsize', '20000');
-    await page.screenshot({ path: `/tmp/screen-control-directory-${width}.png` });
+    await page.screenshot({ path: screenshotPath(`screen-control-directory-${width}.png`) });
     await page.evaluate(() => { window.directoryTest.legacy = true; });
     await pane.getByRole('button', { name: '刷新', exact: true }).click();
     await expect(grid.getByRole('option')).toHaveCount(5);

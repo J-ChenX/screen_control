@@ -2,11 +2,11 @@
 // SCREEN_CONTROL_ENV_FILE=<套件 tailscale.env> ./ops/with-env mise exec -- node tests/performance/desktop-memory.mjs nix
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect } from '../support/browser.mjs';
 const origin = process.env.SCREEN_CONTROL_CANONICAL_ORIGIN;
 const target = process.argv[2];
 if (!origin || !['nix','echova','jiang-chenx','lerrem'].includes(target)) throw new Error('需要可信门户和登记目标');
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args:['--no-sandbox'] });
+const browser = await launchBrowser();
 const browserCDP = await browser.newBrowserCDPSession();
 async function memory(page, cdp) {
   const heap = await cdp.send('Runtime.getHeapUsage');
@@ -43,7 +43,7 @@ try {
         const module=original(...args);
         module.GrabMouseInput=module.GrabKeyInput=module.SendMouseMsg=module.SendKeyMsgKC=module.SendStringUnicode=()=>{};
         const draw=module.Canvas.drawImage.bind(module.Canvas);
-        module.Canvas.drawImage=(...args)=>{window.memoryProbe.draws++;return draw(...args);};
+        module.Canvas.drawImage=(...args)=>{const result=draw(...args);window.memoryProbe.draws++;return result;};
         return module;
       };
     }});
@@ -53,9 +53,10 @@ try {
     assert.ok(identity.ok());assert.notEqual((await identity.json()).data.deviceId,target);
     await page.goto(origin+`/devices/${target}/desktop`);
     for(let cycle=0;cycle<3;cycle++) {
+      const previousDraws=cycle ? await page.evaluate(()=>window.memoryProbe.draws) : 0;
       if(cycle) await page.getByRole('button',{name:'重新连接',exact:true}).click();
       await expect(page.getByRole('status',{name:'实机桌面已连接',exact:true})).toBeVisible({timeout:30000});
-      await page.waitForFunction(()=>window.memoryProbe.draws>0,null,{timeout:15000});
+      await page.waitForFunction(previous=>window.memoryProbe.draws>previous,previousDraws,{timeout:15000});
       if(cycle===1) await page.getByRole('button',{name:'流畅：关',exact:true}).click();
       await page.waitForTimeout(5000);
       const active=await memory(page,cdp);

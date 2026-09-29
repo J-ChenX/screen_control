@@ -1,0 +1,111 @@
+{
+  "status": "retained-for-observation",
+  "platform": "windows-x64",
+  "registeredDevice": "jiang-chenx",
+  "source": {
+    "status": "built-windows-not-deployed",
+    "baselineCommit": "62b206e0b485b296e8a73a6547cef02bbf5a2d62",
+    "archiveSha256": "90931268906e6dd174a048949fa2e28200cca56f909d99aa4be843bfa918e602",
+    "backportSha256": "43718a55230bdba8f7e0cfdced8a7ec23bc4a7eeae8e594d212be4257aa95adf",
+    "rustPatchSha256": "3d1773f9c16c71a24a867202398750fa89e7135d1d063153b5797bb9df8a7344",
+    "metadataPatchSha256": "8225e2f2ef28a60529e97484bf49303f6cce34f07d3f4c9aaf2d59c5932b734b",
+    "tilePatchSha256": "68343646412d74a312f061b12410579c37f8708a938151a39936c3b46cb842a3",
+    "ximagePatchSha256": "e90c69d8a06601d0bdc2df4f1be9887143b6bf80c14682d9e9f85351c819ec37",
+    "windowsTilePatchSha256": "1cb4be11be6b9c95e49c86a83d1cf5c1783360f35b3541e335f7e1af5496c8a6",
+    "jpegPatchSha256": "27e07788a5c485b9b81334acb76cf84cf1a97903d3a87c600ab9a51e21d5a612",
+    "checksumPatchSha256": "e71e17a0dcd60ab10286ac4bf038e8aea4fd53bd892df37e536b7d44c1679983",
+    "readablePipePatchSha256": "4ceb59d47bfef5a59bd5d90d18d8ea66b0ff15d1b134772612e17ed87b400aad",
+    "readablePipeStashPatchSha256": "00f4429576507a14413f1eba17f82085c875598a210466c1edca59c0d1de77b8",
+    "timerPatchSha256": "9eab1930e045a9979523f6c771cebc0c817ef338c11fd43d8bd0da3380ed4b97",
+    "headerSha256": "92dddb50ba950dd604e9a3f231acddb49154f45dddf4e359dd66f5360b3adae7",
+    "jpegConfigSha256": "9b1d54be18cf09997fd066850a7499479b847e9c4f55520580f84e67ae9fe657",
+    "windowsMsvcTarget": "x86_64-pc-windows-msvc",
+    "windowsMsvcLibrarySha256": "50b0046453fe860670b3656ba7c247fef1f62f66c301ca87930783b477c37db8",
+    "windowsMsvcFilesSha256": {
+      "meshservice/MeshService-2022.vcxproj": "3c1922a8f9a34cfd3d1a88aa4b6c68292ce78dd893346f3a74398844bcbd25cc",
+      "meshconsole/MeshConsole-2022.vcxproj": "e83ed4516a001d06d8cfb412a1bfbf490b94b94f3e1a410474a73cc1a57d80cc",
+      "meshservice/MeshService.rc": "40b76b5df726762225f98de6e5ae707ca3c4b63117aa561caff246e2ee53c81e"
+    },
+    "windowsBuild": {
+      "configuration": "Release|x64",
+      "toolVersion": "17.13.19.12613",
+      "serviceSha256": "27a434c99ac6d7e30f6aca6750c91eafe72265e18fa8ce91fd7892ba61ef44cf",
+      "consoleSha256": "39dc4c4d99eaa511b39e210d151a742302739bd29bd939ad8a2c2b1cd04271b3",
+      "logSha256": "aa50aa06e5ade09b8fad5b9b2af4f8c1724b3c414f56555bc11245f993966b45",
+      "completedUtc": "2026-09-29T06:17:13.5350933Z"
+    },
+    "transportArchiveSha256": "1e98244f7bf1330250e3a53a865a2440e34b187baefff884ab97ac9e2b9c7918"
+  },
+  "repositoryCommit": "e61fa5398aee9fc09ebe442da6938fcc39f4203c",
+  "rustComponents": [
+    "screen-control-protocol 0.1.0",
+    "screen-control-protocol-ffi 0.1.0"
+  ],
+  "thirdPartyRustDependencies": [],
+  "scope": "仅 Windows 可回滚观察；不替代完整 SBOM 或长期验收",
+  "runtimeSourceSha256": {
+    "Cargo.lock": "88c117ca6fd07adb0a26572a4853608f3526cf735f3c2ce9d2edafde0655078d",
+    "Cargo.toml": "39088edf0f6c9ae8aac3812cf5ce89c9c4dfb8f3541d6de4d2495c97bb541d01",
+    "native/protocol-core/Cargo.toml": "6d3148f49189b8fbf2df5c8091c3f57b0e484640203ed8a87925474f64d48cd7",
+    "native/protocol-core/src/fragments.rs": "fb6c7f024773c7b03de2de6cb208231ebd54dc05cca8ff3d86339af2990ed521",
+    "native/protocol-core/src/lib.rs": "b436f0a5b14dbc99ce5ad7f89ce085c9693feb50e26589c74b82fa83e0a3a087",
+    "native/protocol-core/src/tile.rs": "0168a06a7930701f8bed2803cafdbe1753a27a8d1f4d4298a194a763c5ad8afc",
+    "native/protocol-core/src/windows_tile.rs": "bfcba8a19d5c543af8ea5889e29510e5b341fcc2cb69294d508d29223e0e4faf",
+    "native/protocol-core/src/ximage.rs": "ee15f25bb5bce35ce8194896ec0beb6830f1bcb21cd72750938eb60dd8dafaf5",
+    "native/protocol-core/tests/fragments.rs": "d1411e2b026645929a055b6e710b7d1c4a1851ba8ed9ca2d005137fffe5a170b",
+    "native/protocol-core/tests/tile.rs": "f551eec203c50e88ede14de0cf4e23f7a9d43e2503abdbe108a8e5b604a2a7f5",
+    "native/protocol-core/tests/websocket.rs": "e539bb1d04c00a15d1806250e0dc05c12318ed2b4ee3621c272daec47086dd25",
+    "native/protocol-core/tests/windows_tile.rs": "98f3a62e61dc64372cec470c39b7bbbecb7193f13dc6481f95208869d39cd9f7",
+    "native/protocol-core/tests/ximage.rs": "f1d5cc7d9f41531b930056511afff670b30019595863cdcf33ec6798b5585a18",
+    "native/protocol-ffi/Cargo.toml": "f87704f30522516f44ee1fbc0c7ed8c9ec4c72b351f45fa757a825c5f8cef5c3",
+    "native/protocol-ffi/src/lib.rs": "d6c5067c8492a81d7af538ca3384fd8e5771391957eff48a4a5cded879dbf10c",
+    "native/protocol-ffi/src/lifecycle.rs": "693e2e08c3f9db2c90def4cbea36575eb9de0b3483fb9cc9717b4158457f4803",
+    "rust-toolchain.toml": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167"
+  },
+  "allocationComparison": {
+    "normalMessageFragmentsBytes": [
+      10000,
+      3
+    ],
+    "previousOutputCapacityBytes": 20000,
+    "currentOutputCapacityBytes": 10003,
+    "retainedConnectionCapacityBytes": 0,
+    "wholeProcessMemoryReductionProven": false
+  },
+  "excludedOptionalLifetimePatches": true,
+  "withdrawnBuilds": [
+    {
+      "serviceSha256": "4213e8dd3186061f2fe077edb5563d6f37c22a1b8bf54a47c12064b08ddf7039",
+      "reason": "保留后新会话30秒超时，已恢复原版且原版六轮同入口通过；未确定具体根因"
+    }
+  ],
+  "verification": {
+    "rustTests": 22,
+    "rustClippy": "passed",
+    "cAbiSanitizers": "passed",
+    "nativeBuildGuards": 2,
+    "memoryEvidenceGuards": 4,
+    "makeVerify": "passed",
+    "windowsCanaryIsolatedLifecycle": "passed",
+    "preRetainRealSessions": 12,
+    "postRetainRealSessions": 12,
+    "pauseResume": "passed",
+    "shiftPacketsSent": 2,
+    "inputApplicationAcknowledged": false,
+    "ordinaryEnd": "passed",
+    "preRetainIdleSamples": 10,
+    "preRetainIdlePrivateMiB": 57.28,
+    "rollbackMechanismAndDatabaseCompatibilityVerifiedOnPreviousDefaultBuild": "84c11f9d2e452a73efaf0ec4c409f85861b507d9a1e356e9753a11451ba2efc6",
+    "formalLongTermAcceptance": false,
+    "postRetainIdleSecondsBetweenBatches": 90,
+    "postRetainMemorySamples": 64,
+    "postRetainIdleSamples": 10,
+    "postRetainIdlePrivateMiB": 57.83,
+    "postRetainIdleHandles": 518,
+    "postRetainIdleThreads": 9,
+    "postRetainControlPacketsSent": 2,
+    "postRetainNewFrames": "passed",
+    "sameMainPidAcrossRetain": true,
+    "automaticAfterRetain": "already-retained"
+  }
+}

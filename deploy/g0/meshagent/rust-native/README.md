@@ -1,6 +1,56 @@
-# Rust 原生帧处理候选
+# Rust 原生代理构建与运行
 
-`event-emitter-forward-ownership.patch` 是未接入默认构建的隔离实验。连续 WebSocket 关闭曾在事件转发回调的 `ILibMemory_CanaryOK(ptr)` 触发 ASan 越界读取：`ptr` 是从 Duktape 缓冲区取得的裸指针，源对象释放后目标钩子仍可能访问它。`Duktape_PushBuffer` 实际会写入 `ILibMemory` 头，不能把问题归因为分配器类型不匹配。实验补丁让目标钩子强持有源对象，消除了该复现路径的越界读取；但同一转发函数也用于长期存活的 HTTP 服务对象，强引用可能保留每个旧连接。该补丁尚无完整释放证明，不能随默认候选发布。`tests/native/websocket_connection_churn.py --mode close-end` 保留触发旧候选越界的无代理身份回环路径，其余模式用于关闭/取消与 PSS 采样；运行结果和未解决项见[内存回收记录](../../../../docs/performance/MEMORY_RECLAIM_20260928.md)。
+## 当前运行范围
+
+2026-09-29，本轮选择默认构建及 Rust 最后分片扩容优化，Windows 工件为 `27a434c9…44cf`，用于已登记设备 `jiang-chenx` 的可回滚运行观察。Ubuntu `nix`、`echova`、`lerrem` 已同步共享 Rust 核心及 Linux 图像处理，并补上 Linux 采集暂停，见[Ubuntu 记录](../../../../docs/performance/UBUNTU_RUST_RUNTIME_20260929.md)与[Linux 工件清单](linux-runtime-manifest.json)。五个可选 C 生命周期补丁未进入此工件：此前包含它们的 `4213e8dd…f7039` 曾通过短测，却在保留后的新会话超时，已撤回。Rust 在两个组合中都实际参与帧、分片和图块处理；不能把排除实验补丁理解为移除了 Rust。[实机记录](../../../../docs/performance/RUST_RUNTIME_20260929.md)与[工件清单](windows-runtime-manifest.json)是当前状态和限制的入口，下方原始候选记录保留各自时间点的事实。
+
+最后分片需要扩容时，Rust 现在只申请完整消息所需容量；中间分片仍按预算内倍增。独立正常输入对照中，10,000 + 3 字节消息的输出容量由 20,000 降至 10,003，完成后连接不保留该容量。该局部分配改善不等于进程常驻、系统峰值或长期泄漏已改善。
+
+`build-windows.ps1` 接受 `prepare_windows_msvc.py` 生成的目录，复核静态库及 MSVC 准备文件，调用已安装的 MSBuild 完整重建，只有成功后才将两个 EXE 和构建日志摘要写入 `candidate.json`。传输目录前后应另外核对打包归档的 SHA-256，不能只凭目录名或历史文档选择二进制。
+
+```powershell
+.\build-windows.ps1 -WorkDir <准备目录>
+.\windows-canary.ps1 -Mode Arm -CandidatePath <最终服务EXE> -CandidateSha256 <清单中的摘要>
+# Arm 输出的备份目录含旧 EXE、guard、身份快照和本次恢复脚本。
+# 六分钟自动回滚内完成正常会话；失败时恢复，未完成时不要保留。
+.\windows-canary.ps1 -Mode Retain -BackupDir <Arm输出目录> -CandidateSha256 <同一摘要> -BuildManifest <candidate.json>
+.\windows-canary.ps1 -Mode Restore -BackupDir <同一备份目录>
+```
+
+保留操作原子写入 `rust-runtime.json` 后撤销自动回滚，固定哈希守护继续运行；此后仍能显式 `Restore`。自动任务和操作者共用互斥锁，已经排队的自动任务会在锁内复查保留凭据。保留凭据提交前不禁用自动回滚，提交后清理任务失败只报告警告。恢复只切回 EXE/guard，保留当前身份数据库；本轮同一上游版本没有模式迁移，且恢复旧版后的真实会话已通过。身份备份不能被表述为已自动恢复。
+
+Windows 管理员环境可运行无真实服务操作的控制流回归：
+
+```powershell
+.\tests\operations\windows-canary.test.ps1 -CanaryScript .\deploy\g0\meshagent\rust-native\windows-canary.ps1
+```
+
+内存检查使用 `python3 tests/performance/windows-agent-memory.py --expected-sha256 <实际运行摘要>`，显式配置当前 SSH 目标；它拒绝样本内工件或主 PID 切换。`desktop-memory.mjs` 被动验证每轮新画面及释放；`desktop-session-live.mjs` 另检查暂停/恢复并发送一次 Ctrl 按下/释放，要求显式可信门户，只用于已登记 Ubuntu 或 Windows 目标。工作集求和不是 PSS，报告应优先比较私有提交量，并说明采样间隔、空闲窗口和负载差异。
+
+## Ubuntu 既有代理更新
+
+枚举更新目标时核对正在运行的套件配置中的 `SCREEN_CONTROL_DEVICE_NODES` 和 `SCREEN_CONTROL_FILE_SSH_TARGETS`，包括独立的 `tailscale.env`、`files.env`；根目录 `.env` 可能仍是早期设备映射，不能据此遗漏已登记目标。连接前逐机确认系统、当前工件、SSH 救援和现有服务限制。
+
+`linux-canary.py` 只更新已安装的代理，保留现有 service、身份数据库、出站限制与内存预算。它核对当前进程和工件摘要，备份旧二进制及校验清单，在独立 root 定时器建立后切换候选；十分钟内未显式保留就恢复原工件。保留与回滚共用文件锁，保留凭据写入前不会取消定时器。`restore` 只恢复二进制及校验清单，身份快照只供人工救援。
+
+```bash
+sudo python3 deploy/g0/meshagent/rust-native/linux-canary.py arm \
+  --candidate <Linux候选二进制> --manifest <candidate.json> \
+  --expected-current <现场核对的当前SHA256>
+# 在十分钟内完成实机会话、资源回收和健康核对；失败立即 restore。
+sudo python3 deploy/g0/meshagent/rust-native/linux-canary.py retain --backup-dir <arm输出目录>
+sudo python3 <arm输出目录>/linux-canary.py restore --backup-dir <arm输出目录>
+```
+
+`arm` 拒绝消毒器工件、五个可选生命周期补丁和未完成的前次更新；`retain` 拒绝工件不匹配、备份损坏及观察期间发生重启的代理。真实部署前运行 `python3 -m unittest discover -s tests/operations -p test_linux_canary.py`，该回归完全使用临时文件和模拟服务。
+
+Linux X11 主循环现在在处理控制管道后检查暂停标志：暂停时关闭本轮显示连接并短暂等待，不采集和编码画面；后续循环仍能接收恢复、刷新和退出。`desktop-session-live.mjs` 先等待在途图块排空，再在暂停中发送刷新请求，确认没有新画面，恢复后必须出现新帧；它还发送一组 Ctrl 按下/释放并核对普通结束。此探针不证明目标应用实际处理了按键，不能代替完整输入验收。
+
+若构建主机没有系统 X11 开发头文件，可显式设置 `CPATH=<已校验隔离sysroot>/usr/include` 使用已有开发头文件；不更换候选自带 JPEG 头文件和静态库。`make test-native`、默认及 ASan/UBSan 构建仍须通过，不得把消毒器工件安装到服务。
+
+## 原始候选记录
+
+早期强引用实验 `event-emitter-forward-ownership.patch` 未进入构建，且缺少完整释放证明，现已从候选目录删除。需要核对历史实现时，可从 Git 提交 `e61fa53` 的同名路径读取；原始测量仍见[内存回收记录](../../../../docs/performance/MEMORY_RECLAIM_20260928.md)。当前生命周期实验采用下述弱状态方案，只有显式指定 `--lifetime-candidate` 才叠加，仍未部署。
 
 `event-emitter-forward-weak-cell.patch` 是后续隔离方案：目标钩子持有可失效的状态对象，源对象终结或发出 `close` 后推迟清理目标钩子，避免在事件监听器内部锁尚未释放时同步移除。`tests/native/event_emitter_forward_lifetime.py` 的直接事件转发模式在 ASan/UBSan 下验证了 1,000 次源对象关闭、目标钩子回到基线，以及未显式关闭时经 GC 触发的终结器兜底；约 48–49 MiB 的批次 PSS 未持续上升。但完整 WebSocket 的 100 次关闭在第 8 次附近仍可触发 `ILibDuktape_net_socket_ResumeHandler` 读越界；隔离尝试取消待执行恢复回调并在断线时撤销回调后，连接仍在同一位置停滞。该方案及两项未通过的恢复回调尝试均未接入默认构建，也未部署。HTTP 服务探针还单独复现 `ILibDuktape_HttpStream_OnReceive` 在回调后读取失效请求头；这些 C 生命周期边界须继续修复和验证。
 

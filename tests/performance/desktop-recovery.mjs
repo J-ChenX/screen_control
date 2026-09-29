@@ -1,10 +1,10 @@
 // 被动实机故障回归：只在本探针浏览器内注入图块，不发送键鼠、不保存屏幕、不锁屏。
 // 验证解码失败和突发积压后使用同一会话自动恢复真实画面。
 import assert from 'node:assert/strict';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect } from '../support/browser.mjs';
 const origin=process.env.SCREEN_CONTROL_CANONICAL_ORIGIN, target=process.argv[2];
 if(!origin || !['nix','echova','jiang-chenx','lerrem'].includes(target)) throw new Error('需要可信入口和登记目标');
-const browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/google-chrome',headless:true,args:['--no-sandbox']});
+const browser=await launchBrowser();
 const context=await browser.newContext({viewport:{width:1440,height:900}});
 const sessions=new Set(),errors=[];let creates=0,ends=0;const page=await context.newPage();
 try {

@@ -368,3 +368,27 @@
  		}
  		
  		x11ext_exports->XShmDetach(imagedisplay, &shminfo);
+--- a/meshcore/KVM/Linux/linux_kvm.c
++++ b/meshcore/KVM/Linux/linux_kvm.c
+@@ -1081,6 +1081,15 @@
+-			ptr2 = 0;
++			ptr2 = 0;
+-			while ((ptr2 = kvm_server_inputdata((char*)pchRequest2 + ptr, cbBytesRead - ptr)) != 0) { ptr += ptr2; }
++			while ((ptr2 = kvm_server_inputdata((char*)pchRequest2 + ptr, cbBytesRead - ptr)) != 0) { ptr += ptr2; }
+-			if (ptr == len) { len = 0; ptr = 0; }
++			if (ptr == len) { len = 0; ptr = 0; }
++		}
++
++		// 暂停时仍处理控制管道，恢复或退出不会被采集等待阻塞。
++		if (g_remotepause || g_pause)
++		{
++			x11_exports->XCloseDisplay(imagedisplay);
++			imagedisplay = NULL;
++			usleep(50000);
++			continue;
+-		}
++		}
+-
++
+-		if (cursordisplay == NULL)
++		if (cursordisplay == NULL)

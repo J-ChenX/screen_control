@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
+import { launchBrowser, expect, testOrigin } from '../support/browser.mjs';
 
 function protocol() {
   const test = window.transferTest = { modern: ['echova', 'nix'], size: 17 * 1024 * 1024, received: 0, complete: false, maxOutstanding: 0, badBytes: 0, fail: false, cancel: 0 };
@@ -69,7 +69,8 @@ function protocol() {
   };
 }
 
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
+const base = testOrigin();
+const browser = await launchBrowser();
 try {
   for (const mode of ['modern', 'old-source', 'old-target', 'empty', 'fail', 'stale', 'disk']) {
     const context = await browser.newContext({ viewport: { width: mode === 'old-target' ? 390 : 1440, height: 1000 }, extraHTTPHeaders: { Accept: '*/*' } });
@@ -85,7 +86,7 @@ try {
       return route.fulfill({ json: { apiVersion: 'v1', data } });
     });
     const page = await context.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
-    await page.goto((process.argv[2] || 'http://127.0.0.1:4175') + '/devices/echova/files');
+    await page.goto(base + '/devices/echova/files');
     const left = page.locator('.file-browser').first();
     await expect(left.getByRole('option', { name: /payload.bin/ })).toBeVisible();
     await page.evaluate(mode => {

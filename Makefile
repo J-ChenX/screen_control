@@ -1,4 +1,4 @@
-.PHONY: setup doctor dev preview dev-run preview-run build bundle install-suite configure-tailscale mesh-config test test-native verify
+.PHONY: setup doctor dev preview dev-run preview-run build build-web bundle install-suite configure-tailscale mesh-config test test-native test-go test-web test-operations test-browser verify
 
 setup:
 	mise install
@@ -37,9 +37,11 @@ preview-run:
 	trap 'kill $$backend_pid $$tail_web_pid 2>/dev/null || true' EXIT INT TERM; \
 	mise exec -- corepack pnpm --dir web exec vite preview --host 127.0.0.1
 
-build:
-	mkdir -p bin
+build-web:
 	mise exec -- corepack pnpm --dir web build
+
+build: build-web
+	mkdir -p bin
 	mise exec -- go build -trimpath -o bin/screen-control ./cmd/screen-control
 	mise exec -- go build -trimpath -o bin/screen-control-files ./cmd/screen-control-files
 
@@ -62,21 +64,30 @@ install-suite:
 configure-tailscale:
 	./ops/with-env ./deploy/g0/suite/configure-tailscale.sh
 
-test:
-	$(MAKE) test-native
+test: test-native test-operations test-go test-web
+
+test-operations:
 	python3 -m unittest discover -s tests/operations -p 'test_*.py' -v
+
+test-go:
 	mise exec -- go test ./...
 	mise exec -- go test -race ./...
+
+test-web:
 	mise exec -- corepack pnpm --dir web test
 	mise exec -- corepack pnpm --dir web typecheck
 
+test-browser: build-web
+	mise exec -- node tests/browser/run.mjs
+
 test-native:
+	mise exec -- cargo fmt --all --check
 	mise exec -- cargo test --workspace --locked
-	mise exec -- cargo clippy --workspace --all-targets -- -D warnings
+	mise exec -- cargo clippy --workspace --all-targets --locked -- -D warnings
 	mise exec -- cargo build --locked --release -p screen-control-protocol-ffi
 	@set -eu; candidate=$$(mktemp /tmp/screen-control-ws-abi.XXXXXX); \
 	trap 'rm -f "$$candidate"' EXIT INT TERM; \
-	cc -std=c11 -g -fsanitize=address,undefined -I native/protocol-ffi/include tests/native/websocket_abi.c target/release/libscreen_control_protocol_ffi.a -ldl -lpthread -lm -o "$$candidate"; \
+	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -no-pie -I native/protocol-ffi/include tests/native/websocket_abi.c target/release/libscreen_control_protocol_ffi.a -ldl -lpthread -lm -o "$$candidate"; \
 	"$$candidate"
 
 verify:

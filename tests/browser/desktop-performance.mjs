@@ -1,8 +1,8 @@
 // 隔离验证画质切换与桌面、手机布局，不连接真实目标。
 import assert from 'node:assert/strict';
-import { chromium, expect } from '../../web/node_modules/@playwright/test/index.mjs';
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
-const base = process.argv[2] || 'http://127.0.0.1:4175';
+import { launchBrowser, expect, testOrigin, screenshotPath } from '../support/browser.mjs';
+const base = testOrigin();
+const browser = await launchBrowser();
 function protocol() {
   window.settings = [];
   window.CreateAgentRemoteDesktop = () => ({ protocol: 2, GrabMouseInput() {}, GrabKeyInput() {}, UnGrabMouseInput() {}, UnGrabKeyInput() {}, SendCompressionLevel(...args) { window.settings.push(args); } });
@@ -41,7 +41,7 @@ try {
     const rect=await button.boundingBox();assert.ok(rect.x>=0 && rect.x+rect.width<=width);
   }
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  await page.screenshot({path:`/tmp/screen-control-performance-${width}.png`});
+  await page.screenshot({path:screenshotPath(`screen-control-performance-${width}.png`)});
   assert.deepEqual(errors,[]);
   await context.close();
  }
