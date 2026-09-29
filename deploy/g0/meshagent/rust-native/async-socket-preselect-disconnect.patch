@@ -1,0 +1,15 @@
+--- a/microstack/ILibAsyncSocket.c
++++ b/microstack/ILibAsyncSocket.c
+@@ -1584,6 +1584,12 @@
+ 						ILibSpinLock_UnLock(&(module->SendLock));
+ 						h(module, module->user);
+ 						ILibSpinLock_Lock(&(module->SendLock));
++						// 超时回调可能同步关闭 socket；不能再把无效 fd 加入 select 集合。
++						if (module->internalSocket == (SOCKET)~0)
++						{
++							ILibSpinLock_UnLock(&(module->SendLock));
++							return;
++						}
+ 						if (module->timeout_milliSeconds != 0) 
+ 						{ 
+ 							*blocktime = module->timeout_milliSeconds; 

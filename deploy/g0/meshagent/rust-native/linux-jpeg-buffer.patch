@@ -1,0 +1,187 @@
+--- a/meshcore/KVM/Linux/linux_compression.c
++++ b/meshcore/KVM/Linux/linux_compression.c
+@@ -16,6 +16,7 @@
+ 
+ #include "linux_compression.h"
+ #include "../../../microstack/ILibParsers.h"
++#include <limits.h>
+ 
+ #if defined(JPEGMAXBUF)
+ 	#define MAX_TILE_SIZE JPEGMAXBUF
+@@ -27,6 +28,39 @@
+ int jpeg_buffer_length = 0;
+ char jpegLastError[JMSG_LENGTH_MAX];
+ JPEG_error_handler default_JPEG_error_handler = NULL;
++static size_t jpeg_buffer_capacity = 0;
++#define MAX_JPEG_BUFFER (1024ULL * 1024 * 1024)
++
++void release_JPEG_buffer(void)
++{
++	free(jpeg_buffer);
++	jpeg_buffer = NULL;
++	jpeg_buffer_length = 0;
++	jpeg_buffer_capacity = 0;
++}
++
++void finish_JPEG_tile(void)
++{
++	// 避免单次异常大帧成为长期驻留容量。
++	if (jpeg_buffer_capacity > 1024 * 1024) release_JPEG_buffer();
++	else jpeg_buffer_length = 0;
++}
++
++static int reserve_JPEG_buffer(size_t required)
++{
++	if (required > MAX_JPEG_BUFFER) return 0;
++	if (jpeg_buffer_capacity >= required) return 1;
++	size_t capacity = jpeg_buffer_capacity == 0 ? MAX_BUFFER : jpeg_buffer_capacity;
++	while (capacity < required)
++	{
++		capacity = capacity > MAX_JPEG_BUFFER / 2 ? MAX_JPEG_BUFFER : capacity * 2;
++	}
++	unsigned char *replacement = realloc(jpeg_buffer, capacity);
++	if (replacement == NULL) return 0;
++	jpeg_buffer = replacement;
++	jpeg_buffer_capacity = capacity;
++	return 1;
++}
+ 
+ void jpeg_error_handler(j_common_ptr ptr)
+ {
+@@ -39,48 +73,35 @@
+ 
+ void init_destination(j_compress_ptr cinfo)
+ {
+-	JOCTET * next_output_byte;
+-	if (jpeg_buffer != NULL) { free(jpeg_buffer); }
+-	if ((jpeg_buffer = malloc(MAX_BUFFER)) == NULL) { ILIBCRITICALEXIT(254); }
++	if (!reserve_JPEG_buffer(MAX_BUFFER)) { ILIBCRITICALEXIT(254); return; }
+ 	jpeg_buffer_length = 0;
+-	next_output_byte = jpeg_buffer;
+-	cinfo->dest->next_output_byte = next_output_byte;
++	cinfo->dest->next_output_byte = jpeg_buffer;
+ 	cinfo->dest->free_in_buffer = MAX_BUFFER;
+ }
+ 
+ boolean empty_output_buffer(j_compress_ptr cinfo)
+ {
+-	JOCTET * next_output_byte;
+-
+-	jpeg_buffer_length += MAX_BUFFER;
+-	if ((jpeg_buffer = (unsigned char *)realloc(jpeg_buffer, jpeg_buffer_length + MAX_BUFFER)) == NULL) { ILIBCRITICALEXIT(254); }
+-	next_output_byte = jpeg_buffer + jpeg_buffer_length;
+-	cinfo->dest->next_output_byte = next_output_byte;
++	size_t used = (size_t)jpeg_buffer_length + MAX_BUFFER;
++	if (used > INT_MAX || used > MAX_JPEG_BUFFER - MAX_BUFFER ||
++		!reserve_JPEG_buffer(used + MAX_BUFFER)) { ILIBCRITICALEXIT(254); return FALSE; }
++	jpeg_buffer_length = (int)used;
++	cinfo->dest->next_output_byte = jpeg_buffer + used;
+ 	cinfo->dest->free_in_buffer = MAX_BUFFER;
+-
+ #if MAX_TILE_SIZE > 0
+-	if ( jpeg_buffer_length > MAX_TILE_SIZE) return FALSE;
++	if (jpeg_buffer_length > MAX_TILE_SIZE) return FALSE;
+ #endif
+ 	return TRUE;
+ }
+ 
+-void term_destination (j_compress_ptr cinfo)
++void term_destination(j_compress_ptr cinfo)
+ {
+-	int remaining_buff_length = MAX_BUFFER - cinfo->dest->free_in_buffer;
+-
+-	jpeg_buffer_length += remaining_buff_length;
+-
++	if (cinfo->dest->free_in_buffer > MAX_BUFFER ||
++		(size_t)jpeg_buffer_length > MAX_JPEG_BUFFER - (MAX_BUFFER - cinfo->dest->free_in_buffer))
++	{ ILIBCRITICALEXIT(254); return; }
++	jpeg_buffer_length += (int)(MAX_BUFFER - cinfo->dest->free_in_buffer);
+ #if MAX_TILE_SIZE > 0
+-	if (jpeg_buffer_length > MAX_TILE_SIZE)
+-	{
+-		free(jpeg_buffer);
+-		jpeg_buffer = NULL;
+-	}
+-	else 
++	if (jpeg_buffer_length > MAX_TILE_SIZE) release_JPEG_buffer();
+ #endif
+-	{
+-		if ((jpeg_buffer = (unsigned char *)realloc(jpeg_buffer, jpeg_buffer_length)) == NULL) { ILIBCRITICALEXIT(254); }
+-	}
+ }
+ 
+ int write_JPEG_buffer(JSAMPLE * image_buffer, int image_width, int image_height, int quality)
+@@ -90,11 +111,14 @@
+ 	JSAMPROW row_pointer[1];
+ 	int row_stride;
+ 
++	if (image_buffer == NULL || image_width <= 0 || image_height <= 0 || quality < 1 || quality > 100 ||
++		(long long)image_width * image_height * 3 > MAX_JPEG_BUFFER) return -1;
+ 	cinfo.err = jpeg_std_error(&jerr);
+ 	if (default_JPEG_error_handler != NULL) { jerr.error_exit = jpeg_error_handler; }
+ 
+ 	jpeg_create_compress(&cinfo);
+ 	cinfo.dest = (struct jpeg_destination_mgr *) malloc(sizeof(struct jpeg_destination_mgr));
++	if (cinfo.dest == NULL) { jpeg_destroy_compress(&cinfo); return -1; }
+ 	cinfo.dest->init_destination = &init_destination;
+ 	cinfo.dest->empty_output_buffer = &empty_output_buffer;
+ 	cinfo.dest->term_destination = &term_destination;
+--- a/meshcore/KVM/Linux/linux_compression.h
++++ b/meshcore/KVM/Linux/linux_compression.h
+@@ -32,6 +32,8 @@
+ typedef void(*JPEG_error_handler)(char *msg);
+ 
+ extern int write_JPEG_buffer (JSAMPLE * image_buffer, int image_width, int image_height, int quality);
++extern void release_JPEG_buffer(void);
++extern void finish_JPEG_tile(void);
+ extern JPEG_error_handler default_JPEG_error_handler;
+ 
+ #endif // LINUX_COMPRESSION_H_ 
+--- a/meshcore/KVM/Linux/linux_tile.c
++++ b/meshcore/KVM/Linux/linux_tile.c
+@@ -78,7 +78,8 @@
+ 	if (get_tile_buffer(x, y, &tilebuffer, tilebuffersize, desktop, desktopsize,
+ 		captureWidth, captureHeight) != 0) return 0;
+ 
+-	write_JPEG_buffer(tilebuffer, captureWidth, captureHeight, COMPRESSION_QUALITY);
++	jpeg_buffer_length = 0;
++	if (write_JPEG_buffer(tilebuffer, captureWidth, captureHeight, COMPRESSION_QUALITY) != 0) return 0;
+ 
+ #if MAX_TILE_SIZE > 0
+ 	if (jpeg_buffer_length > MAX_TILE_SIZE)
+@@ -367,10 +368,11 @@
+ #endif
+ 
+ 	//Set the flags to TILE_SENT
+-	if (jpeg_buffer != NULL) 
++	if (jpeg_buffer != NULL && jpeg_buffer_length > 0)
+ 	{
+-		*bufferSize = jpeg_buffer_length + (jpeg_buffer_length > 65500 ? 16 : 8);
+-		*buffer = malloc(*bufferSize);
++		*bufferSize = (long long)jpeg_buffer_length + (jpeg_buffer_length > 65500 ? 16 : 8);
++		*buffer = malloc((size_t)*bufferSize);
++		if (*buffer == NULL) { *bufferSize = 0; jpeg_buffer_length = 0; return 0; }
+ 
+ 		if (jpeg_buffer_length > 65500)
+ 		{
+@@ -392,9 +394,7 @@
+ 			memcpy_s((char *)(*buffer) + 8, *bufferSize -8, jpeg_buffer, jpeg_buffer_length);
+ 		}
+ 
+-		free(jpeg_buffer);
+-		jpeg_buffer = NULL;
+-		jpeg_buffer_length = 0;
++		finish_JPEG_tile();
+ 
+ 		for (r = row; r <= botrow; r++) {
+ 			for (c = col; c <= rightcol; c++) {
+--- a/meshcore/KVM/Linux/linux_kvm.c
++++ b/meshcore/KVM/Linux/linux_kvm.c
+@@ -1400,6 +1400,7 @@
+ 		g_tileInfo = NULL;
+ 	}
+ 	if(tilebuffer != NULL) { free(tilebuffer); tilebuffer = NULL; }
++	release_JPEG_buffer();
+ 	return (void*)0;
+ }
+ 

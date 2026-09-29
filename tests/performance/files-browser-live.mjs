@@ -56,7 +56,7 @@ try {
       console.log(JSON.stringify({ target, width: target === 'nix' ? 1440 : 390, bytes: content.length, uploadMs: Math.round(uploadMs), copyMs: Math.round(copyMs), sourceUploadAndDownloadSHA256: true, crossDeviceSHA256: true, virtualDirectoryDOMBounded: true, pageErrors: 0 }));
     } finally {
       await page.goto('about:blank').catch(() => {});
-      for (const id of sessions) await context.request.post(origin + `/api/v1/files/sessions/${id}/end`, { data: {} }).catch(() => {});
+      for (const id of sessions) await context.request.post(origin + `/api/v1/files/sessions/${id}/end`, { data: {}, headers: { Origin: origin } }).catch(() => {});
       await context.close();
     }
   }

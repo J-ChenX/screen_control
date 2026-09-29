@@ -1,0 +1,148 @@
+#include <X11/Xlib.h>
+#include <X11/extensions/Xfixes.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "screen_control_protocol.h"
+
+#undef ScreenOfDisplay
+#undef RootWindowOfScreen
+#define ScreenOfDisplay(display, number) ((Screen *)1)
+#define RootWindowOfScreen(screen) ((Window)1)
+#define SCREEN_WIDTH 32
+#define SCREEN_HEIGHT 32
+#define TILE_WIDTH 32
+#define MNG_KVM_MOUSE_CURSOR 88
+#define KVM_MouseCursor_NONE 14
+
+typedef struct {
+	int (*XQueryPointer)(Display *, Window, Window *, Window *, int *, int *, int *, int *, unsigned int *);
+	int (*XFree)(void *);
+} TestX11Exports;
+
+typedef struct {
+	void *(*XFixesGetCursorImage)(Display *);
+} TestXfixesExports;
+
+static int query_ok = 1;
+static int pointer_x = 21, pointer_y = 30;
+static int image_available = 1;
+static int overlay_ok = 1;
+static int overlay_calls;
+static int free_calls;
+static int sentHideCursor;
+static int remoteMouseX = 20, remoteMouseY = 30;
+static int gRemoteMouseRenderDefault;
+static int g_shutdown;
+static int curcursor = 4;
+static int slave2master[2];
+static unsigned long cursor_pixel = 0xff00ff00UL;
+static XFixesCursorImage cursor_image = {.width = 1, .height = 1, .pixels = &cursor_pixel};
+static unsigned char desktop_buffer[32 * 32 * 3];
+static void *desktop = desktop_buffer;
+static long long desktopsize = sizeof(desktop_buffer);
+static Display *imagedisplay = (Display *)1;
+static Display *cursordisplay = (Display *)1;
+
+static int fake_query(Display *display, Window root, Window *root_return, Window *child_return,
+	int *root_x, int *root_y, int *win_x, int *win_y, unsigned int *mask)
+{
+	(void)display; (void)root;
+	*root_return = 1; *child_return = 0;
+	*root_x = pointer_x; *root_y = pointer_y;
+	*win_x = pointer_x; *win_y = pointer_y; *mask = 0;
+	return query_ok;
+}
+
+static int fake_free(void *value)
+{
+	if (value != &cursor_image) return -1;
+	++free_calls;
+	return 0;
+}
+
+static void *fake_image(Display *display)
+{
+	(void)display;
+	return image_available ? &cursor_image : NULL;
+}
+
+static TestX11Exports x11_methods = {.XQueryPointer = fake_query, .XFree = fake_free};
+static TestXfixesExports xfixes_methods = {.XFixesGetCursorImage = fake_image};
+static TestX11Exports *x11_exports = &x11_methods;
+static TestXfixesExports *xfixes_exports = &xfixes_methods;
+
+uint32_t sc_cursor_overlay_rgb24(uint8_t *destination, uint64_t destination_len,
+	const uint8_t *cursor, uint64_t cursor_len, ScCursorMeta meta)
+{
+	if (destination != desktop_buffer || destination_len != sizeof(desktop_buffer) ||
+		cursor != (const uint8_t *)&cursor_pixel || cursor_len != sizeof(cursor_pixel) ||
+		meta.cursor_width != 1 || meta.cursor_height != 1) return 0;
+	++overlay_calls;
+	return overlay_ok;
+}
+
+static void step(void)
+{
+	Window rr = 0, cr = 0;
+	int rx = 0, ry = 0, wx = 0, wy = 0, rs = 0;
+	unsigned int mr = 0;
+	ssize_t written = 0;
+	/* CURSOR_IMPLEMENTATION */
+	(void)written;
+}
+
+static int check_packet(int expected, const char *label)
+{
+	unsigned char packet[5];
+	ssize_t size = read(slave2master[0], packet, sizeof(packet));
+	if (expected < 0 && size == -1 && errno == EAGAIN) return 0;
+	if (expected >= 0 && size == 5 && packet[0] == 0 && packet[1] == MNG_KVM_MOUSE_CURSOR &&
+		packet[2] == 0 && packet[3] == 5 && packet[4] == expected) return 0;
+	fprintf(stderr, "cursor state failed: %s, packet size=%zd\n", label, size);
+	return 1;
+}
+
+int main(void)
+{
+	int failed = 0;
+	if (pipe(slave2master) != 0 || fcntl(slave2master[0], F_SETFL, O_NONBLOCK) != 0) return 2;
+	step();
+	failed |= check_packet(KVM_MouseCursor_NONE, "horizontal move hides client cursor");
+	step();
+	failed |= check_packet(-1, "unchanged hidden state emits no cursor packet");
+	query_ok = 0;
+	step();
+	failed |= check_packet(curcursor, "pointer query failure restores client cursor");
+	query_ok = 1; pointer_x = 20; pointer_y = 31;
+	step();
+	failed |= check_packet(KVM_MouseCursor_NONE, "vertical move hides client cursor");
+	image_available = 0;
+	step();
+	failed |= check_packet(curcursor, "missing image restores client cursor");
+	image_available = 1;
+	step();
+	failed |= check_packet(KVM_MouseCursor_NONE, "valid image hides again");
+	cursordisplay = NULL;
+	step();
+	failed |= check_packet(curcursor, "missing cursor display restores client cursor");
+	cursordisplay = (Display *)1;
+	step();
+	failed |= check_packet(KVM_MouseCursor_NONE, "cursor display recovery hides again");
+	overlay_ok = 0;
+	step();
+	failed |= check_packet(curcursor, "overlay failure restores client cursor");
+	if (g_shutdown != 1 || sentHideCursor != 0 || overlay_calls != 6 || free_calls != 6)
+	{
+		fprintf(stderr, "cursor state failed: state or resource cleanup\n");
+		failed = 1;
+	}
+	close(slave2master[0]); close(slave2master[1]);
+	return failed;
+}

@@ -21,6 +21,7 @@ class ToolchainLockTests(unittest.TestCase):
         temp = tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False)
         with temp:
             json.dump(value, temp)
+        self.addCleanup(Path(temp.name).unlink)
         return Path(temp.name)
 
     def test_current_lock_is_valid(self):
@@ -67,6 +68,26 @@ class ToolchainLockTests(unittest.TestCase):
         lock["targets"][0]["tailscale"] = "1.102.2"
         path = self.write_variant(lock)
         self.assertTrue(any("Tailscale version" in item for item in MODULE.validate(path)))
+
+    def test_rust_version_drift_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["build"]["rust"]["version"] = "1.97.0"
+        self.assertTrue(any("Rust version" in item for item in MODULE.validate(self.write_variant(lock))))
+
+    def test_rust_dependency_drift_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["build"]["rust"]["moduleLockSha256"] = "0" * 64
+        self.assertTrue(any("Rust module lock" in item for item in MODULE.validate(self.write_variant(lock))))
+
+    def test_rust_artifact_omission_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["artifacts"]["files"] = [item for item in lock["artifacts"]["files"] if item["path"] != "rust-toolchain.toml"]
+        self.assertTrue(any("Rust toolchain artifacts" in item for item in MODULE.validate(self.write_variant(lock))))
+
+    def test_rust_minimum_version_drift_is_rejected(self):
+        lock = json.loads(self.lock_path.read_text(encoding="utf-8"))
+        lock["build"]["rust"]["minimumVersion"] = "1.96"
+        self.assertTrue(any("Rust minimum version" in item for item in MODULE.validate(self.write_variant(lock))))
 
 
 if __name__ == "__main__":

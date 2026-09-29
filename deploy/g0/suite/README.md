@@ -74,4 +74,4 @@ Linux 客户端覆盖还设置 glibc 原生分配参数：`MALLOC_ARENA_MAX=2`�
 
 ### SyncClipboard 历史保留
 
-用户要求的“非收藏超过 48 小时清除”由现有服务端和客户端清理任务执行，收藏保留，置顶未收藏不豁免。原有数量限制继续生效，离线设备重新同步后收敛。此能力依赖 SyncClipboard 3.1.5 的小范围源码补丁，不能仅改原版客户端的保留时间；固定工具链、测试、部署与回滚见[保留规则部署](syncclipboard-retention/README.md)，实机结果见[验收记录](../../../docs/performance/SYNCCLIPBOARD_RETENTION.md)。
+用户要求的“非收藏超过 48 小时清除”由现有服务端和客户端清理任务执行，按创建与最近复制／使用时间的较晚者计算，重新复制会刷新保留期，收藏保留，置顶未收藏不豁免。原有数量限制继续生效，离线设备重新同步后收敛。此能力依赖 SyncClipboard 3.1.5 的小范围源码补丁，不能仅改原版客户端的保留时间；固定工具链、测试、部署与回滚见[保留规则部署](syncclipboard-retention/README.md)，实机结果见[验收记录](../../../docs/performance/SYNCCLIPBOARD_RETENTION.md)。

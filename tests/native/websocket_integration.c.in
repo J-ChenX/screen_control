@@ -1,0 +1,175 @@
+#include "screen_control_protocol.h"
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* 提取实际接收与析构函数，仅替换传输和事件环境。 */
+typedef struct ILibWebClientDataObject ILibWebClientDataObject;
+struct ILibWebClient_StreamedRequestBuffer { int MemoryOwnership; char *buffer; };
+typedef struct ILibWebRequest_buffer { struct ILibWebRequest_buffer *next; } ILibWebRequest_buffer;
+typedef struct ILibWebRequest {
+    ScWsDecoder *RustWebSocket;
+    int Destroying;
+    char **Buffer;
+    size_t *BufferLength;
+    int *UserFree;
+    int NumberOfBuffers, connectionCloseWasSpecified;
+    ILibWebRequest_buffer *buffered;
+    struct { void *BufferQueue; } *streamedState;
+    struct { void *timer, *wcdo; } *requestToken;
+    void (*DisconnectSink)(void*);
+    void (*OnResponse)(ILibWebClientDataObject*, int, void*, char*, int*, int, int, void*, void*, int*);
+    void *user1, *user2;
+} ILibWebRequest;
+struct ILibWebClientDataObject { void *RequestQueue, *header; };
+typedef struct {
+    int WebSocketDataFrameType;
+    int (*pingHandler)(ILibWebClientDataObject*, void*);
+    void (*pongHandler)(ILibWebClientDataObject*, void*);
+    void *pingPongUser;
+} ILibWebClient_WebSocketState;
+typedef int ILibWebClient_WebSocket_DataTypes;
+enum {
+    ILibWebClient_ReceiveStatus_Partial, ILibWebClient_ReceiveStatus_LastPartial,
+    ILibWebClient_ReceiveStatus_MoreDataToBeReceived,
+    ILibWebClient_WebSocket_PingResponse_Respond,
+    ILibAsyncSocket_MemoryOwnership_STATIC, ILibWebClient_WebSocket_FragmentFlag_Complete,
+    ILibAsyncSocket_MemoryOwnership_CHAIN
+};
+#define WEBSOCKET_OPCODE_CLOSE 8
+#define WEBSOCKET_OPCODE_PING 9
+#define WEBSOCKET_OPCODE_PONG 10
+#define ILibMemory_CanaryOK(p) ((p) != NULL)
+#define ILibMemory_Free(p) free(p)
+static void ILibLifeTime_Remove(void *timer, void *value) { (void)timer; (void)value; }
+static int ILibQueue_IsEmpty(void *queue) { (void)queue; return 1; }
+static void *ILibQueue_DeQueue(void *queue) { (void)queue; return NULL; }
+static void ILibQueue_Destroy(void *queue) { (void)queue; }
+static void *ILibQueue_PeekQueue(void *queue) { return queue; }
+static int disconnected, callbacks, received, pong, cancel_in_callback;
+static int statuses[16];
+static unsigned char payload[200000];
+static char *cancel_receive_buffer;
+static void ILibWebClient_Disconnect(ILibWebClientDataObject *client) { (void)client; disconnected++; }
+static int ILibWebClient_WebSocket_Send(ILibWebClientDataObject *client, int type, void *buffer, int size, int ownership, int fragment) {
+    assert(client->header == NULL); (void)type; (void)buffer; (void)size; (void)ownership; (void)fragment; pong++; return 0;
+}
+void ILibWebClient_DestroyWebRequest(struct ILibWebRequest *wr);
+static void destroy_client(ILibWebClientDataObject *client) {
+    ILibWebClient_DestroyWebRequest(client->RequestQueue);
+    free(client);
+}
+static void response(ILibWebClientDataObject *client, int error, void *header, char *buffer, int *begin, int length, int status, void *user1, void *user2, int *pause) {
+    (void)error; (void)header; (void)begin; (void)user1; (void)user2; (void)pause;
+    assert(length >= 0 && received + length <= (int)sizeof(payload));
+    assert(callbacks < 16);
+    memcpy(payload + received, buffer, (size_t)length); received += length; statuses[callbacks++] = status;
+    if (cancel_in_callback) {
+        destroy_client(client);
+        free(cancel_receive_buffer); cancel_receive_buffer = NULL;
+        /* 前缀由独立 Rust 输出拥有，原连接、状态、请求和接收区间均已释放。 */
+        if (length) assert((unsigned char)buffer[0] == payload[received - length]);
+    }
+}
+static ILibWebClientDataObject *new_client(uint32_t limit) {
+    ILibWebClientDataObject *client = calloc(1, sizeof(*client));
+    ILibWebRequest *request = calloc(1, sizeof(*request));
+    request->Buffer = calloc(1, sizeof(char*));
+    request->Buffer[0] = calloc(1, sizeof(ILibWebClient_WebSocketState));
+    request->UserFree = malloc(sizeof(int)); request->UserFree[0] = ILibAsyncSocket_MemoryOwnership_CHAIN;
+    request->BufferLength = calloc(1, sizeof(size_t)); request->NumberOfBuffers = 1;
+    request->OnResponse = response; request->RustWebSocket = sc_ws_decoder_new(limit); assert(request->RustWebSocket);
+    client->RequestQueue = request;
+    return client;
+}
+static char *frame(int opcode, int fin, int length, unsigned char fill, int *end) {
+    int header = length < 126 ? 2 : (length <= 65535 ? 4 : 10);
+    char *data = calloc(1, (size_t)(header + length)); assert(data);
+    data[0] = (char)(opcode | (fin ? 128 : 0));
+    data[1] = (char)(length < 126 ? length : (length <= 65535 ? 126 : 127));
+    if (header == 4) { data[2] = (char)(length >> 8); data[3] = (char)length; }
+    if (header == 10) { for (int i=0; i<4; i++) data[9-i] = (char)((unsigned)length >> (i*8)); }
+    memset(data + header, fill, (size_t)length); *end = header + length; return data;
+}
+static int cancel_ping(ILibWebClientDataObject *client, void *user) {
+    (void)user; destroy_client(client); return ILibWebClient_WebSocket_PingResponse_Respond;
+}
+
+/* DESTRUCTOR */
+/* IMPLEMENTATION */
+
+int main(void) {
+    ILibWebClientDataObject *client = new_client(0);
+    int pause = 0;
+    for (int offset = 0; offset < 32; ++offset) {
+        for (int masked = 0; masked < 2; ++masked) {
+            const int length = 126, header = masked ? 8 : 4, end = offset + header + length;
+            char *data = malloc((size_t)end), *copy = malloc((size_t)end); assert(data && copy);
+            memset(data, 0x5a, (size_t)end);
+            data[offset] = (char)0x82; data[offset+1] = (char)(126 | (masked ? 128 : 0));
+            data[offset+2] = 0; data[offset+3] = 126;
+            const unsigned char key[4] = {1, 2, 3, 4};
+            if (masked) memcpy(data + offset + 4, key, 4);
+            for (int i = 0; i < length; ++i) data[offset + header + i] = (char)(i ^ (masked ? key[i % 4] : 0));
+            memcpy(copy, data, (size_t)end); callbacks = received = 0;
+            for (int cut = offset; cut < end; ++cut) {
+                assert(ILibWebClient_ProcessWebSocketData(data, offset, cut, client, &pause) == offset);
+                assert(callbacks == 0 && memcmp(copy, data, (size_t)end) == 0);
+            }
+            assert(ILibWebClient_ProcessWebSocketData(data, offset, end, client, &pause) == end);
+            assert(callbacks == 1 && received == length);
+            for (int i = 0; i < length; ++i) assert(payload[i] == (unsigned char)i);
+            free(data); free(copy);
+        }
+    }
+    char sequence[] = {(char)0x82, 1, 42, (char)0x89, 0, (char)0x82, 1, 43};
+    callbacks = received = 0;
+    int position = ILibWebClient_ProcessWebSocketData(sequence, 0, 8, client, &pause);
+    assert(position == 3 && payload[0] == 42);
+    position = ILibWebClient_ProcessWebSocketData(sequence, position, 8, client, &pause);
+    assert(position == 5 && pong == 1);
+    position = ILibWebClient_ProcessWebSocketData(sequence, position, 8, client, &pause);
+    assert(position == 8 && payload[1] == 43);
+    char oversized[] = {(char)0x82, 127, 0, 0, 0, 0, 0x7f, (char)0xff, (char)0xff, (char)0xff};
+    assert(ILibWebClient_ProcessWebSocketData(oversized, 0, 10, client, &pause) == 10);
+    assert(disconnected == 1);
+    assert(ILibWebClient_ProcessWebSocketData(sequence, 9, 8, client, &pause) == 8);
+    assert(disconnected == 2); destroy_client(client);
+
+    /* 真实析构路径参与重组结束、超预算输出和回调取消。 */
+    for (int cancel = 0; cancel < 2; cancel++) {
+        for (int limit = 4096; limit <= 65536; limit *= 16) {
+            client = new_client((uint32_t)limit); callbacks = received = 0;
+            int end; char *data = frame(2, 0, 1000, 7, &end);
+            assert(ILibWebClient_ProcessWebSocketData(data, 0, end, client, &pause) == end); free(data);
+            assert(callbacks == 0);
+            data = frame(0, 1, 10000, 8, &end);
+            cancel_in_callback = cancel;
+            /* 小预算先回调独立前缀，取消会同时释放尚未交付的输入；不得第二次回调。 */
+            if (cancel && limit == 4096) cancel_receive_buffer = data;
+            assert(ILibWebClient_ProcessWebSocketData(data, 0, end, client, &pause) == end);
+            if (!(cancel && limit == 4096)) free(data);
+            assert(callbacks == (limit == 4096 && !cancel ? 2 : 1));
+            assert(received == (limit == 4096 && cancel ? 1000 : 11000));
+            if (!cancel) destroy_client(client);
+            cancel_in_callback = 0;
+        }
+    }
+    client = new_client(4096);
+    ILibWebRequest *request = client->RequestQueue;
+    ((ILibWebClient_WebSocketState*)request->Buffer[0])->pingHandler = cancel_ping;
+    int before = pong;
+    assert(ILibWebClient_ProcessWebSocketData(sequence, 3, 5, client, &pause) == 5);
+    assert(pong == before);
+    /* 暂停在分片中途并取消，也必须回收积累缓冲和租约。 */
+    for (int round = 0; round < 1000; round++) {
+        client = new_client(65536); int end;
+        char *data = frame(2, 0, 10000, 9, &end);
+        ILibWebClient_ProcessWebSocketData(data, 0, end, client, &pause);
+        free(data); destroy_client(client);
+    }
+    puts("真实 C 接收/析构：截断、偏移、重组、超预算流式、同步取消及重复回收通过");
+    return 0;
+}

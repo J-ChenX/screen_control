@@ -51,6 +51,9 @@ func TestWindowDownloadIntegrityAndBound(t *testing.T) {
 		if sha256.Sum256(received.Bytes()) != sha256.Sum256(data) {
 			t.Fatal("下载哈希不符")
 		}
+		if w.downloadBuffer != nil {
+			t.Fatal("下载结束后仍持有传输缓冲区")
+		}
 		apply(t, w, command{Action: "download", Sub: "ack", ID: 1, Ack: count})
 		if out.Len() != 0 {
 			t.Fatal("末帧后的确认污染后续操作")
@@ -80,8 +83,28 @@ func TestDownloadDuplicateAndInvalidAcknowledgements(t *testing.T) {
 	}
 	out.Reset()
 	apply(t, w, command{Action: "download", Sub: "ack", ID: 1, Ack: 10})
-	if response := result(t, &out); response["sub"] != "cancel" || w.download != nil {
+	if response := result(t, &out); response["sub"] != "cancel" || w.download != nil || w.downloadBuffer != nil {
 		t.Fatal("越界确认未关闭下载")
+	}
+}
+
+func TestUploadLengthCannotWrap(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "upload-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const largest = int64(^uint64(0) >> 1)
+	var out bytes.Buffer
+	w := &worker{out: &out, upload: &upload{file: file, size: largest, received: largest - 1, id: 17}}
+	defer w.close()
+	if err := w.uploadData([]byte{1, 2}); err != nil {
+		t.Fatal(err)
+	}
+	if response := result(t, &out); response["action"] != "uploaderror" || w.upload != nil {
+		t.Fatal("上传累计长度回绕未被拒绝")
+	}
+	if _, err := os.Stat(file.Name()); !os.IsNotExist(err) {
+		t.Fatal("超长上传留下临时文件")
 	}
 }
 

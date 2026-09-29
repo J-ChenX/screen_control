@@ -1,0 +1,78 @@
+--- a/microscript/ILibDuktape_ReadableStream.c
++++ b/microscript/ILibDuktape_ReadableStream.c
+@@ -107,6 +107,14 @@
+ 	int Reserved;
+ 	char buffer[];
+ }ILibDuktape_readableStream_bufferedData;
++
++static void ILibDuktape_readableStream_ReleasePipeNode(duk_context *ctx, ILibDuktape_readableStream_nextWriteablePipe *pipe)
++{
++	duk_push_heapptr(ctx, pipe->writableStream);
++	ILibDuktape_Push_ObjectStash(ctx);
++	duk_del_prop_string(ctx, -1, Duktape_GetStashKey(pipe->bufferHeapptr));
++	duk_pop_2(ctx);
++}
+ 
+ void ILibDuktape_ReadableStream_DestroyPausedData(ILibDuktape_readableStream *stream)
+ {
+@@ -675,10 +683,12 @@
+ 		duk_dup(ctx, 0);																	// [push][this][dest]
+ 		ILibDuktape_Push_ObjectStash(ctx);													// [push][this][dest][stash]
+ 		w = (ILibDuktape_readableStream_nextWriteablePipe*)Duktape_PushBuffer(ctx, sizeof(ILibDuktape_readableStream_nextWriteablePipe));
+-		duk_put_prop_string(ctx, -2, Duktape_GetStashKey(duk_get_heapptr(ctx, -1)));		// [push][this][dest][stash]
++		void *pipeBufferHeapptr = duk_get_heapptr(ctx, -1);
++		duk_put_prop_string(ctx, -2, Duktape_GetStashKey(pipeBufferHeapptr));		// [push][this][dest][stash]
+ 		duk_pop(ctx);																		// [push][this][dest]
+ 		duk_call_method(ctx, 1); duk_pop(ctx);												// ...
+ 		memset(w, 0, sizeof(ILibDuktape_readableStream_nextWriteablePipe));
++		w->bufferHeapptr = pipeBufferHeapptr;
+ 		w->writableStream = duk_get_heapptr(ctx, 0);
+ 		if (duk_has_prop_string(ctx, 0, ILibDuktape_WritableStream_WSPTRS))
+ 		{
+@@ -827,6 +837,7 @@
+ 						}
+ 					}
+ 					duk_pop(ctx);														// ...
++					ILibDuktape_readableStream_ReleasePipeNode(ctx, w);
+ 					break;
+ 				}
+ 				w = w->next;
+@@ -848,6 +859,13 @@
+ 				duk_pop(ctx);										// ...
+ 				w = w->next;
+ 			}
++			w = data->nextWriteable;
++			while (w != NULL)
++			{
++				ILibDuktape_readableStream_nextWriteablePipe *next = w->next;
++				ILibDuktape_readableStream_ReleasePipeNode(ctx, w);
++				w = next;
++			}
+ 			data->nextWriteable = NULL;
+ 			duk_push_heapptr(ctx, args[0]);										// [readable]
+ 			duk_del_prop_string(ctx, -1, ILibDuktape_readableStream_PipeArray);
+@@ -950,6 +968,14 @@
+ 	duk_push_this(ctx);														// [stream]
+ 	duk_get_prop_string(ctx, -1, ILibDuktape_readableStream_RSPTRS);		// [stream][buffer]
+ 	ptrs = (ILibDuktape_readableStream*)Duktape_GetBuffer(ctx, -1, NULL);
++	ILibDuktape_readableStream_nextWriteablePipe *pipe = ptrs->nextWriteable;
++	while (pipe != NULL)
++	{
++		ILibDuktape_readableStream_nextWriteablePipe *next = pipe->next;
++		ILibDuktape_readableStream_ReleasePipeNode(ctx, pipe);
++		pipe = next;
++	}
++	ptrs->nextWriteable = NULL;
+ 	if (ptrs->pipeImmediate != NULL)
+ 	{
+ 		duk_push_global_object(ctx);						// [g]
+--- a/microscript/ILibDuktape_ReadableStream.h
++++ b/microscript/ILibDuktape_ReadableStream.h
+@@ -33,6 +33,7 @@
+ 	void *writableStream;
+ 	void *nativeWritable;
+ 	struct ILibDuktape_readableStream_nextWriteablePipe *previous, *next;
++	void *bufferHeapptr;
+ }ILibDuktape_readableStream_nextWriteablePipe;
+ 
+ typedef struct ILibDuktape_readableStream

@@ -1,0 +1,106 @@
+--- a/microscript/ILibduktape_EventEmitter.c
++++ b/microscript/ILibduktape_EventEmitter.c
+@@ -34,6 +34,7 @@
+ #define ILibDuktape_EventEmitter_Forward_SourceName		"\xFF_EventEmitter_SourceName"
+ #define ILibDuktape_EventEmitter_Forward_TargetName		"\xFF_EventEmitter_TargetName"
+ #define ILibDuktape_EventEmitter_Forward_SourceObject	"\xFF_EventEmitter_SourceObject"
++#define ILibDuktape_EventEmitter_Forward_SourceRef "\xFF_ForwardSourceObject"
+ #define ILibDuktape_EventEmitter_ForwardTable			"\xFF_EventEmitter_ForwardTable"
+ #define ILibDuktape_EventEmitter_EventTable				"\xFF_EventEmitter_EventTable"
+ #define ILibDuktape_EventEmitter_CountTable				"\xFF_EventEmitter_CountTable"
+@@ -1605,21 +1606,23 @@
+ 	if (duk_ctx_shutting_down(ctx)) { return(0); }
+ 	duk_push_current_function(ctx);				// [func]
+ 	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
+-	void **ptr = (void**)Duktape_GetPointerProperty(ctx, -1, "sourcePtr");
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_Forward_SourceRef);
++	void *source = duk_is_object(ctx, -1) ? duk_get_heapptr(ctx, -1) : NULL;
++	duk_pop(ctx);
+ 	char *hookedEvent = (char*)duk_require_string(ctx, 0);
+-	if (eventName == NULL || !ILibMemory_CanaryOK(ptr) || strcmp(eventName, hookedEvent) != 0) { return(0); }
++	if (eventName == NULL || source == NULL || strcmp(eventName, hookedEvent) != 0) { return(0); }
+ 
+ 	duk_dup(ctx, 1);							// [func]
+ 	duk_prepare_method_call(ctx, -1, "bind");	// [func][bind][this]
+ 	duk_push_this(ctx);							// [func][bind][this][target]
+ 	duk_call_method(ctx, 1);					// [func][proxyFunc]
+ 	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+-	duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
++
+ 	duk_dup(ctx, -1);							// [func][proxyFunc][proxyFunc]
+ 	duk_put_prop_string(ctx, -3, "proxyFunc");	// [func][proxyFunc]
+ 
+ 
+-	duk_push_heapptr(ctx, ptr[0]);				// [func][proxyFunc][source]
++	duk_push_heapptr(ctx, source);				// [func][proxyFunc][source]
+ 	duk_prepare_method_call(ctx, -1, "on");		// [func][proxyFunc][source][on][this]
+ 	duk_dup(ctx, 0);							// [func][proxyFunc][source][on][this][eventName]
+ 	duk_dup(ctx, -5);							// [func][proxyFunc][source][on][this][eventName][func]
+@@ -1632,11 +1635,13 @@
+ 	if (duk_ctx_shutting_down(ctx)) { return(0); }
+ 	duk_push_current_function(ctx);							// [func]
+ 	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
+-	void **ptr = (void**)Duktape_GetPointerProperty(ctx, -1, "sourcePtr");
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_Forward_SourceRef);
++	void *source = duk_is_object(ctx, -1) ? duk_get_heapptr(ctx, -1) : NULL;
++	duk_pop(ctx);
+ 	char *hookedEvent = (char*)duk_require_string(ctx, 0);
+-	if (eventName == NULL || !ILibMemory_CanaryOK(ptr) || strcmp(eventName, hookedEvent) != 0 || !duk_has_prop_string(ctx, 1, "proxyFunc")) { return(0); }
+-
+-	duk_push_heapptr(ctx, ptr[0]);							// [source]
++	if (eventName == NULL || source == NULL || strcmp(eventName, hookedEvent) != 0 || !duk_has_prop_string(ctx, 1, "proxyFunc")) { return(0); }
++
++	duk_push_heapptr(ctx, source);							// [source]
+ 	duk_prepare_method_call(ctx, -1, "removeListener");		// [source][removeListener][this]
+ 	duk_dup(ctx, 0);										// [source][removeListener][this][name]
+ 	duk_get_prop_string(ctx, 1, "proxyFunc");				// [source][removeListener][this][name][func]
+@@ -1650,21 +1655,7 @@
+ 	int X = duk_get_top(ctx);
+ 	void *source = duk_get_heapptr(ctx, sourceIdx);
+ 	void *target = duk_get_heapptr(ctx, targetIdx);
+-	void **ptr;
+-
+-	duk_push_heapptr(ctx, source);												// [source]
+-	if (!duk_has_prop_string(ctx, -1, "\xFF_ProxyEvent_WeakReference"))
+-	{
+-		ptr = (void**)Duktape_PushBuffer(ctx, sizeof(void*));					// [source][buffer]
+-		duk_put_prop_string(ctx, -2, "\xFF_ProxyEvent_WeakReference");			// [source]
+-		ptr[0] = source;
+-	}
+-	else
+-	{
+-		ptr = Duktape_GetPointerProperty(ctx, -1, "\xFF_ProxyEvent_WeakReference");
+-	}
+-	duk_pop(ctx);																// ...
+-
++	/* 目标转发钩子持有源对象，避免回调解引用已释放的缓冲裸指针。 */
+ 
+ 	// Check for pre-existing event listeners
+ 	duk_prepare_method_call(ctx, targetIdx, "listeners");						// [listeners][this]
+@@ -1679,7 +1670,7 @@
+ 			duk_push_heapptr(ctx, target);											// [array][func][bind][this][target]
+ 			if (duk_pcall_method(ctx, 1) != 0) { duk_set_top(ctx, X); return(1); }	// [array][func][proxyFunc]
+ 			duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+-			duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
++
+ 			duk_put_prop_string(ctx, -2, "proxyFunc");								// [array][func]
+ 		}
+ 		duk_push_heapptr(ctx, source);												// [array][func][source]
+@@ -1696,7 +1687,7 @@
+ 	duk_set_top(ctx, X);
+ 	duk_events_setup_on(ctx, targetIdx, "newListener", ILibDuktape_EventEmitter_ForwardEx_target_newListenerSink);			// [on][this][newListener][func]
+ 	duk_push_string(ctx, eventName); duk_put_prop_string(ctx, -2, "eventName");
+-	duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
++	duk_push_heapptr(ctx, source); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_Forward_SourceRef);
+ 	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+ 	ret = duk_pcall_method(ctx, 2) == 0 ? 0 : 1;
+ 	duk_set_top(ctx, X);
+@@ -1706,7 +1697,7 @@
+ 		// Hookup a 'removeListener' hook, to remove subscribers
+ 		duk_events_setup_on(ctx, targetIdx, "removeListener", ILibDuktape_EventEmitter_ForwardEx_target_removeListenerSink);	// [on][this][removeListener][func]
+ 		duk_push_string(ctx, eventName); duk_put_prop_string(ctx, -2, "eventName");
+-		duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
++		duk_push_heapptr(ctx, source); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_Forward_SourceRef);
+ 		duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+ 		ret = duk_pcall_method(ctx, 2) == 0 ? 0 : 1;
+ 		duk_set_top(ctx, X);

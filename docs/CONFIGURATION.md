@@ -123,4 +123,10 @@ Linux SyncClipboard 客户端的现有服务覆盖包含 `MALLOC_ARENA_MAX=2`、
 
 ## SyncClipboard 非收藏历史保留
 
-同步历史由已打补丁的现有服务端通过 `AppSettings__HistoryRetentionHours=48` 清理；本机独有历史由客户端 `History.HistoryRetentionMinutes=2880` 清理。超过创建时间 48 小时、未收藏的记录自动清除，置顶未收藏不豁免；保留原有数量限制及删除同步机制。配置必须与 [SyncClipboard 3.1.5 补丁](../deploy/g0/suite/syncclipboard-retention/README.md) 配套，原版开启历史同步后仅改客户端时间值不能完整生效。已部署状态与备份见[保留规则验收](performance/SYNCCLIPBOARD_RETENTION.md)。
+同步历史由已打补丁的现有服务端通过 `AppSettings__HistoryRetentionHours=48` 清理；本机独有历史由客户端 `History.HistoryRetentionMinutes=2880` 清理。超过最近复制／使用时间（不早于创建时间）48 小时、未收藏的记录自动清除，置顶未收藏不豁免；保留原有数量限制及删除同步机制。配置必须与 [SyncClipboard 3.1.5 补丁](../deploy/g0/suite/syncclipboard-retention/README.md) 配套，原版开启历史同步后仅改客户端时间值不能完整生效。已部署状态与备份见[保留规则验收](performance/SYNCCLIPBOARD_RETENTION.md)。
+
+## SyncClipboard 通知恢复与 Linux 用户客户端
+
+官方服务使用事件通知同步；修复版客户端自动重连，并以 2 秒健康检查兜底，单次异常不会永久停止检查。`SyncService.IntervalTime=1` 用于缩短失败后的重试等待，保留 `History.HistoryRetentionMinutes=2880` 和既有内存配置。lerrem 已加入双向同步，依赖用户图形登录；用户单元 `syncclipboard-client.service` 由桌面自启动项启动。构建、安装、健康检查及回滚见[通知恢复说明](../deploy/g0/suite/syncclipboard-latency/README.md)，实际覆盖范围见[部署记录](performance/SYNCCLIPBOARD_LATENCY_20260928.md)。
+
+图片依赖与历史修复（2026-09-28）：Linux 核心补丁按已安装 `Magick.NET-Q16-AnyCPU` 构建，并在每次替换前验证实际宿主的 PNG 解码和重新编码。三台 Linux 的 `RuntimeConfig.json` 中 `HistoryWindow.SortByLastAccessed=true`，使重复复制的旧内容按最近使用时间排序；清理同样使用最近使用时间，避免刚复制就按首次创建时间再次删除。验证与回滚见[修复记录](performance/SYNCCLIPBOARD_IMAGE_HISTORY_REPAIR_20260928.md)。

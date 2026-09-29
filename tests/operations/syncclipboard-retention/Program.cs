@@ -61,7 +61,20 @@ try
     Check(await service.CleanupExpiredHistory(48, now) == 100, "第二轮必须有界");
     Check(await service.CleanupExpiredHistory(48, now) == 5, "最后一轮应收敛");
     Check(!star.IsDeleted && !race.IsDeleted, "多批清理后收藏必须保留");
-    Console.WriteLine("通过：48 小时边界、收藏与附件保护、置顶清除、用户隔离、幂等、删除版本/离线查询、收藏更新、100 条分批收敛");
+    // 复现旧内容再次复制：AddProfile 恢复删除标记和最近使用时间，创建时间仍旧。
+    var repeatedProfile = new TextProfile("隔离服务端重复复制回归");
+    var repeatedHash = await repeatedProfile.GetHash(CancellationToken.None);
+    var repeated = Record(repeatedHash, now.AddDays(-6));
+    repeated.Text = repeatedProfile.DisplayText; repeated.IsDeleted = true;
+    db.Add(repeated); await db.SaveChangesAsync();
+    await service.AddProfile(HistoryService.HARD_CODED_USER_ID, repeatedProfile, CancellationToken.None);
+    var realNow=DateTime.UtcNow;
+    Check(!repeated.IsDeleted && repeated.LastAccessed >= realNow.AddSeconds(-5), "重新复制没有恢复删除记录");
+    await service.CleanupExpiredHistory(48, repeated.LastAccessed.AddHours(48));
+    Check(!repeated.IsDeleted, "最近复制恰好48小时被误删");
+    await service.CleanupExpiredHistory(48, repeated.LastAccessed.AddHours(48).AddTicks(1));
+    Check(repeated.IsDeleted, "最近复制超过48小时后未过期");
+    Console.WriteLine("通过：重新复制旧记录的48小时边界；48 小时边界、收藏与附件保护、置顶清除、用户隔离、幂等、删除版本/离线查询、收藏更新、100 条分批收敛");
 }
 finally
 {

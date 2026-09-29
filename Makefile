@@ -1,4 +1,4 @@
-.PHONY: setup doctor dev preview dev-run preview-run build bundle install-suite configure-tailscale mesh-config test verify
+.PHONY: setup doctor dev preview dev-run preview-run build bundle install-suite configure-tailscale mesh-config test test-native verify
 
 setup:
 	mise install
@@ -9,6 +9,7 @@ doctor:
 	mise exec -- go version
 	mise exec -- node --version
 	mise exec -- corepack pnpm --version
+	mise exec -- rustc --version
 	python3 --version
 	openssl version
 
@@ -62,11 +63,21 @@ configure-tailscale:
 	./ops/with-env ./deploy/g0/suite/configure-tailscale.sh
 
 test:
+	$(MAKE) test-native
 	python3 -m unittest discover -s tests/operations -p 'test_*.py' -v
 	mise exec -- go test ./...
 	mise exec -- go test -race ./...
 	mise exec -- corepack pnpm --dir web test
 	mise exec -- corepack pnpm --dir web typecheck
+
+test-native:
+	mise exec -- cargo test --workspace --locked
+	mise exec -- cargo clippy --workspace --all-targets -- -D warnings
+	mise exec -- cargo build --locked --release -p screen-control-protocol-ffi
+	@set -eu; candidate=$$(mktemp /tmp/screen-control-ws-abi.XXXXXX); \
+	trap 'rm -f "$$candidate"' EXIT INT TERM; \
+	cc -std=c11 -g -fsanitize=address,undefined -I native/protocol-ffi/include tests/native/websocket_abi.c target/release/libscreen_control_protocol_ffi.a -ldl -lpthread -lm -o "$$candidate"; \
+	"$$candidate"
 
 verify:
 	python3 ops/bootstrap/validate_toolchain.py

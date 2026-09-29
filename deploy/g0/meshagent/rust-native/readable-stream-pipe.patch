@@ -1,0 +1,6 @@
+--- a/microscript/ILibDuktape_ReadableStream.c
++++ b/microscript/ILibDuktape_ReadableStream.c
+@@ -804,2 +804,3 @@
+ 					}
++					if (w->next != NULL) { w->next->previous = w->previous; }
+ 					duk_push_heapptr(ctx, data->pipeArray);								// [array]

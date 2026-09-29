@@ -27,6 +27,25 @@ test("大于 512 MB 的声明使用磁盘写入，释放时删除临时文件", 
   expect(abort).not.toHaveBeenCalled();
 });
 
+test("磁盘写入保留非零偏移视图的准确字节，共享缓冲转为可写入的普通缓冲", async () => {
+  const received: number[][] = [];
+  const write = vi.fn(async (part: Uint8Array<ArrayBuffer>) => {
+    received.push([...part]);
+    expect(part.buffer).toBeInstanceOf(ArrayBuffer);
+  });
+  const handle = { createWritable: async () => ({ write, close: async () => {}, abort: async () => {} }), getFile: async () => new File([], "temp") };
+  vi.stubGlobal("navigator", { storage: { getDirectory: async () => ({ getFileHandle: async () => handle, removeEntry: async () => {} }) } });
+  const store = await createDownloadStorage(20 * 1024 * 1024);
+  const ordinary = new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4);
+  await store.write(ordinary);
+  expect(write.mock.calls[0][0]).toBe(ordinary);
+  const shared = new Uint8Array(new SharedArrayBuffer(3));
+  shared.set([4, 5, 6]);
+  await store.write(shared);
+  expect(received).toEqual([[1, 2, 3], [4, 5, 6]]);
+  await store.dispose();
+});
+
 test("中断会终止磁盘写入并清理，拒绝后续写入", async () => {
   const abort = vi.fn(async () => {}), removeEntry = vi.fn(async () => {});
   vi.stubGlobal("navigator", { storage: { getDirectory: async () => ({ getFileHandle: async () => ({ createWritable: async () => ({ abort }) }), removeEntry }) } });

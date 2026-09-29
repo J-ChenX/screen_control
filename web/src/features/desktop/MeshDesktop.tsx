@@ -191,10 +191,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       }
       sessionRef.current = session.desktopSessionId;
       const module = window.CreateAgentRemoteDesktop(canvasRef.current);
-      memoryCleanupRef.current = manageDesktopMemory(module, canvasRef.current, message => {
-        setError(message);
-        void stop("error");
-      });
+      memoryCleanupRef.current = manageDesktopMemory(module, canvasRef.current);
       const processCommand = module.ProcessBinaryCommand?.bind(module);
       if (processCommand) module.ProcessBinaryCommand = (command, size, data) => processCommand(command, size, normalizeCursorCommand(command, size, data));
       // Windows 输入法需要字母按键事件来生成预编辑文本和候选项。

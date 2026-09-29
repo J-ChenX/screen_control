@@ -68,7 +68,7 @@ make configure-tailscale
 
 另外两台设备的 SyncClipboard 只需迁移一次服务器地址；Linux 和 Windows 脚本及回滚说明位于 `deploy/g0/suite/`。在三台设备都完成迁移前保留 cpolar，可避免剪贴板中断。详细说明见 `deploy/g0/suite/README.md`。
 
-SyncClipboard 非收藏历史超过创建时间 48 小时后自动清除，收藏保留；置顶但未收藏不豁免，原有数量上限继续生效。三台客户端及服务端已部署配套清理补丁，离线设备重新同步后收敛；规则与备份见[历史保留说明](docs/performance/SYNCCLIPBOARD_RETENTION.md)。
+SyncClipboard 非收藏历史超过最近复制／使用时间（不早于创建时间）48 小时后自动清除，收藏保留；置顶但未收藏不豁免，原有数量上限继续生效。三台客户端及服务端已部署配套清理补丁，离线设备重新同步后收敛；规则见[历史保留说明](deploy/g0/suite/syncclipboard-retention/README.md)，最新修复与备份见[图片和历史修复](docs/performance/SYNCCLIPBOARD_IMAGE_HISTORY_REPAIR_20260928.md)。
 
 也可生成一个可搬运的安装包：
 
@@ -163,4 +163,6 @@ Windows 文件页使用 `C:/` 等绝对盘符路径；选择磁盘、刷新和�
 
 ## 内存管理
 
-门户对会话数量和流式中继缓冲设限；桌面图块采用有界解码，绘制后释放位图，结束后释放画布。Linux 门户与 MeshAgent 服务增加内存预算，超出硬上限可能中断连接并重启。后台常驻与使用期间的测量、C++/Rust 评估、部署范围及尚未完成的长期验证见[内存预算与语言选型评估](docs/performance/MEMORY.md)。
+门户对会话数量和流式中继缓冲设限；桌面图块逐块解码并在绘制后释放；积压时暂停采集、回落后恢复，异常积压自动清理并请求完整画面，保持会话连接；结束后释放画布。Linux 门户与 MeshAgent 服务增加内存预算，超出硬上限可能中断连接并重启。后台常驻与使用期间的测量、C++/Rust 评估、部署范围及尚未完成的长期验证见[内存预算与语言选型评估](docs/performance/MEMORY.md)。
+
+剪贴板客户端恢复与 lerrem 接入（2026-09-28）：三台 Linux 已启用双向同步与通知重连修复，保留 48 小时历史清理；Windows 本次因 SSH 连接超时尚未更新。详见[部署验证与回滚](docs/performance/SYNCCLIPBOARD_LATENCY_20260928.md)。

@@ -190,3 +190,77 @@ func TestFramingAndDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunUploadWithReusableFrames(t *testing.T) {
+	dir := t.TempDir()
+	first := bytes.Repeat([]byte{1}, transferChunkSize)
+	second := bytes.Repeat([]byte{2}, transferChunkSize)
+	var input, output bytes.Buffer
+	for _, message := range []any{
+		map[string]any{"action": "upload", "path": dir, "name": "reused.bin", "size": len(first) + len(second), "reqid": 42, "window": 8},
+		first, second,
+		map[string]any{"action": "uploaddone", "reqid": 42},
+	} {
+		var data []byte
+		if binary, ok := message.([]byte); ok {
+			data = binary
+		} else {
+			var err error
+			data, err = json.Marshal(message)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := WriteFrame(&input, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Run(&input, &output); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"uploadstart", "uploadack", "uploadack", "uploaddone"} {
+		if response := result(t, &output); response["action"] != action {
+			t.Fatalf("上传回执顺序错误：%v", response)
+		}
+	}
+	actual, err := os.ReadFile(filepath.Join(dir, "reused.bin"))
+	if err != nil || !bytes.Equal(actual, append(first, second...)) {
+		t.Fatal("串行输入缓冲复用损坏上传正文")
+	}
+}
+
+func TestReadFrameReturnsIndependentBuffer(t *testing.T) {
+	var input bytes.Buffer
+	for _, payload := range [][]byte{[]byte("first"), []byte("second")} {
+		if err := WriteFrame(&input, payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := ReadFrame(&input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := ReadFrame(&input)
+	if err != nil || string(first) != "first" || string(second) != "second" {
+		t.Fatal("公开 ReadFrame 未保持独立输出")
+	}
+}
+
+func TestFrameReaderDoesNotRetainOversizedFrame(t *testing.T) {
+	var input bytes.Buffer
+	for _, size := range []int{512 << 10, 256 << 10, 5} {
+		if err := WriteFrame(&input, bytes.Repeat([]byte{byte(size)}, size)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader := NewFrameReader(&input)
+	for i, size := range []int{512 << 10, 256 << 10, 5} {
+		data, err := reader.Read()
+		if err != nil || len(data) != size || data[0] != byte(size) {
+			t.Fatalf("第 %d 个标准流帧损坏：%v", i, err)
+		}
+		if cap(reader.buffer) > transferChunkSize+12 {
+			t.Fatal("大帧成为长连接常驻缓冲")
+		}
+	}
+}

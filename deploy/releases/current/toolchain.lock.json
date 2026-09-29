@@ -54,6 +54,17 @@
     }
   ],
   "build": {
+    "rust": {
+      "version": "1.98.1",
+      "minimumVersion": "1.98",
+      "moduleLock": "Cargo.lock",
+      "moduleLockSha256": "88c117ca6fd07adb0a26572a4853608f3526cf735f3c2ce9d2edafde0655078d",
+      "scope": "固定 MeshAgent 中的原生安全核心；不改变 Go 服务工具链",
+      "candidateStatus": "本地候选验证；尚未部署或通过长期验收",
+      "license": "MIT OR Apache-2.0",
+      "officialSource": "https://www.rust-lang.org/",
+      "sourceInventory": "Cargo.lock 仅含两个本地 crate；现有 SBOM 保留原验收范围，完整发布前重新生成"
+    },
     "go": {
       "productionVersion": "1.26.8",
       "compatibilityVersion": "1.27.1",
@@ -193,7 +204,12 @@
   },
   "artifacts": {
     "files": [
-      {"path": ".mise.toml", "sha256": "c455c5393e5a23a91703b95b8c78f9a2ae6c90e570d44fe2f05f875b243d2a28"},
+      {"path": "rust-toolchain.toml", "sha256": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167"},
+      {"path": "Cargo.toml", "sha256": "39088edf0f6c9ae8aac3812cf5ce89c9c4dfb8f3541d6de4d2495c97bb541d01"},
+      {"path": "Cargo.lock", "sha256": "88c117ca6fd07adb0a26572a4853608f3526cf735f3c2ce9d2edafde0655078d"},
+      {"path": "native/protocol-core/Cargo.toml", "sha256": "6d3148f49189b8fbf2df5c8091c3f57b0e484640203ed8a87925474f64d48cd7"},
+      {"path": "native/protocol-ffi/Cargo.toml", "sha256": "f87704f30522516f44ee1fbc0c7ed8c9ec4c72b351f45fa757a825c5f8cef5c3"},
+      {"path": ".mise.toml", "sha256": "1796fbd2f83fd4b0c54500202ea9924aabfd36955652b07acf324803f2518c05"},
       {"path": "go.mod", "sha256": "1350a4c3c92e949383f522a0128803236b52014b91ee31554baf4349767ccb54"},
       {"path": "go.sum", "sha256": "8ebfaf41ea4b249ab25815cd95d583ddad1a539ac5a272e29eb63e390d46966d"},
       {"path": "web/package.json", "sha256": "6d359fd00cb20aab6d1229394730e28ee05fe35addd4d5bcc572e4f09093e39a"},

@@ -1,0 +1,111 @@
+--- a/microscript/ILibDuktape_net.c
++++ b/microscript/ILibDuktape_net.c
+@@ -64,6 +64,32 @@
+ 	SSL *ssl;
+ #endif
+ }ILibDuktape_net_socket;
++
++#define ILibDuktape_net_ActiveSocketRoots "\xFF_scActiveNetSockets"
++static void ILibDuktape_net_socket_RootActive(duk_context *ctx, void *object, int add)
++{
++	if (ctx == NULL || object == NULL || duk_ctx_shutting_down(ctx)) { return; }
++	duk_push_heap_stash(ctx);
++	duk_get_prop_string(ctx, -1, ILibDuktape_net_ActiveSocketRoots);
++	if (!duk_is_object(ctx, -1))
++	{
++		duk_pop(ctx);
++		if (!add) { duk_pop(ctx); return; }
++		duk_push_object(ctx);
++		duk_dup(ctx, -1);
++		duk_put_prop_string(ctx, -3, ILibDuktape_net_ActiveSocketRoots);
++	}
++	if (add)
++	{
++		duk_push_heapptr(ctx, object);
++		duk_put_prop_string(ctx, -2, Duktape_GetStashKey(object));
++	}
++	else
++	{
++		duk_del_prop_string(ctx, -1, Duktape_GetStashKey(object));
++	}
++	duk_pop_2(ctx);
++}
+ 
+ typedef struct ILibDuktape_net_server
+ {
+@@ -240,6 +266,8 @@
+ 	}
+ 	else 
+ 	{
++		duk_context *rootCtx = ptrs->ctx;
++		void *rootObject = ptrs->object;
+ 		duk_push_heapptr(ptrs->ctx, ptrs->object);					// [this]
+ 		duk_get_prop_string(ptrs->ctx, -1, "emit");					// [this][emit]
+ 		duk_swap_top(ptrs->ctx, -2);								// [emit][this]
+@@ -260,11 +288,14 @@
+ 		duk_put_prop_string(ptrs->ctx, -2, "message");				// [emit][this][error][errorObj]
+ 		if (duk_pcall_method(ptrs->ctx, 2) != 0) { ILibDuktape_Process_UncaughtException(ptrs->ctx); }
+ 		if (ptrs->ctx != NULL) { duk_pop(ptrs->ctx); }				// ...
++		ILibDuktape_net_socket_RootActive(rootCtx, rootObject, 0);
+ 	}
+ }
+ void ILibDuktape_net_socket_OnDisconnect(ILibAsyncSocket_SocketModule socketModule, void *user)
+ {
+ 	ILibDuktape_net_socket *ptrs = (ILibDuktape_net_socket*)((ILibChain_Link*)socketModule)->ExtraMemoryPtr;
++	duk_context *rootCtx = ptrs->ctx;
++	void *rootObject = ptrs->object;
+ 	if (ILibMemory_CanaryOK(ptrs->emitter))
+ 	{
+ 		duk_push_heapptr(ptrs->ctx, ptrs->object);			// [sock]
+@@ -276,6 +307,7 @@
+ 
+ 		ILibDuktape_DuplexStream_Closed((ILibDuktape_DuplexStream*)ptrs->duplexStream);
+ 	}
++	ILibDuktape_net_socket_RootActive(rootCtx, rootObject, 0);
+ }
+ void ILibDuktape_net_socket_OnSendOK(ILibAsyncSocket_SocketModule socketModule, void *user)
+ {
+@@ -506,6 +538,7 @@
+ 		memset(&serveraddr, 0, sizeof(serveraddr));
+ 		serveraddr.sun_family = AF_UNIX;
+ 		strcpy(serveraddr.sun_path, host);
++		ILibDuktape_net_socket_RootActive(ctx, ptrs->object, 1);
+ 		ILibAsyncSocket_ConnectTo(ptrs->socketModule, NULL, (struct sockaddr*)&serveraddr, NULL, ptrs);
+ 
+ 		duk_push_heapptr(ptrs->ctx, ptrs->object);					// [sockat]
+@@ -559,6 +592,7 @@
+ 		// If we are going to use a proxy, we need to have the proxy resolve the remote host
+ 		duk_push_sprintf(ctx, "%s:%d", host, port);			// [socket][string]
+ 		duk_swap_top(ctx, -2);								// [string][socket]
++		ILibDuktape_net_socket_RootActive(ctx, ptrs->object, 1);
+ 		ILibAsyncSocket_ConnectToProxyEx(ptrs->socketModule, NULL, (char*)duk_get_string(ctx, -2), (struct sockaddr*)&proxy, Duktape_GetStringPropertyValue(ctx, -1, "username", NULL), Duktape_GetStringPropertyValue(ctx, -1, "password", NULL), NULL, ptrs);
+ 		return(0);
+ 	}
+@@ -599,6 +633,7 @@
+ 	}
+ 	else
+ 	{
++		ILibDuktape_net_socket_RootActive(ctx, ptrs->object, 1);
+ 		ILibAsyncSocket_ConnectTo(ptrs->socketModule, NULL, (struct sockaddr*)&dest, NULL, ptrs);
+ 
+ 		duk_push_heapptr(ptrs->ctx, ptrs->object);					// [sockat]
+@@ -921,6 +956,7 @@
+ 	session->ctx = ptr->ctx;
+ 	session->connection = ConnectionToken;
+ 	session->self = duk_get_heapptr(ptr->ctx, -1);
++	ILibDuktape_net_socket_RootActive(ptr->ctx, session->self, 1);
+ 	session->emitter = ILibDuktape_EventEmitter_Create(ptr->ctx);
+ 		
+ 
+@@ -939,8 +975,11 @@
+ 
+ 	if (session->connection != NULL)
+ 	{
++		duk_context *rootCtx = session->ctx;
++		void *rootObject = session->self;
+ 		ILibDuktape_DuplexStream_Closed(session->stream);
+ 		session->connection = NULL;
++		ILibDuktape_net_socket_RootActive(rootCtx, rootObject, 0);
+ 	}
+ }
+ void ILibDuktape_net_server_OnReceive(ILibAsyncServerSocket_ServerModule AsyncServerSocketModule, ILibAsyncServerSocket_ConnectionToken ConnectionToken, char* buffer, int *p_beginPointer, int endPointer, ILibAsyncServerSocket_OnInterrupt *OnInterrupt, void **user, int *PAUSE)

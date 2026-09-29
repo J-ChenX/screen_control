@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,26 @@ def validate(lock_path: Path = DEFAULT_LOCK) -> list[str]:
     if target_version and any(target_version not in str(item.get("tailscale")) for item in targets):
         errors.append("one or more target snapshots do not match the locked Tailscale version")
     files = lock.get("artifacts", {}).get("files", [])
+    rust = lock.get("build", {}).get("rust", {})
+    rust_paths = {".mise.toml", "rust-toolchain.toml", "Cargo.toml", "Cargo.lock",
+                  "native/protocol-core/Cargo.toml", "native/protocol-ffi/Cargo.toml"}
+    if not rust_paths.issubset({item.get("path") for item in files}):
+        errors.append("Rust toolchain artifacts are not all hash-bound")
+    try:
+        mise = tomllib.loads((ROOT / ".mise.toml").read_text(encoding="utf-8"))
+        toolchain = tomllib.loads((ROOT / "rust-toolchain.toml").read_text(encoding="utf-8"))
+        cargo = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        rust_version = rust.get("version")
+        if (not isinstance(rust_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", rust_version)
+                or rust_version != mise["tools"].get("rust")
+                or rust_version != toolchain["toolchain"].get("channel")):
+            errors.append("Rust version does not match the pinned toolchains")
+        if rust.get("minimumVersion") != cargo["workspace"]["package"].get("rust-version"):
+            errors.append("Rust minimum version does not match Cargo.toml")
+        if rust.get("moduleLock") != "Cargo.lock" or rust.get("moduleLockSha256") != sha256_file(ROOT / "Cargo.lock"):
+            errors.append("Rust module lock hash does not match Cargo.lock")
+    except (OSError, ValueError, KeyError) as exc:
+        errors.append(f"Rust toolchain configuration cannot be read: {exc}")
     for item in files:
         relative = item.get("path")
         expected = item.get("sha256")

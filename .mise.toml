@@ -1,7 +1,7 @@
 [tools]
 go = "1.26.8"
 node = "24.20.0"
+rust = "1.98.1"
 
 [env]
 CGO_ENABLED = "1"
-

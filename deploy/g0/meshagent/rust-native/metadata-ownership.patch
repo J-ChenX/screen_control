@@ -1,0 +1,266 @@
+--- a/meshcore/agentcore.c
++++ b/meshcore/agentcore.c
+@@ -3549,7 +3549,7 @@
+ void MeshServer_OnResponse(ILibWebClient_StateObject WebStateObject, int InterruptFlag, struct packetheader *header, char *bodyBuffer, int *beginPointer, int endPointer, ILibWebClient_ReceiveStatus recvStatus, void *user1, void *user2, int *PAUSE)
+ {
+ 	MeshAgentHostContainer *agent = (MeshAgentHostContainer*)user1;
+-	ILibChain_Link_SetMetadata(ILibChain_GetCurrentLink(agent->chain), "MeshServer_ControlChannel");
++	ILibChain_Link_SetMetadata(ILibChain_GetCurrentLink(agent->chain), ILibMemory_SmartAllocate_FromString("MeshServer_ControlChannel"));
+ 	
+ 	if (agent->controlChannelRequest != NULL)
+ 	{
+--- a/microstack/ILibMulticastSocket.c
++++ b/microstack/ILibMulticastSocket.c
+@@ -162,7 +162,7 @@
+ 				module->UDPServers[i] = ILibAsyncUDPSocket_CreateEx(module->ChainLink.ParentChain, 0, (struct sockaddr*)&(module->AddressListV4[i]), ILibAsyncUDPSocket_Reuse_SHARED, UDPSocket_OnDataV4, NULL, module);
+ 				if (module->UDPServers[i] != NULL)
+ 				{
+-					ILibChain_Link_SetMetadata(module->UDPServers[i], "ILibMulticastSocket_v4");
++					ILibChain_Link_SetMetadata(module->UDPServers[i], ILibMemory_SmartAllocate_FromString("ILibMulticastSocket_v4"));
+ 					ILibAsyncUDPSocket_JoinMulticastGroupV4(module->UDPServers[i], &(module->MulticastAddr), (struct sockaddr*)&(module->AddressListV4[i]));
+ 					ILibAsyncUDPSocket_SetLocalInterface(module->UDPServers[i], (struct sockaddr*)&(module->AddressListV4[i]));
+ 					socket = ILibAsyncUDPSocket_GetSocket(module->UDPServers[i]);
+@@ -315,7 +315,7 @@
+ 		// Setup incoming IPv4 socket
+ 		module->UDPServer = ILibAsyncUDPSocket_CreateEx(Chain, 0, (struct sockaddr*)&addr4, ILibAsyncUDPSocket_Reuse_SHARED, UDPSocket_OnDataV4, NULL, module);
+ 		if (module->UDPServer == NULL) { free(module); PRINTERROR(); return NULL; }
+-		ILibChain_Link_SetMetadata(module->UDPServer, "ILibMulticastSocketListener_v4");
++		ILibChain_Link_SetMetadata(module->UDPServer, ILibMemory_SmartAllocate_FromString("ILibMulticastSocketListener_v4"));
+ 
+ #ifndef NACL
+ 		if (setsockopt(ILibAsyncUDPSocket_GetSocket(module->UDPServer), IPPROTO_IP, IP_MULTICAST_TTL, (const char*)&(module->TTL), sizeof(int)) != 0) {ILIBCRITICALERREXIT(253);}
+@@ -334,7 +334,7 @@
+ 		module->UDPServer6 = ILibAsyncUDPSocket_CreateEx(Chain, 0, (struct sockaddr*)&addr6, ILibAsyncUDPSocket_Reuse_SHARED, UDPSocket_OnDataV6, NULL, module);
+ 		if (module->UDPServer6 != NULL)
+ 		{
+-			ILibChain_Link_SetMetadata(module->UDPServer6, "ILibMulticastSocketListener_v6");
++			ILibChain_Link_SetMetadata(module->UDPServer6, ILibMemory_SmartAllocate_FromString("ILibMulticastSocketListener_v6"));
+ 
+ 			// Setup the IPv6 multicast address
+ 			memcpy_s(&(module->MulticastAddr6), sizeof(struct sockaddr_in6), MulticastAddr6, sizeof(struct sockaddr_in6));
+--- a/microstack/ILibWebRTC.c
++++ b/microstack/ILibWebRTC.c
+@@ -6508,11 +6508,11 @@
+ 	obj->ChainLink.DestroyHandler = &ILibStun_OnDestroy;
+ 	obj->UDP = ILibAsyncUDPSocket_CreateEx(Chain, ILibRUDP_MaxMTU, (struct sockaddr*)&(obj->LocalIf), ILibAsyncUDPSocket_Reuse_EXCLUSIVE, &ILibStun_OnUDP, NULL, obj);
+ 	if (obj->UDP == NULL) { free(obj); return NULL; }
+-	ILibChain_Link_SetMetadata(obj->UDP, "ILibWebRTC_stun_listener_ipv4");
++	ILibChain_Link_SetMetadata(obj->UDP, ILibMemory_SmartAllocate_FromString("ILibWebRTC_stun_listener_ipv4"));
+ #ifdef WIN32
+ 	obj->UDP6 = ILibAsyncUDPSocket_CreateEx(Chain, ILibRUDP_MaxMTU, (struct sockaddr*)&(obj->LocalIf6), ILibAsyncUDPSocket_Reuse_EXCLUSIVE, &ILibStun_OnUDP, NULL, obj);
+ 	if (obj->UDP6 == NULL) { free(obj); return NULL; }
+-	ILibChain_Link_SetMetadata(obj->UDP6, "ILibWebRTC_stun_listener_ipv6");
++	ILibChain_Link_SetMetadata(obj->UDP6, ILibMemory_SmartAllocate_FromString("ILibWebRTC_stun_listener_ipv6"));
+ #endif
+ 
+ 	ILibAddToChain(Chain, obj);
+--- a/microscript/ILibDuktape_Dgram.c
++++ b/microscript/ILibDuktape_Dgram.c
+@@ -216,7 +216,7 @@
+ 		4096, (struct sockaddr*)&local,
+ 		((config & ILibDuktape_DGRAM_Config_ReuseAddr) == ILibDuktape_DGRAM_Config_ReuseAddr) ? ILibAsyncUDPSocket_Reuse_SHARED : ILibAsyncUDPSocket_Reuse_EXCLUSIVE,
+ 		ILibDuktape_Dgram_Socket_OnData, ILibDuktape_Dgram_Socket_OnSendOK, ptrs);
+-	ILibChain_Link_SetMetadata(ptrs->mSocket, "net.dgram");
++	ILibChain_Link_SetMetadata(ptrs->mSocket, ILibMemory_SmartAllocate_FromString("net.dgram"));
+ 	if (ptrs->mSocket == NULL)
+ 	{
+ #ifdef WIN32
+--- a/microscript/ILibDuktape_HttpStream.c
++++ b/microscript/ILibDuktape_HttpStream.c
+@@ -558,7 +558,7 @@
+ 	duk_new(ctx, 2);															// [HTTPStream][readable][ext][websocket]
+ 	duk_remove(ctx, -2);														// [HTTPStream][readable][websocket]
+ 	
+-	ILibChain_Link_SetMetadata(Duktape_GetPointerProperty(ctx, -2, ILibDuktape_ChainLinkPtr), Duktape_GetStringPropertyValue(ctx, -1, ILibDuktape_OBJID, "http.webSocketStream"));
++	ILibChain_Link_SetMetadata(Duktape_GetPointerProperty(ctx, -2, ILibDuktape_ChainLinkPtr), ILibMemory_SmartAllocate_FromString(Duktape_GetStringPropertyValue(ctx, -1, ILibDuktape_OBJID, "http.webSocketStream")));
+ 	
+ 	duk_get_prop_string(ctx, -3, ILibDuktape_HTTP2CR);							// [HTTPStream][readable][websocket][clientRequest]
+ 	//duk_dup(ctx, -2);															// [HTTPStream][readable][websocket][clientRequest][websocket]
+@@ -823,7 +823,7 @@
+ 		return(0);
+ 	}
+ 	
+-	ILibChain_Link_SetMetadata(Duktape_GetPointerProperty(ctx, -2, ILibDuktape_ChainLinkPtr), Duktape_GetStringPropertyValue(ctx, -1, ILibDuktape_OBJID, "http.clientRequest"));
++	ILibChain_Link_SetMetadata(Duktape_GetPointerProperty(ctx, -2, ILibDuktape_ChainLinkPtr), ILibMemory_SmartAllocate_FromString(Duktape_GetStringPropertyValue(ctx, -1, ILibDuktape_OBJID, "http.clientRequest")));
+ 
+ 	// Register ourselves for the close event, becuase we'll need to put ourselves back in the Queue if the socket dies before we are done
+ 	duk_get_prop_string(ctx, -2, "prependOnceListener");				// [socket][clientRequest][prependOnce]
+--- a/microscript/ILibDuktape_net.c
++++ b/microscript/ILibDuktape_net.c
+@@ -525,7 +525,7 @@
+ 			}
+ 			else
+ 			{
+-				ILibChain_Link_SetMetadata(ptrs->socketModule, "net.ipcSocket");
++				ILibChain_Link_SetMetadata(ptrs->socketModule, ILibMemory_SmartAllocate_FromString("net.ipcSocket"));
+ 			}
+ 		}
+ 
+@@ -715,7 +715,7 @@
+ 	ptrs->chain = ((ILibChain_Link*)module)->ParentChain;
+ 	ptrs->object = duk_get_heapptr(ctx, -1);
+ 	ptrs->socketModule = module;
+-	ILibChain_Link_SetMetadata(module, "net.socket");
++	ILibChain_Link_SetMetadata(module, ILibMemory_SmartAllocate_FromString("net.socket"));
+ 	duk_push_pointer(ctx, ptrs->socketModule); duk_put_prop_string(ctx, -2, ILibDuktape_ChainLinkPtr);
+ 
+ 	duk_push_pointer(ctx, ptrs);								// [obj][ptrs]
+@@ -867,11 +867,11 @@
+ 	duk_push_heapptr(ptr->ctx, ptr->self);																					// [server]
+ 	if (strcmp(Duktape_GetStringPropertyValue(ptr->ctx, -1, ILibDuktape_OBJID, ""), "net.ipcServer") == 0)
+ 	{
+-		((ILibChain_Link*)ConnectionToken)->MetaData = "net.ipcServer.ipcSocketConnection";
++		ILibChain_Link_SetMetadata(ConnectionToken, ILibMemory_SmartAllocate_FromString("net.ipcServer.ipcSocketConnection"));
+ 	}
+ 	else
+ 	{
+-		((ILibChain_Link*)ConnectionToken)->MetaData = isTLS == 0 ? "net.serverSocketConnection" : "tls.serverSocketConnection";
++		ILibChain_Link_SetMetadata(ConnectionToken, ILibMemory_SmartAllocate_FromString(isTLS == 0 ? "net.serverSocketConnection" : "tls.serverSocketConnection"));
+ 	}
+ 
+ 	duk_get_prop_string(ptr->ctx, -1, "emit");																				// [server][emit]
+@@ -1609,7 +1609,7 @@
+ 			duk_dup(ctx, -1);												// [server][metadata][clone]
+ 			duk_put_prop_string(ctx, -3, ILibDuktape_net_server_metadata);	// [server][metadata]
+ 		}
+-		ILibChain_Link_SetMetadata(server->server, (char*)duk_get_string(ctx, -1));
++		ILibChain_Link_SetMetadata(server->server, ILibMemory_SmartAllocate_FromString(duk_get_string(ctx, -1)));
+ 		duk_pop(ctx);
+ 	}
+ 
+@@ -2429,7 +2429,7 @@
+ 
+ 	ILibDuktape_net_socket_PUSH(ctx, module);													// [socket]
+ 	ILibDuktape_WriteID(ctx, "tls.socket");
+-	ILibChain_Link_SetMetadata(module, "tls.socket")
++	ILibChain_Link_SetMetadata(module, ILibMemory_SmartAllocate_FromString("tls.socket"))
+ #ifdef _SSL_KEYS_EXPORTABLE
+ 	ILibDuktape_CreateInstanceMethod(ctx, "_exportKeys", ILibDuktape_TLS_exportKeys, 0);
+ #endif
+--- a/microscript/ILibDuktape_Debugger.c
++++ b/microscript/ILibDuktape_Debugger.c
+@@ -239,7 +239,7 @@
+ 	if (dbg->chainedObject == NULL)
+ 	{
+ 		dbg->chainedObject = ILibChain_Link_Allocate(sizeof(ILibChain_Link), sizeof(void*));
+-		dbg->chainedObject->MetaData = "ILibDuktape_Debugger_AsyncWaitConn";
++		dbg->chainedObject->MetaData = ILibMemory_SmartAllocate_FromString("ILibDuktape_Debugger_AsyncWaitConn");
+ 		((void**)dbg->chainedObject->ExtraMemoryPtr)[0] = dbg;
+ 		dbg->chainedObject->PreSelectHandler = ILibDuktape_Debugger_AsyncWaitConn_PreSelect;
+ 		dbg->chainedObject->PostSelectHandler = ILibDuktape_Debugger_AsyncWaitConn_PostSelect;
+--- a/microscript/ILibDuktape_Polyfills.c
++++ b/microscript/ILibDuktape_Polyfills.c
+@@ -3235,7 +3235,7 @@
+ void ILibDuktape_DescriptorEvents_Push(duk_context *ctx, void *chain)
+ {
+ 	ILibChain_Link *link = (ILibChain_Link*)ILibChain_Link_Allocate(sizeof(ILibChain_Link), 2 * sizeof(void*));
+-	link->MetaData = "DescriptorEvents";
++	link->MetaData = ILibMemory_SmartAllocate_FromString("DescriptorEvents");
+ 	link->PreSelectHandler = ILibDuktape_DescriptorEvents_PreSelect;
+ 	link->PostSelectHandler = ILibDuktape_DescriptorEvents_PostSelect;
+ 	link->QueryHandler = ILibDuktape_DescriptorEvents_Query;
+--- a/microscript/ILibDuktape_ScriptContainer.c
++++ b/microscript/ILibDuktape_ScriptContainer.c
+@@ -1477,7 +1477,7 @@
+ 			ILibChain_Link *k = ILibChain_Link_Allocate(sizeof(ILibChain_Link), 2 * sizeof(void*));
+ 			((void**)k->ExtraMemoryPtr)[0] = ctx;
+ 			((void**)k->ExtraMemoryPtr)[1] = emitter->object;
+-			k->MetaData = "Signal_Listener";
++			k->MetaData = ILibMemory_SmartAllocate_FromString("Signal_Listener");
+ 			k->PreSelectHandler = ILibDuktape_ScriptContainer_Process_SignalListener_PreSelect;
+ 			k->PostSelectHandler = ILibDuktape_ScriptContainer_Process_SignalListener_PostSelect;
+ 			ILibAddToChain(chain, k);
+--- a/microscript/ILibDuktape_Helpers.c
++++ b/microscript/ILibDuktape_Helpers.c
+@@ -416,6 +416,18 @@
+ 	return((char*)stash_key);
+ }
+ 
++static int Duktape_BufferHasMemoryHeader(const char *buffer, duk_size_t len, duk_size_t *payloadLen)
++{
++	ILibMemory_Header header;
++	if (buffer == NULL || len < sizeof(header)) { return(0); }
++	memcpy(&header, buffer, sizeof(header));
++	if (memcmp(&header.CANARY, "broe", sizeof(header.CANARY)) != 0 ||
++		header.memoryType != ILibMemory_Types_OTHER || header.extraSize != 0 ||
++		header.size != len - sizeof(header)) { return(0); }
++	*payloadLen = header.size;
++	return(1);
++}
++
+ char* Duktape_GetBuffer(duk_context *ctx, duk_idx_t i, duk_size_t *bufLen)
+ {
+ 	char *retVal = NULL;
+@@ -429,10 +441,11 @@
+ 	else if (duk_is_buffer(ctx, i))
+ 	{
+ 		retVal = (char*)duk_require_buffer(ctx, i, &len);
+-		if (retVal != NULL && len >= sizeof(ILibMemory_Header) && ILibMemory_CanaryOK(ILibMemory_FromRaw(retVal)) && ILibMemory_RawSize(ILibMemory_FromRaw(retVal)) == len)
++		duk_size_t payloadLen;
++		if (Duktape_BufferHasMemoryHeader(retVal, len, &payloadLen))
+ 		{
+ 			retVal = ILibMemory_FromRaw(retVal);
+-			if (bufLen != NULL) { *bufLen = ILibMemory_Size(retVal); }
++			if (bufLen != NULL) { *bufLen = payloadLen; }
+ 		}
+ 		else if (bufLen != NULL)
+ 		{
+@@ -442,10 +455,11 @@
+ 	else if(duk_is_buffer_data(ctx, i))
+ 	{
+ 		retVal = (char*)duk_require_buffer_data(ctx, i, &len);
+-		if (retVal != NULL && len >= sizeof(ILibMemory_Header) && ILibMemory_CanaryOK(ILibMemory_FromRaw(retVal)) && ILibMemory_RawSize(ILibMemory_FromRaw(retVal)) == len)
++		duk_size_t payloadLen;
++		if (Duktape_BufferHasMemoryHeader(retVal, len, &payloadLen))
+ 		{
+ 			retVal = ILibMemory_FromRaw(retVal);
+-			if (bufLen != NULL) { *bufLen = ILibMemory_Size(retVal); }
++			if (bufLen != NULL) { *bufLen = payloadLen; }
+ 		}
+ 		else if (bufLen != NULL)
+ 		{
+@@ -1044,7 +1058,7 @@
+ 	duk_push_pointer(ctx, callback);									// [setImmediate][this][func][userFunc]
+ 	duk_push_array(ctx);												// [setImmediate][this][func][userFunc][array]
+ 
+-	while (args != NULL && args[i] != NULL && i < argsLen)
++	while (args != NULL && i < argsLen && args[i] != NULL)
+ 	{
+ 		duk_get_prop_string(ctx, -1, "push");							// [setImmediate][this][func][userFunc][array][push]
+ 		duk_dup(ctx, -2);												// [setImmediate][this][func][userFunc][array][push][this]
+--- a/microscript/ILibduktape_EventEmitter.c
++++ b/microscript/ILibduktape_EventEmitter.c
+@@ -1602,6 +1602,7 @@
+ 
+ duk_ret_t ILibDuktape_EventEmitter_ForwardEx_target_newListenerSink(duk_context *ctx)
+ {
++	if (duk_ctx_shutting_down(ctx)) { return(0); }
+ 	duk_push_current_function(ctx);				// [func]
+ 	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
+ 	void **ptr = (void**)Duktape_GetPointerProperty(ctx, -1, "sourcePtr");
+@@ -1628,6 +1629,7 @@
+ }
+ duk_ret_t ILibDuktape_EventEmitter_ForwardEx_target_removeListenerSink(duk_context *ctx)
+ {
++	if (duk_ctx_shutting_down(ctx)) { return(0); }
+ 	duk_push_current_function(ctx);							// [func]
+ 	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
+ 	void **ptr = (void**)Duktape_GetPointerProperty(ctx, -1, "sourcePtr");
+--- a/microstack/ILibParsers.c
++++ b/microstack/ILibParsers.c
+@@ -7365,10 +7365,12 @@
+ /* encode 3 8-bit binary bytes as 4 '6-bit' characters */
+ void ILibencodeblock( unsigned char in[3], unsigned char out[4], int len )
+ {
++	unsigned char second = len > 1 ? in[1] : 0;
++	unsigned char third = len > 2 ? in[2] : 0;
+ 	out[0] = cb64[ in[0] >> 2 ];
+-	out[1] = cb64[ ((in[0] & 0x03) << 4) | ((in[1] & 0xf0) >> 4) ];
+-	out[2] = (unsigned char) (len > 1 ? cb64[ ((in[1] & 0x0f) << 2) | (len>2?((in[2] & 0xc0) >> 6):0) ] : '=');
+-	out[3] = (unsigned char) (len > 2 ? cb64[ in[2] & 0x3f ] : '=');
++	out[1] = cb64[ ((in[0] & 0x03) << 4) | ((second & 0xf0) >> 4) ];
++	out[2] = (unsigned char) (len > 1 ? cb64[ ((second & 0x0f) << 2) | ((third & 0xc0) >> 6) ] : '=');
++	out[3] = (unsigned char) (len > 2 ? cb64[ third & 0x3f ] : '=');
+ }
+ 
+ /*! \fn size_t ILibBase64EncodeLength(size_t inputLen)

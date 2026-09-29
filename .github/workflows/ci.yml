@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: rustup show active-toolchain
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo build --release --locked -p screen-control-protocol-ffi
+      - if: runner.os == 'Linux'
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -no-pie -I native/protocol-ffi/include tests/native/websocket_abi.c target/release/libscreen_control_protocol_ffi.a -ldl -lpthread -lm -o /tmp/websocket-abi
+          /tmp/websocket-abi
+
   go:
     strategy:
       fail-fast: false

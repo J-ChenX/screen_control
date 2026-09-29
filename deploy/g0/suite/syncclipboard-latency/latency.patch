@@ -1,0 +1,288 @@
+diff --git a/src/SyncClipboard.Core/RemoteServer/Adapter/OfficialServer/OfficialAdapter.cs b/src/SyncClipboard.Core/RemoteServer/Adapter/OfficialServer/OfficialAdapter.cs
+index 2302ca3..a142672 100644
+--- a/src/SyncClipboard.Core/RemoteServer/Adapter/OfficialServer/OfficialAdapter.cs
++++ b/src/SyncClipboard.Core/RemoteServer/Adapter/OfficialServer/OfficialAdapter.cs
+@@ -31,6 +31,8 @@ public sealed class OfficialAdapter(
+     private readonly object _hubLock = new object();
+     private readonly object _httpClientLock = new object();
+     private HubConnection? _hubConnection;
++    private bool _connecting;
++    private bool _disposed;
+     private OfficialConfig _officialConfig = new OfficialConfig();
+     private HttpClient _httpClient = new HttpClient();
+ 
+@@ -55,9 +57,9 @@ public sealed class OfficialAdapter(
+     {
+         try
+         {
+-            ReConnectSignalR();
+             _webDavAdapter.ApplyConfig();
+             ReCreateHttpClient();
++            ReConnectSignalR();
+         }
+         catch (Exception ex)
+         {
+@@ -68,69 +70,107 @@ public sealed class OfficialAdapter(
+         }
+     }
+ 
++    private bool IsCurrent(HubConnection connection)
++    {
++        lock (_hubLock) return !_disposed && ReferenceEquals(_hubConnection, connection);
++    }
++
+     private void ReConnectSignalR()
+     {
+         DisconnectSignalR();
+-
++        HubConnection connection;
+         lock (_hubLock)
+         {
+-            if (_hubConnection != null)
+-                return;
+-
++            if (_disposed || _hubConnection != null) return;
+             var serverUrl = _officialConfig.RemoteURL.TrimEnd('/');
+-            var signalRUrl = $"{serverUrl}{SignalRConstants.HubPath}";
+-            if (string.IsNullOrWhiteSpace(signalRUrl)) return;
+-            _hubConnection = new HubConnectionBuilder()
+-                .WithUrl(new Uri(signalRUrl), config =>
++            if (string.IsNullOrWhiteSpace(serverUrl)) return;
++            connection = new HubConnectionBuilder()
++                .WithUrl(new Uri($"{serverUrl}{SignalRConstants.HubPath}"), config =>
+                 {
+                     var base64 = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{_officialConfig.UserName}:{_officialConfig.Password}"));
+                     config.Headers.Add("Authorization", "Basic " + base64);
+                 })
++                // 网络恢复时立即重连；多次失败后交由既有健康检查重试。
++                .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5) })
+                 .Build();
++            _hubConnection = connection;
++            _connecting = true;
+         }
+-
+-        _hubConnection.On<ProfileDto>(nameof(ISyncClipboardClient.RemoteProfileChanged), profile =>
++        connection.On<ProfileDto>(nameof(ISyncClipboardClient.RemoteProfileChanged), profile =>
+         {
+-            ProfileDtoChanged?.Invoke(profile);
++            if (IsCurrent(connection)) ProfileDtoChanged?.Invoke(profile);
+         });
+-
+-        _hubConnection.On<HistoryRecordDto>(nameof(ISyncClipboardClient.RemoteHistoryChanged), historyRecord =>
++        connection.On<HistoryRecordDto>(nameof(ISyncClipboardClient.RemoteHistoryChanged), historyRecord =>
+         {
+-            HistoryChanged?.Invoke(historyRecord);
++            if (IsCurrent(connection)) HistoryChanged?.Invoke(historyRecord);
+         });
+-
+-        StartSignalRConnectiron(_hubConnection);
++        connection.Reconnecting += error =>
++        {
++            if (IsCurrent(connection)) ServerDisconnected?.Invoke(error);
++            return Task.CompletedTask;
++        };
++        connection.Reconnected += _ =>
++        {
++            // 复用 ServerConnected 路径补拉断线期间最新剪贴板，不重放旧内容。
++            if (IsCurrent(connection)) ServerConnected?.Invoke();
++            return Task.CompletedTask;
++        };
++        connection.Closed += error =>
++        {
++            if (IsCurrent(connection)) ServerDisconnected?.Invoke(error);
++            return Task.CompletedTask;
++        };
++        StartSignalRConnectiron(connection);
+     }
+ 
+-    private async void StartSignalRConnectiron(HubConnection hubConnection)
++    private async void StartSignalRConnectiron(HubConnection connection)
+     {
+         try
+         {
+-            await hubConnection.StartAsync();
+-            hubConnection.Closed += arg =>
+-            {
+-                ServerDisconnected?.Invoke(arg);
+-                return Task.CompletedTask;
+-            };
+-            ServerConnected?.Invoke();
++            await connection.StartAsync().ConfigureAwait(false);
++            if (IsCurrent(connection)) ServerConnected?.Invoke();
+         }
+         catch (Exception ex)
+         {
+-            ServerDisconnected?.Invoke(ex);
+-            await _logger.WriteAsync("OfficialAdapter", $"SignalR连接失败: {ex.Message}");
++            if (IsCurrent(connection))
++            {
++                ServerDisconnected?.Invoke(ex);
++                await _logger.WriteAsync("OfficialAdapter", $"SignalR连接失败: {ex.Message}");
++            }
++        }
++        finally
++        {
++            lock (_hubLock)
++            {
++                if (ReferenceEquals(_hubConnection, connection)) _connecting = false;
++            }
+         }
+     }
+ 
+     private void DisconnectSignalR()
+     {
+-        var old = null as HubConnection;
++        HubConnection? old;
+         lock (_hubLock)
+         {
+             old = _hubConnection;
+             _hubConnection = null;
++            _connecting = false;
+         }
++        if (old is not null) _ = DisposeConnectionAsync(old);
++    }
+ 
+-        old?.StopAsync().Wait();
++    private async Task DisposeConnectionAsync(HubConnection connection)
++    {
++        try
++        {
++            // DisposeAsync 同时停止连接并释放通知订阅、重连计时器及传输资源。
++            // 不在界面线程同步等待网络关闭；旧连接回调由 IsCurrent 隔离。
++            await connection.DisposeAsync().ConfigureAwait(false);
++        }
++        catch (Exception ex)
++        {
++            await _logger.WriteAsync("OfficialAdapter", $"释放旧通知连接失败: {ex.GetType().Name}");
++        }
+     }
+ 
+     public async Task TestConnectionAsync(CancellationToken cancellationToken = default)
+@@ -193,6 +233,7 @@ public sealed class OfficialAdapter(
+ 
+     public void Dispose()
+     {
++        lock (_hubLock) _disposed = true;
+         DisconnectSignalR();
+         _webDavAdapter.Dispose();
+         _httpClient?.Dispose();
+@@ -200,6 +241,10 @@ public sealed class OfficialAdapter(
+ 
+     public void StartListening()
+     {
++        lock (_hubLock)
++        {
++            if (_disposed || _connecting || (_hubConnection is not null && _hubConnection.State != HubConnectionState.Disconnected)) return;
++        }
+         ReConnectSignalR();
+     }
+ 
+diff --git a/src/SyncClipboard.Core/RemoteServer/TestAliveHelper.cs b/src/SyncClipboard.Core/RemoteServer/TestAliveHelper.cs
+index 4491c1f..420f188 100644
+--- a/src/SyncClipboard.Core/RemoteServer/TestAliveHelper.cs
++++ b/src/SyncClipboard.Core/RemoteServer/TestAliveHelper.cs
+@@ -1,57 +1,69 @@
+-﻿namespace SyncClipboard.Core.RemoteServer;
++namespace SyncClipboard.Core.RemoteServer;
+ 
+-internal sealed class TestAliveHelper(Func<CancellationToken, Task<bool>> _func) : IDisposable
++internal sealed class TestAliveHelper(Func<CancellationToken, Task<bool>> func, TimeSpan? interval = null) : IDisposable
+ {
+-    private CancellationTokenSource? _testAliveCancellationTokenSource;
+-    private readonly object _testAliveLock = new object();
+-    private readonly TimeSpan _testAliveInterval = TimeSpan.FromSeconds(10);
+-
+-    public void Dispose()
+-    {
+-        _testAliveCancellationTokenSource?.Cancel();
+-        _testAliveCancellationTokenSource?.Dispose();
+-        TestSuccessed = null;
+-    }
+-
++    private CancellationTokenSource? _source;
++    private readonly object _gate = new();
++    private readonly TimeSpan _interval = interval ?? TimeSpan.FromSeconds(2);
++    private bool _disposed;
+     public event Action? TestSuccessed;
+ 
+     public void Restart()
+     {
+-        StopTestAliveTask();
+-        lock (_testAliveLock)
+-        {
+-            _testAliveCancellationTokenSource = new CancellationTokenSource();
+-            _ = RunTestAliveLoopAsync(_testAliveCancellationTokenSource.Token);
+-        }
+-    }
+-
+-    private void StopTestAliveTask()
+-    {
+-        lock (_testAliveLock)
++        lock (_gate)
+         {
+-            _testAliveCancellationTokenSource?.Cancel();
+-            _testAliveCancellationTokenSource?.Dispose();
+-            _testAliveCancellationTokenSource = null;
++            if (_disposed) return;
++            _source?.Cancel();
++            var source = new CancellationTokenSource();
++            _source = source;
++            _ = RunAsync(source);
+         }
+     }
+ 
+-    private async Task RunTestAliveLoopAsync(CancellationToken token)
++    private async Task RunAsync(CancellationTokenSource source)
+     {
++        var token = source.Token;
+         try
+         {
+-            while (!token.IsCancellationRequested && _func is not null)
++            while (!token.IsCancellationRequested)
+             {
+-                var isAlive = await _func.Invoke(token);
+-                if (isAlive)
++                try
+                 {
+-                    TestSuccessed?.Invoke();
++                    using var attempt = CancellationTokenSource.CreateLinkedTokenSource(token);
++                    attempt.CancelAfter(TimeSpan.FromSeconds(5));
++                    if (await func(attempt.Token).ConfigureAwait(false))
++                    {
++                        lock (_gate)
++                        {
++                            if (!_disposed && ReferenceEquals(_source, source) && !token.IsCancellationRequested)
++                                TestSuccessed?.Invoke();
++                        }
++                    }
+                 }
+-
+-                await Task.Delay(_testAliveInterval, token);
++                catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
++                catch (Exception) { /* 单次检查失败不终止恢复循环。 */ }
++                await Task.Delay(_interval, token).ConfigureAwait(false);
++            }
++        }
++        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
++        finally
++        {
++            lock (_gate)
++            {
++                if (ReferenceEquals(_source, source)) _source = null;
++                source.Dispose();
+             }
+         }
+-        catch (Exception) when (!token.IsCancellationRequested)
++    }
++
++    public void Dispose()
++    {
++        lock (_gate)
+         {
++            if (_disposed) return;
++            _disposed = true;
++            _source?.Cancel();
++            TestSuccessed = null;
+         }
+     }
+ }

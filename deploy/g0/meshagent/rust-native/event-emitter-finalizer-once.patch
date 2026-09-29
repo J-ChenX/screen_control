@@ -1,0 +1,64 @@
+--- a/microscript/ILibDuktape_EventEmitter.h
++++ b/microscript/ILibDuktape_EventEmitter.h
+@@ -42,6 +42,7 @@
+ 	size_t listenerCountTableLength;
+ 	ILibSpinLock listenerCountTableLock;
+ 	ILibDuktape_EventEmitter_Types eventType;
++	int finalizerEmitted;
+ }ILibDuktape_EventEmitter;
+ typedef void(*ILibDuktape_EventEmitter_HookHandler)(ILibDuktape_EventEmitter *sender, char *eventName, void *hookedCallback);
+ 
+--- a/microscript/ILibduktape_EventEmitter.c
++++ b/microscript/ILibduktape_EventEmitter.c
+@@ -578,10 +578,27 @@
+ 	return(0);
+ }
+ 
++static duk_ret_t ILibDuktape_EventEmitter_TryClearFinalizer(duk_context *ctx)
++{
++	void *expected = duk_get_pointer(ctx, 1);
++	duk_get_finalizer(ctx, 0);
++	void *current = duk_get_heapptr(ctx, -1);
++	duk_pop(ctx);
++	if (current != expected) { return(0); }
++	duk_push_undefined(ctx);
++	duk_set_finalizer(ctx, 0);
++	return(0);
++}
+ duk_ret_t ILibDuktape_EventEmitter_EmbeddedFinalizer(duk_context *ctx)
+ {
+ 	ILibDuktape_EventEmitter *data = ILibDuktape_EventEmitter_GetEmitter(ctx, 0);
+ 	if (!ILibMemory_CanaryOK(data) || !duk_ctx_is_alive(data->ctx)) { return(0); }
++	// 终结回调可能再次持有对象；在原生状态中标记，避免冻结对象无法清理。
++	if (data->finalizerEmitted != 0) { return(0); }
++	data->finalizerEmitted = 1;
++	duk_get_finalizer(ctx, 0);
++	void *originalFinalizer = duk_get_heapptr(ctx, -1);
++	duk_pop(ctx);
+ 
+ 	ILibDuktape_EventEmitter_SetupEmit(ctx, duk_get_heapptr(ctx, 0), "~");	// [emit][this][~]
+ 	duk_dup(ctx, 0);														// [emit][this][~][self]
+@@ -625,6 +642,15 @@
+ 	if (duk_pcall_method(ctx, 2) != 0)
+ 	{
+ 		ILibDuktape_Process_UncaughtExceptionEx(ctx, "Error in Finalizer (%s): [Invalid C function means you forgot to return 0] ", meta);
++	}
++	// 先完成用户清理，再尝试移除未被替换的 finalizer；冻结对象由原生标记兜底。
++	if (duk_ctx_is_alive(ctx))
++	{
++		duk_push_c_function(ctx, ILibDuktape_EventEmitter_TryClearFinalizer, 2);
++		duk_dup(ctx, 0);
++		duk_push_pointer(ctx, originalFinalizer);
++		duk_pcall(ctx, 2);
++		duk_pop(ctx);
+ 	}
+ 
+ 	return(0);
+@@ -840,6 +866,7 @@
+ 
+ 	retVal->ctx = ctx;
+ 	retVal->object = duk_get_heapptr(ctx, -1);
++	retVal->finalizerEmitted = 0;
+ 
+ 	duk_push_object(ctx); 
+ 	retVal->table = duk_get_heapptr(ctx, -1);

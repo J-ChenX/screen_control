@@ -43,7 +43,10 @@ export async function createDownloadStorage(size: number): Promise<DownloadStora
   return {
     async write(chunk) {
       if (disposed) throw new Error("下载已取消");
-      await writer.write(new Uint8Array(chunk).buffer);
+      // 调用方逐块等待写入完成；普通缓冲直接传视图，避免每块再复制一次。
+      const bytes: Uint8Array<ArrayBuffer> = chunk.buffer instanceof ArrayBuffer
+        ? chunk as Uint8Array<ArrayBuffer> : new Uint8Array(chunk);
+      await writer.write(bytes);
     },
     async finish(name) {
       if (disposed) throw new Error("下载已取消");

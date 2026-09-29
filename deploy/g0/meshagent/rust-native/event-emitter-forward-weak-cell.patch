@@ -1,0 +1,596 @@
+--- a/microscript/ILibduktape_EventEmitter.c
++++ b/microscript/ILibduktape_EventEmitter.c
+@@ -1600,117 +1600,513 @@
+ 	return(retVal);
+ }
+ 
+-duk_ret_t ILibDuktape_EventEmitter_ForwardEx_target_newListenerSink(duk_context *ctx)
++#define ILibDuktape_EventEmitter_ForwardEx_Cell "\xFF_ForwardExCell"
++#define ILibDuktape_EventEmitter_ForwardEx_Source "\xFF_ForwardExSource"
++#define ILibDuktape_EventEmitter_ForwardEx_Target "\xFF_ForwardExTarget"
++#define ILibDuktape_EventEmitter_ForwardEx_NewHook "\xFF_ForwardExNewHook"
++#define ILibDuktape_EventEmitter_ForwardEx_RemoveHook "\xFF_ForwardExRemoveHook"
++#define ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer "\xFF_ForwardExPriorFinalizer"
++#define ILibDuktape_EventEmitter_ForwardEx_ClosedSource "\xFF_ForwardExClosedSource"
++#define ILibDuktape_EventEmitter_ForwardEx_EventName "\xFF_ForwardExEventName"
++#define ILibDuktape_EventEmitter_ForwardEx_Proxies "\xFF_ForwardExProxies"
++#define ILibDuktape_EventEmitter_ForwardEx_CloseHook "\xFF_ForwardExCloseHook"
++#define ILibDuktape_EventEmitter_ForwardEx_FinalizerHook "\xFF_ForwardExFinalizerHook"
++#define ILibDuktape_EventEmitter_ForwardEx_BoundListener "\xFF_ForwardExBoundListener"
++#define ILibDuktape_EventEmitter_ForwardEx_Installing "\xFF_ForwardExInstalling"
++// 固定 Polyfills.c 的立即计时器类型；直接调用原生入口，避免全局函数被脚本覆盖。
++#define ILibDuktape_EventEmitter_ForwardEx_ImmediateType 2
++extern duk_ret_t ILibDuktape_Polyfills_timer_set(duk_context *ctx);
++
++static void ILibDuktape_EventEmitter_ForwardEx_RecordProxy(duk_context *ctx, duk_idx_t cellIdx, duk_idx_t listenerIdx, duk_idx_t proxyIdx)
+ {
+-	if (duk_ctx_shutting_down(ctx)) { return(0); }
+-	duk_push_current_function(ctx);				// [func]
+-	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
+-	void **ptr = (void**)Duktape_GetPointerProperty(ctx, -1, "sourcePtr");
+-	char *hookedEvent = (char*)duk_require_string(ctx, 0);
+-	if (eventName == NULL || !ILibMemory_CanaryOK(ptr) || strcmp(eventName, hookedEvent) != 0) { return(0); }
++	int top = duk_get_top(ctx);
++	duk_idx_t cell = duk_normalize_index(ctx, cellIdx);
++	duk_idx_t listener = duk_normalize_index(ctx, listenerIdx);
++	duk_idx_t proxy = duk_normalize_index(ctx, proxyIdx);
++	duk_get_prop_string(ctx, cell, ILibDuktape_EventEmitter_ForwardEx_Proxies);
++	duk_idx_t records = duk_normalize_index(ctx, -1);
++	duk_uarridx_t count = (duk_uarridx_t)duk_get_length(ctx, records);
++	duk_uarridx_t slot = count;
++	for (duk_uarridx_t i = 0; i < count; ++i)
++	{
++		duk_get_prop_index(ctx, records, i);
++		int empty = !duk_is_object(ctx, -1);
++		duk_pop(ctx);
++		if (empty) { slot = i; break; }
++	}
++	duk_push_object(ctx);
++	duk_dup(ctx, listener); duk_put_prop_string(ctx, -2, "listener");
++	duk_dup(ctx, proxy); duk_put_prop_string(ctx, -2, "proxy");
++	duk_put_prop_index(ctx, records, slot);
++	duk_set_top(ctx, top);
++}
+ 
+-	duk_dup(ctx, 1);							// [func]
+-	duk_prepare_method_call(ctx, -1, "bind");	// [func][bind][this]
+-	duk_push_this(ctx);							// [func][bind][this][target]
+-	duk_call_method(ctx, 1);					// [func][proxyFunc]
+-	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+-	duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
+-	duk_dup(ctx, -1);							// [func][proxyFunc][proxyFunc]
+-	duk_put_prop_string(ctx, -3, "proxyFunc");	// [func][proxyFunc]
++static duk_ret_t ILibDuktape_EventEmitter_ForwardEx_RestoreFinalizer(duk_context *ctx)
++{
++    duk_dup(ctx, 1);
++    duk_set_finalizer(ctx, 0);
++    return(0);
++}
++/* 源对象仍存活时从终结器链摘除本次包装，避免反复转发持续保留函数。 */
++static void ILibDuktape_EventEmitter_ForwardEx_DetachFinalizer(duk_context *ctx, duk_idx_t sourceIdx, duk_idx_t hookIdx)
++{
++    int top = duk_get_top(ctx);
++    duk_idx_t source = duk_normalize_index(ctx, sourceIdx);
++    duk_idx_t hook = duk_normalize_index(ctx, hookIdx);
++    duk_get_finalizer(ctx, source);
++    if (duk_strict_equals(ctx, -1, hook))
++    {
++        duk_push_c_function(ctx, ILibDuktape_EventEmitter_ForwardEx_RestoreFinalizer, 2);
++        duk_dup(ctx, source);
++        duk_get_prop_string(ctx, hook, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++        int restored = duk_pcall(ctx, 2) == 0;
++        duk_pop(ctx);
++        if (restored) { duk_del_prop_string(ctx, hook, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer); }
++    }
++    else
++    {
++        while (duk_is_function(ctx, -1) && duk_has_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer))
++        {
++            duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++            if (duk_strict_equals(ctx, -1, hook))
++            {
++                duk_pop(ctx);
++                duk_get_prop_string(ctx, hook, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++                duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++                duk_del_prop_string(ctx, hook, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++                break;
++            }
++            duk_remove(ctx, -2);
++        }
++    }
++    duk_set_top(ctx, top);
++}
++
++/* 调用固定的原生移除入口，保持 removeListener 元事件与原生监听计数一致。 */
++static int ILibDuktape_EventEmitter_ForwardEx_RemoveNative(duk_context *ctx, duk_idx_t emitterIdx, const char *eventName, duk_idx_t listenerIdx)
++{
++    int top = duk_get_top(ctx);
++    duk_idx_t emitter = duk_normalize_index(ctx, emitterIdx);
++    duk_idx_t listener = duk_normalize_index(ctx, listenerIdx);
++    duk_push_c_function(ctx, ILibDuktape_EventEmitter_removeListener, 2);
++    duk_dup(ctx, emitter);
++    duk_push_string(ctx, eventName);
++    duk_dup(ctx, listener);
++    int success = duk_pcall_method(ctx, 2) == 0;
++    duk_set_top(ctx, top);
++    return(success);
++}
++
++/* 状态对象由钩子持有，源对象仅以裸 heapptr 表示；终结器只使指针失效，移除钩子推迟到事件循环。 */
++static void ILibDuktape_EventEmitter_ForwardEx_Cleanup(duk_context *ctx, duk_idx_t cellIdx)
++{
++	duk_idx_t index = duk_normalize_index(ctx, cellIdx);
++	int top = duk_get_top(ctx);
++	duk_push_pointer(ctx, NULL);
++	duk_put_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_Source);
++	// close 回调返回后，解除本次转发建立的全部代理与 close 钩子。
++	duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_ClosedSource);
++	duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_EventName);
++	duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_Proxies);
++	if (duk_is_object(ctx, -3) && duk_is_string(ctx, -2) && duk_is_array(ctx, -1))
++	{
++		duk_idx_t sourceIdx = duk_normalize_index(ctx, -3);
++		duk_idx_t eventIdx = duk_normalize_index(ctx, -2);
++		duk_idx_t records = duk_normalize_index(ctx, -1);
++		duk_uarridx_t count = (duk_uarridx_t)duk_get_length(ctx, records);
++		for (duk_uarridx_t i = 0; i < count; ++i)
++		{
++			duk_get_prop_index(ctx, records, i);
++			if (duk_is_object(ctx, -1))
++			{
++				duk_get_prop_string(ctx, -1, "proxy");
++				if (duk_is_function(ctx, -1))
++				{
++					duk_idx_t proxyIdx = duk_normalize_index(ctx, -1);
++					ILibDuktape_EventEmitter_ForwardEx_RemoveNative(ctx, sourceIdx, duk_get_string(ctx, eventIdx), proxyIdx);
++				}
++				duk_pop(ctx);
++			}
++			duk_pop(ctx);
++			duk_push_null(ctx); duk_put_prop_index(ctx, records, i);
++		}
++		duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_CloseHook);
++		if (duk_is_function(ctx, -1))
++		{
++			duk_idx_t hookIdx = duk_normalize_index(ctx, -1);
++			ILibDuktape_EventEmitter_ForwardEx_RemoveNative(ctx, sourceIdx, "close", hookIdx);
++		}
++		duk_pop(ctx);
++		duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_FinalizerHook);
++		if (duk_is_function(ctx, -1)) { ILibDuktape_EventEmitter_ForwardEx_DetachFinalizer(ctx, sourceIdx, -1); }
++		duk_pop(ctx);
++	}
++	duk_set_top(ctx, top);
++	duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_FinalizerHook);
++	if (duk_is_function(ctx, -1)) { duk_del_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell); }
++	duk_pop(ctx);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_ClosedSource);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_Proxies);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_CloseHook);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_FinalizerHook);
++	if (!duk_ctx_shutting_down(ctx))
++	{
++		duk_get_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_Target);
++		if (duk_is_object(ctx, -1))
++		{
++			duk_idx_t targetIdx = duk_normalize_index(ctx, -1);
++			duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_Target);
++			const char *hookKeys[2] = { ILibDuktape_EventEmitter_ForwardEx_NewHook, ILibDuktape_EventEmitter_ForwardEx_RemoveHook };
++			const char *events[2] = { "newListener", "removeListener" };
++			for (int i = 0; i < 2; ++i)
++			{
++				duk_get_prop_string(ctx, index, hookKeys[i]);
++				if (duk_is_function(ctx, -1))
++				{
++					duk_idx_t hookIdx = duk_normalize_index(ctx, -1);
++					ILibDuktape_EventEmitter_ForwardEx_RemoveNative(ctx, targetIdx, events[i], hookIdx);
++				}
++				duk_pop(ctx);
++			}
++		}
++		duk_pop(ctx);
++	}
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_Target);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_NewHook);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_RemoveHook);
++	duk_del_prop_string(ctx, index, ILibDuktape_EventEmitter_ForwardEx_EventName);
++	duk_set_top(ctx, top);
++}
++static duk_ret_t ILibDuktape_EventEmitter_ForwardEx_SourceClosedDeferred(duk_context *ctx)
++{
++	duk_push_current_function(ctx);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	if (duk_is_object(ctx, -1)) { ILibDuktape_EventEmitter_ForwardEx_Cleanup(ctx, -1); }
++	return(0);
++}
++static void ILibDuktape_EventEmitter_ForwardEx_DeferCleanup(duk_context *ctx, duk_idx_t cellIdx)
++{
++	duk_idx_t index = duk_normalize_index(ctx, cellIdx);
++	duk_push_c_function(ctx, ILibDuktape_Polyfills_timer_set, DUK_VARARGS);
++	duk_push_int(ctx, ILibDuktape_EventEmitter_ForwardEx_ImmediateType);
++	duk_put_prop_string(ctx, -2, "type");
++	duk_push_c_function(ctx, ILibDuktape_EventEmitter_ForwardEx_SourceClosedDeferred, 0);
++	duk_dup(ctx, index); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	int failed = duk_pcall(ctx, 1) != 0;
++	duk_pop(ctx);
++	if (failed) { ILibDuktape_EventEmitter_ForwardEx_Cleanup(ctx, index); }
++}
++static duk_ret_t ILibDuktape_EventEmitter_ForwardEx_SourceClosed(duk_context *ctx)
++{
++	duk_push_current_function(ctx);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	if (duk_is_object(ctx, -1))
++	{
++		duk_idx_t cellIdx = duk_normalize_index(ctx, -1);
++		duk_get_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Source);
++		void *source = duk_get_pointer(ctx, -1);
++		duk_pop(ctx);
++		if (source != NULL)
++		{
++			// 立即失效裸指针；延迟清理期间暂时持有源对象以解除旧代理。
++			duk_push_heapptr(ctx, source);
++			duk_put_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_ClosedSource);
++			duk_push_pointer(ctx, NULL);
++			duk_put_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Source);
++			duk_get_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Installing);
++			int installing = duk_get_boolean(ctx, -1);
++			duk_pop(ctx);
++			if (!installing) { ILibDuktape_EventEmitter_ForwardEx_DeferCleanup(ctx, cellIdx); }
++		}
++	}
++	return(0);
++}
++static duk_ret_t ILibDuktape_EventEmitter_ForwardEx_SourceFinalizer(duk_context *ctx)
++{
++	duk_push_current_function(ctx);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	if (duk_is_object(ctx, -1))
++	{
++		duk_push_pointer(ctx, NULL);
++		duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Source);
++		if (!duk_ctx_shutting_down(ctx)) { ILibDuktape_EventEmitter_ForwardEx_DeferCleanup(ctx, -1); }
++	}
++	duk_pop(ctx);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++	if (duk_is_function(ctx, -1))
++	{
++		duk_dup(ctx, 0);
++		if (duk_pcall(ctx, 1) != 0) { ILibDuktape_Process_UncaughtExceptionEx(ctx, "ForwardEx prior finalizer: "); }
++	}
++	return(0);
++}
+ 
++static int ILibDuktape_EventEmitter_ForwardEx_CellClosed(duk_context *ctx, duk_idx_t cellIdx)
++{
++    duk_get_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Source);
++    int closed = duk_get_pointer(ctx, -1) == NULL;
++    duk_pop(ctx);
++    return(closed);
++}
++static int ILibDuktape_EventEmitter_ForwardEx_CellClosedPtr(duk_context *ctx, void *cell)
++{
++    duk_push_heapptr(ctx, cell);
++    int closed = ILibDuktape_EventEmitter_ForwardEx_CellClosed(ctx, -1);
++    duk_pop(ctx);
++    return(closed);
++}
++/* 延迟摘除代理前先以状态对象阻断关闭后的同步事件。 */
++static duk_ret_t ILibDuktape_EventEmitter_ForwardEx_ProxySink(duk_context *ctx)
++{
++    int argCount = duk_get_top(ctx);
++    duk_push_current_function(ctx);
++    duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell);
++    if (ILibDuktape_EventEmitter_ForwardEx_CellClosed(ctx, -1)) { return(0); }
++    duk_pop(ctx);
++    duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_BoundListener);
++    duk_remove(ctx, -2);
++    duk_insert(ctx, 0);
++    duk_call(ctx, argCount);
++    return(0);
++}
+ 
+-	duk_push_heapptr(ctx, ptr[0]);				// [func][proxyFunc][source]
+-	duk_prepare_method_call(ctx, -1, "on");		// [func][proxyFunc][source][on][this]
+-	duk_dup(ctx, 0);							// [func][proxyFunc][source][on][this][eventName]
+-	duk_dup(ctx, -5);							// [func][proxyFunc][source][on][this][eventName][func]
+-	duk_call_method(ctx, 2);					// [func][proxyFunc][source][ret]
++static int ILibDuktape_EventEmitter_ForwardEx_Attach(duk_context *ctx, duk_idx_t sourceIdx, duk_idx_t targetIdx, duk_idx_t listenerIdx, duk_idx_t cellIdx, const char *eventName)
++{
++	int top = duk_get_top(ctx);
++	duk_idx_t source = duk_normalize_index(ctx, sourceIdx);
++	duk_idx_t target = duk_normalize_index(ctx, targetIdx);
++	duk_idx_t listener = duk_normalize_index(ctx, listenerIdx);
++	duk_idx_t cell = duk_normalize_index(ctx, cellIdx);
++	if (!duk_is_function(ctx, listener)) { return(1); }
++	duk_prepare_method_call(ctx, listener, "bind");
++	duk_dup(ctx, target);
++	if (duk_pcall_method(ctx, 1) != 0 || ILibDuktape_EventEmitter_ForwardEx_CellClosed(ctx, cell)) { duk_set_top(ctx, top); return(1); }
++	duk_idx_t bound = duk_normalize_index(ctx, -1);
++	duk_push_c_function(ctx, ILibDuktape_EventEmitter_ForwardEx_ProxySink, DUK_VARARGS);
++	duk_idx_t proxy = duk_normalize_index(ctx, -1);
++	duk_dup(ctx, bound); duk_put_prop_string(ctx, proxy, ILibDuktape_EventEmitter_ForwardEx_BoundListener);
++	duk_dup(ctx, cell); duk_put_prop_string(ctx, proxy, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	duk_push_true(ctx); duk_put_prop_string(ctx, proxy, ILibDuktape_EventEmitter_InfrastructureEvent);
++	ILibDuktape_EventEmitter_ForwardEx_RecordProxy(ctx, cell, listener, proxy);
++	duk_prepare_method_call(ctx, source, "on");
++	duk_push_string(ctx, eventName);
++	duk_dup(ctx, proxy);
++	int failed = duk_pcall_method(ctx, 2) != 0;
++	int closed = ILibDuktape_EventEmitter_ForwardEx_CellClosed(ctx, cell);
++	if (closed) { ILibDuktape_EventEmitter_ForwardEx_RemoveNative(ctx, source, eventName, proxy); }
++	duk_set_top(ctx, top);
++	return(failed || closed);
++}
+ 
++duk_ret_t ILibDuktape_EventEmitter_ForwardEx_target_newListenerSink(duk_context *ctx)
++{
++	if (duk_ctx_shutting_down(ctx)) { return(0); }
++	duk_push_current_function(ctx);
++	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	duk_idx_t cellIdx = duk_normalize_index(ctx, -1);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Source);
++	void *source = duk_get_pointer(ctx, -1);
++	duk_pop(ctx);
++	if (eventName == NULL || source == NULL) { return(0); }
++	duk_push_heapptr(ctx, source);
++	duk_idx_t sourceIdx = duk_normalize_index(ctx, -1);
++	char *hookedEvent = (char*)duk_require_string(ctx, 0);
++	if (strcmp(eventName, hookedEvent) != 0) { return(0); }
++	duk_push_this(ctx);
++	duk_idx_t targetIdx = duk_normalize_index(ctx, -1);
++	if (ILibDuktape_EventEmitter_ForwardEx_Attach(ctx, sourceIdx, targetIdx, 1, cellIdx, eventName) != 0)
++	{
++		duk_dup(ctx, sourceIdx); duk_put_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_ClosedSource);
++		duk_push_pointer(ctx, NULL); duk_put_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Source);
++		duk_get_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Installing);
++		int installing = duk_get_boolean(ctx, -1);
++		duk_pop(ctx);
++		if (!installing) { ILibDuktape_EventEmitter_ForwardEx_DeferCleanup(ctx, cellIdx); }
++		return(duk_error(ctx, DUK_ERR_ERROR, "event forward proxy failed"));
++	}
+ 	return(0);
+ }
+ duk_ret_t ILibDuktape_EventEmitter_ForwardEx_target_removeListenerSink(duk_context *ctx)
+ {
+ 	if (duk_ctx_shutting_down(ctx)) { return(0); }
+-	duk_push_current_function(ctx);							// [func]
++	duk_push_current_function(ctx);
+ 	char *eventName = Duktape_GetStringPropertyValue(ctx, -1, "eventName", NULL);
+-	void **ptr = (void**)Duktape_GetPointerProperty(ctx, -1, "sourcePtr");
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	duk_idx_t cellIdx = duk_normalize_index(ctx, -1);
++	duk_get_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Source);
++	void *source = duk_get_pointer(ctx, -1);
++	duk_pop(ctx);
++	if (eventName == NULL || source == NULL) { return(0); }
++	duk_push_heapptr(ctx, source);
++	duk_idx_t sourceIdx = duk_normalize_index(ctx, -1);
+ 	char *hookedEvent = (char*)duk_require_string(ctx, 0);
+-	if (eventName == NULL || !ILibMemory_CanaryOK(ptr) || strcmp(eventName, hookedEvent) != 0 || !duk_has_prop_string(ctx, 1, "proxyFunc")) { return(0); }
+-
+-	duk_push_heapptr(ctx, ptr[0]);							// [source]
+-	duk_prepare_method_call(ctx, -1, "removeListener");		// [source][removeListener][this]
+-	duk_dup(ctx, 0);										// [source][removeListener][this][name]
+-	duk_get_prop_string(ctx, 1, "proxyFunc");				// [source][removeListener][this][name][func]
+-	duk_call_method(ctx, 2);								// [source][ret]
+-
+-	duk_del_prop_string(ctx, 1, "proxyFunc");
++	if (strcmp(eventName, hookedEvent) != 0) { return(0); }
++	duk_get_prop_string(ctx, cellIdx, ILibDuktape_EventEmitter_ForwardEx_Proxies);
++	duk_idx_t records = duk_normalize_index(ctx, -1);
++	duk_uarridx_t count = (duk_uarridx_t)duk_get_length(ctx, records);
++	for (duk_uarridx_t i = count; i > 0; --i)
++	{
++		duk_get_prop_index(ctx, records, i - 1);
++		if (!duk_is_object(ctx, -1)) { duk_pop(ctx); continue; }
++		duk_get_prop_string(ctx, -1, "listener");
++		int matches = duk_strict_equals(ctx, -1, 1);
++		duk_pop(ctx);
++		if (!matches) { duk_pop(ctx); continue; }
++		duk_get_prop_string(ctx, -1, "proxy");
++		duk_idx_t proxyIdx = duk_normalize_index(ctx, -1);
++		int removed = ILibDuktape_EventEmitter_ForwardEx_RemoveNative(ctx, sourceIdx, hookedEvent, proxyIdx) != 0;
++		duk_pop_2(ctx);
++		if (removed) { duk_push_null(ctx); duk_put_prop_index(ctx, records, i - 1); }
++		break;
++	}
+ 	return(0);
+ }
+-int ILibDuktape_EventEmitter_ForwardEventEx(duk_context *ctx, duk_idx_t sourceIdx, duk_idx_t targetIdx, char *eventName)
++static int ILibDuktape_EventEmitter_ForwardEx_InstallCloseHook(duk_context *ctx, duk_idx_t sourceIdx, duk_idx_t cellIdx)
+ {
+-	int X = duk_get_top(ctx);
+-	void *source = duk_get_heapptr(ctx, sourceIdx);
+-	void *target = duk_get_heapptr(ctx, targetIdx);
+-	void **ptr;
+-
+-	duk_push_heapptr(ctx, source);												// [source]
+-	if (!duk_has_prop_string(ctx, -1, "\xFF_ProxyEvent_WeakReference"))
++	int top = duk_get_top(ctx);
++	duk_idx_t source = duk_normalize_index(ctx, sourceIdx);
++	duk_idx_t cell = duk_normalize_index(ctx, cellIdx);
++	void *sourcePtr = duk_get_heapptr(ctx, source);
++	ILibDuktape_EventEmitter *emitter = (ILibDuktape_EventEmitter*)Duktape_GetBufferProperty(ctx, source, ILibDuktape_EventEmitter_Data);
++	if (!ILibMemory_CanaryOK(emitter)) { return(1); }
++	duk_push_c_function(ctx, ILibDuktape_EventEmitter_ForwardEx_SourceClosed, 0);
++	void *hook = duk_get_heapptr(ctx, -1);
++	duk_dup(ctx, cell); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
++	duk_dup(ctx, -1); duk_put_prop_string(ctx, cell, ILibDuktape_EventEmitter_ForwardEx_CloseHook);
++	duk_push_heapptr(ctx, emitter->table);
++	duk_get_prop_string(ctx, -1, "close");
++	if (!duk_is_array(ctx, -1))
+ 	{
+-		ptr = (void**)Duktape_PushBuffer(ctx, sizeof(void*));					// [source][buffer]
+-		duk_put_prop_string(ctx, -2, "\xFF_ProxyEvent_WeakReference");			// [source]
+-		ptr[0] = source;
++		if (emitter->eventType != ILibDuktape_EventEmitter_Type_IMPLICIT)
++		{
++			/* 显式 emitter 没有 close 事件时仍可依靠源终结器清理。 */
++			duk_set_top(ctx, top);
++			duk_del_prop_string(ctx, cell, ILibDuktape_EventEmitter_ForwardEx_CloseHook);
++			return(0);
++		}
++		duk_pop(ctx);
++		duk_push_array(ctx);
++		duk_dup(ctx, -1); duk_put_prop_string(ctx, -3, "close");
+ 	}
+-	else
++	duk_push_object(ctx);
++	duk_push_heapptr(ctx, hook); duk_put_prop_string(ctx, -2, "func");
++	duk_push_int(ctx, 0); duk_put_prop_string(ctx, -2, "once");
++	/* 基础设施 close 钩子先直接进入内部表，用户 newListener 的同步 close 才不会漏过。 */
++	duk_array_push(ctx, -2);
++	duk_set_top(ctx, top + 1); /* 回调可能清理钩子，栈根保持 hook 有效。 */
++	const char *metaEvents[2] = { "newListener", "newListener2" };
++	for (int i = 0; i < 2; ++i)
+ 	{
+-		ptr = Duktape_GetPointerProperty(ctx, -1, "\xFF_ProxyEvent_WeakReference");
++		ILibDuktape_EventEmitter_SetupEmit(ctx, sourcePtr, metaEvents[i]);
++		duk_push_string(ctx, "close");
++		duk_push_heapptr(ctx, hook);
++		int failed = duk_pcall_method(ctx, 3) != 0;
++		duk_set_top(ctx, top + 1);
++		if (failed || ILibDuktape_EventEmitter_ForwardEx_CellClosed(ctx, cell))
++		{
++			duk_set_top(ctx, top);
++			return(1);
++		}
+ 	}
+-	duk_pop(ctx);																// ...
++	duk_set_top(ctx, top);
++	return(0);
++}
++/* 安装期间任何脚本 getter 或数组访问都可能同步 close 后抛错；整段由外层保护。 */
++static duk_ret_t ILibDuktape_EventEmitter_ForwardEx_Install(duk_context *ctx)
++{
++	int X = duk_get_top(ctx);
++	duk_idx_t sourceIdx = 0;
++	duk_idx_t targetIdx = 1;
++	duk_idx_t cellIdx = 2;
++	char *eventName = (char*)duk_require_string(ctx, 3);
++	void *cell = duk_get_heapptr(ctx, cellIdx);
+ 
++	if (ILibDuktape_EventEmitter_ForwardEx_InstallCloseHook(ctx, sourceIdx, cellIdx) != 0) { goto failed; }
+ 
+ 	// Check for pre-existing event listeners
+-	duk_prepare_method_call(ctx, targetIdx, "listeners");						// [listeners][this]
+-	duk_push_string(ctx, eventName);											// [listeners][this][name]
+-	if (duk_pcall_method(ctx, 1) != 0) { duk_set_top(ctx, X); return(1); }		// [array]
++	duk_prepare_method_call(ctx, targetIdx, "listeners");
++	duk_push_string(ctx, eventName);
++	if (duk_pcall_method(ctx, 1) != 0 || ILibDuktape_EventEmitter_ForwardEx_CellClosedPtr(ctx, cell)) { goto failed; }
+ 	while(duk_get_length(ctx, -1)>0)
+ 	{
+-		duk_array_pop(ctx, -1);													// [array][func]
+-		if (!duk_has_prop_string(ctx, -1, "proxyFunc"))
+-		{
+-			duk_prepare_method_call(ctx, -1, "bind");								// [array][func][bind][this]
+-			duk_push_heapptr(ctx, target);											// [array][func][bind][this][target]
+-			if (duk_pcall_method(ctx, 1) != 0) { duk_set_top(ctx, X); return(1); }	// [array][func][proxyFunc]
+-			duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+-			duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
+-			duk_put_prop_string(ctx, -2, "proxyFunc");								// [array][func]
+-		}
+-		duk_push_heapptr(ctx, source);												// [array][func][source]
+-		duk_prepare_method_call(ctx, -1, "on");										// [array][func][source][on][this]
+-		duk_push_string(ctx, eventName);											// [array][func][source][on][this][eventName]
+-		duk_get_prop_string(ctx, -5, "proxyFunc");									// [array][func][source][on][this][eventName][proxyFunc]
+-		if (duk_pcall_method(ctx, 2) != 0) { duk_set_top(ctx, X); return(1); }		// [array][func][source][ret]
+-		duk_pop_n(ctx, 3);															// [array]
++		duk_array_pop(ctx, -1);
++		duk_push_heapptr(ctx, cell);
++		if (ILibDuktape_EventEmitter_ForwardEx_Attach(ctx, sourceIdx, targetIdx, -2, -1, eventName) != 0) { goto failed; }
++		duk_pop_2(ctx);
+ 	}
+ 
++	duk_set_top(ctx, X);
++	duk_events_setup_on(ctx, targetIdx, "newListener", ILibDuktape_EventEmitter_ForwardEx_target_newListenerSink);
++	void *newHook = duk_get_heapptr(ctx, -1);
++	duk_push_string(ctx, eventName); duk_put_prop_string(ctx, -2, "eventName");
++	duk_dup(ctx, cellIdx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
++	duk_dup(ctx, cellIdx); duk_push_heapptr(ctx, newHook); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_NewHook); duk_pop(ctx);
++	if (duk_pcall_method(ctx, 2) != 0 || ILibDuktape_EventEmitter_ForwardEx_CellClosedPtr(ctx, cell)) { goto failed; }
+ 
+-	// Hookup a 'newListener' hook, to attach new subscribers
+-	int ret = 0;
+ 	duk_set_top(ctx, X);
+-	duk_events_setup_on(ctx, targetIdx, "newListener", ILibDuktape_EventEmitter_ForwardEx_target_newListenerSink);			// [on][this][newListener][func]
++	duk_events_setup_on(ctx, targetIdx, "removeListener", ILibDuktape_EventEmitter_ForwardEx_target_removeListenerSink);
++	void *removeHook = duk_get_heapptr(ctx, -1);
+ 	duk_push_string(ctx, eventName); duk_put_prop_string(ctx, -2, "eventName");
+-	duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
++	duk_dup(ctx, cellIdx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Cell);
+ 	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+-	ret = duk_pcall_method(ctx, 2) == 0 ? 0 : 1;
++	duk_dup(ctx, cellIdx); duk_push_heapptr(ctx, removeHook); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_RemoveHook); duk_pop(ctx);
++	if (duk_pcall_method(ctx, 2) != 0 || ILibDuktape_EventEmitter_ForwardEx_CellClosedPtr(ctx, cell)) { goto failed; }
++
++	if (ILibDuktape_EventEmitter_ForwardEx_CellClosedPtr(ctx, cell)) { goto failed; }
++	duk_set_top(ctx, X);
++	duk_push_true(ctx);
++	return(1);
++failed:
+ 	duk_set_top(ctx, X);
++	duk_push_false(ctx);
++	return(1);
++}
++int ILibDuktape_EventEmitter_ForwardEventEx(duk_context *ctx, duk_idx_t sourceIdx, duk_idx_t targetIdx, char *eventName)
++{
++	int X = duk_get_top(ctx);
++	sourceIdx = duk_normalize_index(ctx, sourceIdx);
++	targetIdx = duk_normalize_index(ctx, targetIdx);
++	void *source = duk_get_heapptr(ctx, sourceIdx);
++	void *target = duk_get_heapptr(ctx, targetIdx);
+ 
+-	if (ret == 0)
++	duk_push_object(ctx);
++	void *cell = duk_get_heapptr(ctx, -1);
++	duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Installing);
++	duk_push_pointer(ctx, source); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Source);
++	duk_push_string(ctx, eventName); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_EventName);
++	duk_push_heapptr(ctx, target); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Target);
++	duk_push_array(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Proxies);
++	duk_push_heapptr(ctx, source);
++	duk_get_finalizer(ctx, -1);
++	duk_push_c_function(ctx, ILibDuktape_EventEmitter_ForwardEx_SourceFinalizer, 1);
++	duk_dup(ctx, -2); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_PriorFinalizer);
++	duk_push_heapptr(ctx, cell); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_Cell);
++	duk_dup(ctx, -1); duk_put_prop_string(ctx, -5, ILibDuktape_EventEmitter_ForwardEx_FinalizerHook);
++	duk_remove(ctx, -2);
++	duk_set_finalizer(ctx, -2);
++	duk_pop(ctx); /* 本次调用期间让 cell 留在栈上，即使回调同步清理也不失效。 */
++
++	duk_push_c_function(ctx, ILibDuktape_EventEmitter_ForwardEx_Install, 4);
++	duk_dup(ctx, sourceIdx);
++	duk_dup(ctx, targetIdx);
++	duk_push_heapptr(ctx, cell);
++	duk_push_string(ctx, eventName);
++	int failed = duk_pcall(ctx, 4) != 0;
++	if (!failed) { failed = !duk_get_boolean(ctx, -1); }
++	duk_pop(ctx);
++	duk_push_heapptr(ctx, cell);
++	duk_del_prop_string(ctx, -1, ILibDuktape_EventEmitter_ForwardEx_Installing);
++	if (!failed)
+ 	{
+-		// Hookup a 'removeListener' hook, to remove subscribers
+-		duk_events_setup_on(ctx, targetIdx, "removeListener", ILibDuktape_EventEmitter_ForwardEx_target_removeListenerSink);	// [on][this][removeListener][func]
+-		duk_push_string(ctx, eventName); duk_put_prop_string(ctx, -2, "eventName");
+-		duk_push_pointer(ctx, ptr); duk_put_prop_string(ctx, -2, "sourcePtr");
+-		duk_push_true(ctx); duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_InfrastructureEvent);
+-		ret = duk_pcall_method(ctx, 2) == 0 ? 0 : 1;
+ 		duk_set_top(ctx, X);
++		return(0);
+ 	}
+-
+-	return(ret);
+-}
+\ 文件末尾没有换行符
++	duk_push_heapptr(ctx, source);
++	duk_put_prop_string(ctx, -2, ILibDuktape_EventEmitter_ForwardEx_ClosedSource);
++	ILibDuktape_EventEmitter_ForwardEx_Cleanup(ctx, -1);
++	duk_set_top(ctx, X);
++	return(1);
++}

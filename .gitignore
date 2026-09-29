@@ -48,6 +48,7 @@ meshcentral-backups/
 __pycache__/
 *.py[cod]
 /bin/
+/target/
 /dist/
 /web/node_modules/
 /web/coverage/

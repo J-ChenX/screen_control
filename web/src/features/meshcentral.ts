@@ -11,6 +11,10 @@ export interface MeshDesktopModule extends MeshCentralModule {
   accumulator?: unknown;
   PendingOperations?: unknown[][];
   tilesReceived?: number;
+  TilesDrawn?: number;
+  SendPause?(): void;
+  SendUnPause?(): void;
+  SendRefresh?(): void;
   KillDraw?: number;
   ProcessPictureMsg?(data: Uint8Array, x: number, y: number): void;
   DoPendingOperations?(): boolean;

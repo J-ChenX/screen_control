@@ -1,0 +1,92 @@
+--- a/meshcore/KVM/Linux/linux_tile.c
++++ b/meshcore/KVM/Linux/linux_tile.c
+@@ -17,6 +17,8 @@
+ #include "linux_tile.h"
+ #include "meshcore/meshdefines.h"
+ #include "microstack/ILibParsers.h"
++#include "microstack/screen_control_protocol.h"
++#include <limits.h>
+ 
+ #if defined(JPEGMAXBUF)
+ 	#define MAX_TILE_SIZE JPEGMAXBUF
+@@ -48,15 +50,10 @@
+ //Extracts the required tile buffer from the desktop buffer
+ int get_tile_buffer(int x, int y, void **buffer, long long bufferSize, void *desktop, long long desktopsize, int tilewidth, int tileheight)
+ {
+-	char *target = *buffer;
+-	int height = 0;
+-
+-	for (height = y; height < y + tileheight; height++) {
+-		memcpy_s(target, (size_t)bufferSize, (const void *)(((char *)desktop) + (3 * ((height * adjust_screen_size(SCREEN_WIDTH)) + x))), (size_t)(tilewidth * 3));
+-		target = (char *) (target + (3 * tilewidth));
+-	}
+-
+-	return 0;
++	if (buffer == NULL || bufferSize <= 0 || desktopsize <= 0) return -1;
++	return sc_tile_copy_rgb24((unsigned char *)*buffer, (uint64_t)bufferSize,
++		(const unsigned char *)desktop, (uint64_t)desktopsize,
++		SCREEN_WIDTH, TILE_WIDTH, x, y, tilewidth, tileheight) ? 0 : -1;
+ }
+ 
+ //This function returns 0 and *buffer != NULL if everything was good. retval = jpegsize if the captured image was too large.
+@@ -66,16 +63,20 @@
+ 	*buffer = NULL;
+ 	*bufferSize = 0;
+ 
+-	// Make sure a tile buffer is available. Most of the time, this is skipped.
+-	if (tilebuffersize != captureWidth * captureHeight * 3)
++	// 在分配前检查乘法与尺寸，避免溢出后写入过小的 tile 缓冲。
++	long long required = (long long)captureWidth * captureHeight * 3;
++	if (captureWidth <= 0 || captureHeight <= 0 || required <= 0 || required > INT_MAX) return 0;
++	if (tilebuffer == NULL || tilebuffersize != (int)required)
+ 	{
+-		if (tilebuffer != NULL) free(tilebuffer);
+-		tilebuffersize = captureWidth * captureHeight * 3;
+-		if ((tilebuffer = malloc(tilebuffersize)) == NULL) return 0;
++		void *replacement = malloc((size_t)required);
++		if (replacement == NULL) return 0;
++		free(tilebuffer);
++		tilebuffer = replacement;
++		tilebuffersize = (int)required;
+ 	}
+ 
+-	//Get the final coalesced tile
+-	get_tile_buffer(x, y, &tilebuffer, tilebuffersize, desktop, desktopsize, captureWidth, captureHeight);
++	if (get_tile_buffer(x, y, &tilebuffer, tilebuffersize, desktop, desktopsize,
++		captureWidth, captureHeight) != 0) return 0;
+ 
+ 	write_JPEG_buffer(tilebuffer, captureWidth, captureHeight, COMPRESSION_QUALITY);
+ 
+@@ -409,7 +410,13 @@
+ // Get screen buffer from the XImage structure
+ int getScreenBuffer(char **desktop, long long *desktopsize, XImage *image)
+ {
+-	long long size = adjust_screen_size(SCREEN_WIDTH) * adjust_screen_size(SCREEN_HEIGHT) * 3;
++	if (image == NULL || image->data == NULL || SCREEN_WIDTH <= 0 || SCREEN_HEIGHT <= 0 || TILE_WIDTH <= 0) ILIBCRITICALEXIT(254);
++	long long paddedWidth = ((long long)SCREEN_WIDTH + TILE_WIDTH - 1) / TILE_WIDTH * TILE_WIDTH;
++	long long paddedHeight = ((long long)SCREEN_HEIGHT + TILE_WIDTH - 1) / TILE_WIDTH * TILE_WIDTH;
++	if (paddedWidth > INT_MAX / 3 || paddedHeight > INT_MAX / 3 ||
++		image->width <= 0 || image->height <= 0 || image->width > paddedWidth || image->height > paddedHeight) ILIBCRITICALEXIT(254);
++	long long size = paddedWidth * paddedHeight * 3;
++	if ((uint64_t)size > SIZE_MAX - 4) ILIBCRITICALEXIT(254);
+ 	int row, col, i, width_padding_size = 0, height_padding_size = 0;
+ 	char *output;
+ 	register unsigned char* tmpPtr2 = (unsigned char *)image->data;
+@@ -464,7 +471,7 @@
+ 		tmpPtr += (image->bytes_per_line - (image->bits_per_pixel >> 3)
+ 			* image->width) >> 2;
+ 
+-		width_padding_size = (adjust_screen_size(SCREEN_WIDTH) - image->width) * 3;
++		width_padding_size = ((int)paddedWidth - image->width) * 3;
+ 
+ 		if (width_padding_size != 0) {
+ 			for (i = 0; i < width_padding_size; i++) {
+@@ -473,7 +480,7 @@
+ 		}
+ 	}
+ 
+-	height_padding_size = adjust_screen_size(SCREEN_HEIGHT) - image->height;
++	height_padding_size = (int)paddedHeight - image->height;
+ 
+ 	if (height_padding_size != 0) {
+ 		for (row = 0; row < height_padding_size; row++) {

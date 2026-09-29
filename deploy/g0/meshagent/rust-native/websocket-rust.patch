@@ -1,0 +1,908 @@
+--- a/microstack/ILibWebClient.c
++++ b/microstack/ILibWebClient.c
+@@ -1,3 +1,4 @@
++#include "screen_control_protocol.h"
+ /*
+ Copyright 2006 - 2022 Intel Corporation
+ 
+@@ -280,6 +281,8 @@
+ }ILibWebRequest_buffer;
+ typedef struct ILibWebRequest
+ {
++	ScWsDecoder *RustWebSocket;
++	int Destroying;
+ 	char **Buffer;
+ 	size_t *BufferLength;
+ 	int *UserFree;
+@@ -305,11 +308,6 @@
+ 	char  reserved;							// Intentionaly left blank for detection purposes
+ 	int   WebSocketFragmentFlag;			// WebSocketFragmentFlag
+ 	int   WebSocketDataFrameType;			// WebSocketDataFrameType
+-	char* WebSocketFragmentBuffer;			// WebSocketFragmentBuffer
+-	int   WebSocketFragmentIndex;			// WebSocketFragmentIndex;
+-	int	  WebSocketFragmentBufferSize;		// WebSocketFragmentBufferSize;
+-	int	  WebSocketFragmentMaxBufferSize;	// WebSocketFragmentMaxBufferSize;
+-	char  WebSocketCouldNotAutoReassemble;	// WebSocketCouldNotAutoReassemble
+ 	char  WebSocketCloseFrameSent;			// WebSocketCloseFrameSent
+ 	ILibWebClient_OnSendOK OnSendOK;		// WebSocket OnSendOK
+ 
+@@ -356,7 +354,12 @@
+ 	int i;
+ 	struct ILibWebClient_StreamedRequestBuffer *b;
+ 
+-	if (wr == NULL) return;
++	if (wr == NULL || wr->Destroying) return;
++	wr->Destroying = 1;
++	/* 先清空唯一所有者，使同步回调可安全观察取消，不保留峰值缓冲。 */
++	ScWsDecoder *decoder = wr->RustWebSocket;
++	wr->RustWebSocket = NULL;
++	sc_ws_decoder_drop(decoder);
+ 	if (wr != NULL && wr->connectionCloseWasSpecified != 0 && wr->DisconnectSink != NULL) { wr->DisconnectSink(wr->requestToken); }
+ 	if (wr->buffered != NULL) 
+ 	{
+@@ -484,10 +487,6 @@
+ 				wr->user1,
+ 				wr->user2,
+ 				&zero);
+-		}
+-		if (wcdo->IsWebSocket != 0)
+-		{
+-			free(((ILibWebClient_WebSocketState*)wr->Buffer[0])->WebSocketFragmentBuffer);
+ 		}
+ 		wr->connectionCloseWasSpecified = 2;
+ 		ILibWebClient_DestroyWebRequest(wr);
+@@ -1213,9 +1212,7 @@
+ 			memset(wr->Buffer[0], 0, sizeof(ILibWebClient_WebSocketState));
+ 		}
+ 
+-		((ILibWebClient_WebSocketState*)wr->Buffer[0])->WebSocketFragmentMaxBufferSize = wr->requestToken->WebSocketMaxBuffer;
+-		((ILibWebClient_WebSocketState*)wr->Buffer[0])->WebSocketFragmentBufferSize = 4096;
+-		((ILibWebClient_WebSocketState*)wr->Buffer[0])->WebSocketFragmentBuffer = ILibMemory_Allocate(4096, 0, NULL, NULL);
++		wr->RustWebSocket = sc_ws_decoder_new((uint32_t)wr->requestToken->WebSocketMaxBuffer);
+ 		((ILibWebClient_WebSocketState*)wr->Buffer[0])->OnSendOK = wr->requestToken->WebSocketSendOK;
+ 	}
+ 	return((ILibWebClient_WebSocketState*)wr->Buffer[0]);
+@@ -1229,7 +1226,7 @@
+ 	char dataFrame[WEBSOCKET_MAX_OUTPUT_FRAMESIZE];
+ 	char header[10];
+ 	char maskKey[4];
+-	int maskKeyInt;
++	uint32_t maskKeyValue;
+ 	int headerLen;
+ 	unsigned short flags = WEBSOCKET_MASK;
+ 	ILibAsyncSocket_SendStatus RetVal = ILibAsyncSocket_SEND_ON_CLOSED_SOCKET_ERROR;
+@@ -1240,6 +1237,7 @@
+ 	ILibWebClient_WebSocket_FragmentFlags bufferFragment;
+ 	int i = 0;
+ 
++	if (_bufferLen < 0 || (_buffer == NULL && _bufferLen != 0)) { return RetVal; }
+ 	if (_bufferLen == 0 && ((bufferType == (ILibWebClient_WebSocket_DataTypes)WEBSOCKET_OPCODE_PING || bufferType == (ILibWebClient_WebSocket_DataTypes)WEBSOCKET_OPCODE_PONG))) { i = -1; }
+ 	if (wcdo->SOCK == NULL) { return(ILibAsyncSocket_SEND_ON_CLOSED_SOCKET_ERROR); }
+ 	if (wr == NULL) { return RetVal; }
+@@ -1249,7 +1247,7 @@
+ 	while (i < _bufferLen)
+ 	{
+ 		if (i < 0) { i = 0; }
+-		buffer = _buffer + i;
++		buffer = _buffer == NULL ? NULL : _buffer + i;
+ 		bufferLen = (_bufferLen - i) > WEBSOCKET_MAX_OUTPUT_FRAMESIZE ? WEBSOCKET_MAX_OUTPUT_FRAMESIZE : (_bufferLen - i);
+ 		i += (_bufferLen - i > WEBSOCKET_MAX_OUTPUT_FRAMESIZE ? WEBSOCKET_MAX_OUTPUT_FRAMESIZE : _bufferLen - i);
+ 		bufferFragment = i < _bufferLen ? ILibWebClient_WebSocket_FragmentFlag_Incomplete : _bufferFragment;
+@@ -1287,12 +1285,12 @@
+ 		{
+ 			// Mask the payload
+ 			util_random(4, maskKey);
+-			maskKeyInt = ((int*)maskKey)[0];
+-			if (bufferLen > 0) {
+-				int x;
+-				for (x = 0; x < (bufferLen >> 2); ++x) { ((int*)dataFrame)[x] = ((int*)buffer)[x] ^ (int)maskKeyInt; } // Mask 4 bytes at a time
+-				for (x = (x << 2); x < bufferLen; ++x) { dataFrame[x] = buffer[x] ^ maskKey[x % 4]; } // Mask the reminder
+-				//for (x = 0; x < bufferLen; ++x) { dataFrame[x] = buffer[x] ^ maskKey[x % 4]; } // This is the slower version
++			maskKeyValue = (uint32_t)(unsigned char)maskKey[0] | ((uint32_t)(unsigned char)maskKey[1] << 8) |
++				((uint32_t)(unsigned char)maskKey[2] << 16) | ((uint32_t)(unsigned char)maskKey[3] << 24);
++			if (!sc_ws_mask_copy((uint8_t*)dataFrame, (const uint8_t*)buffer, (uint32_t)bufferLen, maskKeyValue))
++			{
++				ILibSpinLock_UnLock(ILibAsyncSocket_GetSpinLock(wcdo->SOCK));
++				return ILibAsyncSocket_SEND_ON_CLOSED_SOCKET_ERROR;
+ 			}
+ 			RetVal = ILibAsyncSocket_SendTo_MultiWrite(wcdo->SOCK, NULL, 3 | ILibAsyncSocket_LOCK_OVERRIDE, header, (size_t)headerLen, ILibAsyncSocket_MemoryOwnership_USER, maskKey, (size_t)4, ILibAsyncSocket_MemoryOwnership_USER, dataFrame, (size_t)bufferLen, ILibAsyncSocket_MemoryOwnership_USER);
+ 		} 
+@@ -1320,14 +1318,14 @@
+ }
+ int ILibWebClient_ProcessWebSocketData(char* buffer, int offset, int length, ILibWebClientDataObject *wcdo, int *PAUSE)
+ {
+-	int x;
+-	int i = offset + 2;
+-	int plen;
+-	unsigned short hdr;
+-	char* maskingKey = NULL;
+-	int FIN;
++	int i, plen, FIN;
+ 	unsigned char OPCODE;
+ 	int tempBegin = 0;
++	ScWsHeader inputHeader = {{0}, 0, 0};
++	ScWsFrame frame;
++	uint32_t available;
++	const ScWsLease *lease;
++	ScWsDelivery delivery = {0};
+ 
+ 	if (wcdo == NULL) { return(length); }
+ 	ILibWebRequest *wr = (ILibWebRequest*)ILibQueue_PeekQueue(wcdo->RequestQueue);
+@@ -1339,141 +1337,81 @@
+ 		ILibWebClient_Disconnect(wcdo);
+ 		return(length);
+ 	}
+-	if (length < 2) { return(offset); } // We need at least 2 bytes to read enough of the headers to know how long the frame is
++	/* 先验证接收区间；解析和掩码不跨越任何用户回调。 */
++	if (offset < 0 || length < offset || buffer == NULL)
++	{
++		ILibWebClient_Disconnect(wcdo);
++		return length;
++	}
++	available = (uint32_t)(length - offset);
++	inputHeader.count = (uint8_t)(available < 14 ? available : 14);
++	if (inputHeader.count != 0) { memcpy(inputHeader.bytes, buffer + offset, inputHeader.count); }
++	frame = sc_ws_parse(inputHeader, available);
++	if (frame.status == 0) { return offset; }
++	if (frame.status != 1)
++	{
++		ILibWebClient_Disconnect(wcdo);
++		return length;
++	}
++	/* 完整帧已证明 header_len + payload_len <= length - offset。 */
++	i = offset + (int)frame.header_len;
++	plen = (int)frame.payload_len;
++	FIN = (frame.flags & 0x80) != 0;
++	OPCODE = (unsigned char)(frame.flags & 0x0f);
+ 	state = (ILibWebClient_WebSocketState*)wr->Buffer[0];
+-
+-	hdr = ntohs(((unsigned short*)(buffer + offset))[0]);
+-	FIN = (hdr & WEBSOCKET_FIN) != 0;
+-	OPCODE = (hdr & WEBSOCKET_OPCODE) >> 8;
+-
+-	plen = (unsigned char)(hdr & WEBSOCKET_PLEN);
+-	if (plen == 126)
+-	{
+-		if (length < 4) { return(offset); } // We need at least 4 bytes to read enough of the headers
+-		plen = (unsigned short)ntohs(((unsigned short*)(buffer + offset))[1]);
+-		i += 2;
+-	}
+-	else if (plen == 127)
+-	{
+-		if (length < 10) 
+-		{ 
+-			return(offset); // We need at least 10 bytes to read enough of the headers
+-		} 
+-		else
+-		{
+-			unsigned long long v;
+-			memcpy(&v, buffer + offset + 2, sizeof(v));
+-			v = ILibNTOHLL(v);
+-			if(v > 0x7FFFFFFFUL)
+-			{
+-				// this value is too big to store in a 32 bit signed variable, so disconnect the websocket.
+-				ILibWebClient_Disconnect(wcdo);
+-				return(length);
+-			}
+-			else
+-			{
+-				// this value can be represented with a signed 32 bit variable
+-				plen = (int)v;
+-				i += 8;
+-			}
+-		}
+-	}
+-
+-	if (length < (i + plen + ((unsigned char)(hdr & WEBSOCKET_MASK) != 0 ? 4 : 0)))
+-	{
+-		return(offset); // Don't have the entire packet
+-	}
+-
+-	maskingKey = ((unsigned char)(hdr & WEBSOCKET_MASK) == 0) ? NULL : (buffer + i);
+-	if (maskingKey != NULL)
+-	{
+-		// Unmask the data
+-		i += 4;	// Move ptr to start of data
+-
+-		for (x = 0; x < plen; ++x)
+-		{
+-			buffer[i + x] = buffer[i + x] ^ maskingKey[x % 4];
+-		}
+-	}
+-	
++	if ((frame.flags & 0x100) != 0 && !sc_ws_mask((uint8_t*)buffer + i, (uint32_t)plen, frame.mask))
++	{
++		ILibWebClient_Disconnect(wcdo);
++		return length;
++	}
++
++	lease = sc_ws_decoder_lease(wr->RustWebSocket);
++	if (lease == NULL) { ILibWebClient_Disconnect(wcdo); return length; }
+ 	if (OPCODE < 0x8)
+ 	{
+-		// NON-CONTROL OP-CODE
+-		if (state->WebSocketFragmentMaxBufferSize == 0)
+-		{
+-			// We will just pass the data up, and let the app handle fragment re-assembly
+-			state->WebSocketDataFrameType = (int)OPCODE;
++		delivery = sc_ws_decoder_feed(wr->RustWebSocket, OPCODE, FIN, (uint8_t*)buffer + i, (uint32_t)plen);
++		if (!delivery.valid) { ILibWebClient_Disconnect(wcdo); goto cleanup; }
++		state->WebSocketDataFrameType = (int)delivery.opcode;
++		/* 输出已脱离连接所有权。回调中取消请求不影响 prefix 的有效期。 */
++		if (delivery.prefix_status != 0)
++		{
+ 			tempBegin = 0;
+-			wr->OnResponse(wcdo, 0, wcdo->header, buffer + i, &tempBegin, plen, FIN == 0 ? ILibWebClient_ReceiveStatus_Partial : ILibWebClient_ReceiveStatus_LastPartial, wr->user1, wr->user2, PAUSE);
+-		}
+-		else
+-		{
+-			// We will try to automatically re-assemble fragments, up to the max buffer size the user specified
+-			if (OPCODE != 0) { state->WebSocketDataFrameType = (int)OPCODE; } // Set the DataFrame Type, so the user can query it
+-
+-			if (FIN != 0 && state->WebSocketFragmentIndex == 0 && state->WebSocketCouldNotAutoReassemble == 0)
+-			{
+-				// We have an entire fragment, and we didn't save any of it yet... We can just forward it up without copying the buffer
+-				tempBegin = 0;
+-				wr->OnResponse(wcdo, 0, wcdo->header, buffer + i, &tempBegin, plen, ILibWebClient_ReceiveStatus_MoreDataToBeReceived, wr->user1, wr->user2, PAUSE);
+-			}
+-			else
+-			{
+-				if (state->WebSocketFragmentIndex + plen >= state->WebSocketFragmentBufferSize)
+-				{
+-					// Need to grow the buffer
+-
+-					if (state->WebSocketFragmentBufferSize == state->WebSocketFragmentMaxBufferSize)
+-					{
+-						// We are already maxed out, so just send what we have as an unfinished fragment	
+-						state->WebSocketCouldNotAutoReassemble = 1; // Set this flag, becuase we can't reassemble, so our FIN flag will be different to reflect that					
+-						tempBegin = 0;
+-						wr->OnResponse(wcdo, 0, wcdo->header, state->WebSocketFragmentBuffer, &tempBegin, state->WebSocketFragmentIndex, ILibWebClient_ReceiveStatus_Partial, wr->user1, wr->user2, PAUSE);
+-						state->WebSocketFragmentIndex = 0; // Reset the index, becuase new data is going to go to the front
+-					}
+-					else
+-					{
+-						// We can grow the buffer
+-						state->WebSocketFragmentBufferSize = state->WebSocketFragmentBufferSize * 2;
+-						if (state->WebSocketFragmentBufferSize > state->WebSocketFragmentMaxBufferSize) { state->WebSocketFragmentBufferSize = state->WebSocketFragmentMaxBufferSize; }
+-						if ((state->WebSocketFragmentBuffer = (char*)realloc(state->WebSocketFragmentBuffer, state->WebSocketFragmentBufferSize)) == NULL) { ILIBCRITICALEXIT(254); } // MS Static Analyser erroneously reports that this leaks the original memory block
+-					}
+-				}
+-
+-				memcpy_s(state->WebSocketFragmentBuffer + state->WebSocketFragmentIndex, state->WebSocketFragmentBufferSize - state->WebSocketFragmentIndex, buffer + i, plen);
+-				state->WebSocketFragmentIndex += plen;
+-
+-				if (FIN != 0)
+-				{			
+-					wr->OnResponse(wcdo, 0, wcdo->header, state->WebSocketFragmentBuffer, &tempBegin, state->WebSocketFragmentIndex, state->WebSocketCouldNotAutoReassemble == 0 ? ILibWebClient_ReceiveStatus_MoreDataToBeReceived : ILibWebClient_ReceiveStatus_LastPartial, wr->user1, wr->user2, PAUSE);	
+-					state->WebSocketCouldNotAutoReassemble = 0; // Reset (We can try to auto-assemble)
+-					state->WebSocketFragmentIndex = 0; // Reset (We can write to the start of the buffer)
+-				}
+-			}
++			wr->OnResponse(wcdo, 0, wcdo->header, (char*)delivery.prefix, &tempBegin, (int)delivery.prefix_len,
++				delivery.prefix_status == 1 ? ILibWebClient_ReceiveStatus_MoreDataToBeReceived : ILibWebClient_ReceiveStatus_Partial, wr->user1, wr->user2, PAUSE);
++		}
++		/* 只检查独立租约；取消后不得解引用 wr/state/wcdo 或接收缓冲。 */
++		if (delivery.input_status != 0 && sc_ws_lease_alive(lease))
++		{
++			tempBegin = 0;
++			wr->OnResponse(wcdo, 0, wcdo->header, buffer + i, &tempBegin, plen,
++				delivery.input_status == 1 ? ILibWebClient_ReceiveStatus_MoreDataToBeReceived :
++				(delivery.input_status == 2 ? ILibWebClient_ReceiveStatus_Partial : ILibWebClient_ReceiveStatus_LastPartial), wr->user1, wr->user2, PAUSE);
+ 		}
+ 	}
+ 	else
+ 	{
+-		// CONTROL
+ 		switch (OPCODE)
+ 		{
+ 		case WEBSOCKET_OPCODE_CLOSE:
+ 			ILibWebClient_Disconnect(wcdo);
+ 			break;
+ 		case WEBSOCKET_OPCODE_PING:
+-			if (state->pingHandler == NULL || state->pingHandler(wcdo, state->pingPongUser) == ILibWebClient_WebSocket_PingResponse_Respond)
++			if ((state->pingHandler == NULL || state->pingHandler(wcdo, state->pingPongUser) == ILibWebClient_WebSocket_PingResponse_Respond) && sc_ws_lease_alive(lease))
+ 			{
+ 				ILibWebClient_WebSocket_Send(wcdo, (ILibWebClient_WebSocket_DataTypes)WEBSOCKET_OPCODE_PONG, NULL, 0, ILibAsyncSocket_MemoryOwnership_STATIC, ILibWebClient_WebSocket_FragmentFlag_Complete);
+ 			}
+ 			break;
+ 		case WEBSOCKET_OPCODE_PONG:
+-			// PONG
+ 			if (state->pongHandler != NULL) { state->pongHandler(wcdo, state->pingPongUser); }
+ 			break;
+ 		}
+ 	}
+-
+-	return(i + plen);
++cleanup:
++	/* 清理仅使用本次栈上结果，不访问可能已释放的 C 连接。 */
++	sc_ws_delivery_drop(delivery);
++	if (!sc_ws_lease_alive(lease)) { i = length; plen = 0; }
++	sc_ws_lease_drop(lease);
++	return i + plen;
+ }
+ 
+ void ILibWebClient_OnWebSocketData(ILibAsyncSocket_SocketModule socketModule, char* buffer, int *p_beginPointer, int endPointer, ILibAsyncSocket_OnInterrupt* OnInterrupt, void **user, int *PAUSE)
+@@ -3156,10 +3094,6 @@
+ 					&(_wcdo->PAUSE)); // Pause is also zero
+ 			}
+ 
+-			if (_wcdo->IsWebSocket != 0)
+-			{
+-				free(((ILibWebClient_WebSocketState*)wr->Buffer[0])->WebSocketFragmentBuffer);
+-			}
+ 			ILibWebClient_DestroyWebRequest(wr);
+ 			wr = (struct ILibWebRequest*)ILibQueue_DeQueue(PendingRequestQ);
+ 		}
+--- a/microscript/ILibDuktape_HttpStream.c
++++ b/microscript/ILibDuktape_HttpStream.c
+@@ -32,6 +32,7 @@
+ #include "ILibDuktape_net.h"
+ 
+ #include "../microstack/ILibWebClient.h"
++#include "../microstack/screen_control_protocol.h"
+ #include "../microstack/ILibRemoteLogging.h"
+ 
+ struct ILibWebClientDataObject;
+@@ -156,10 +157,8 @@
+ 	int   WebSocketFragmentFlag;			// WebSocketFragmentFlag
+ 	int   WebSocketFragmentFlag_Write;		// WebSocketFragmentFlag
+ 	int   WebSocketDataFrameType;			// WebSocketDataFrameType
+-	char* WebSocketFragmentBuffer;			// WebSocketFragmentBuffer
+-	int   WebSocketFragmentIndex;			// WebSocketFragmentIndex;
+-	int	  WebSocketFragmentBufferSize;		// WebSocketFragmentBufferSize;
+-	int	  WebSocketFragmentMaxBufferSize;	// WebSocketFragmentMaxBufferSize;
++	ScWsDecoder *RustWebSocket;
++	int RustCompressed;
+ 	char  WebSocketCloseFrameSent;			// WebSocketCloseFrameSent
+ 	void *ObjectPtr;						// Used to emit Ping/Pong events
+ 	duk_context *ctx;						// Used to emit Ping/Pong events
+@@ -4099,7 +4098,7 @@
+ ILibTransport_DoneState ILibDuktape_httpStream_webSocket_WriteWebSocketPacket(ILibDuktape_WebSocket_State *state, int opcode, char *_buffer, int _bufferLen, ILibWebClient_WebSocket_FragmentFlags _bufferFragment)
+ {
+ 	char header[10];
+-	int maskKeyInt;
++	uint32_t maskKeyInt;
+ 	int headerLen = 0;
+ 	unsigned short flags = state->noMasking == 0 ? WEBSOCKET_MASK : 0;
+ 
+@@ -4111,7 +4110,7 @@
+ 	size_t compressedLen = 0;
+ 	char *compressedBuffer = NULL;
+ 
+-	if (!ILibMemory_CanaryOK(state)) { return(ILibTransport_DoneState_ERROR); }
++	if (!ILibMemory_CanaryOK(state) || _bufferLen < 0 || _bufferLen > (64 << 20) || (_bufferLen != 0 && _buffer == NULL)) { return(ILibTransport_DoneState_ERROR); }
+ 
+ 	buffer = _buffer;
+ 	bufferLen = _bufferLen;
+@@ -4198,14 +4197,11 @@
+ 
+ 		// Mask the payload
+ 		util_random(4, maskKey);
+-		maskKeyInt = ((int*)(maskKey))[0];
+-		if (bufferLen > 0) 
+-		{
+-			int x;
+-			// Note that the line below will cause a SegFault on Linux when compiled with GCC -O3, the fault happens at the XOR (^) operation.
+-			// Compiling with -O2 works also, doing the masking operating byte-by-byte also works with -O3.
+-			for (x = 0; x < (bufferLen >> 2); ++x) { ((int*)(dataFrame+headerLen+4))[x] = ((int*)buffer)[x] ^ (int)maskKeyInt; } // Mask 4 bytes at a time (SegFaults with -O3).
+-			for (x = (x << 2); x < bufferLen; ++x) { dataFrame[x + headerLen + 4] = buffer[x] ^ maskKey[x % 4]; } // Mask the reminder
++		maskKeyInt = (uint32_t)(unsigned char)maskKey[0] | ((uint32_t)(unsigned char)maskKey[1] << 8) |
++			((uint32_t)(unsigned char)maskKey[2] << 16) | ((uint32_t)(unsigned char)maskKey[3] << 24);
++		if (!sc_ws_mask_copy((uint8_t*)dataFrame + headerLen + 4, (const uint8_t*)buffer, (uint32_t)bufferLen, (uint32_t)maskKeyInt))
++		{
++			ILibMemory_Free(dataFrame); return ILibTransport_DoneState_ERROR;
+ 		}
+ 		retVal = ILibDuktape_DuplexStream_WriteData(state->encodedStream, dataFrame, headerLen + 4 + bufferLen) == 0 ? ILibTransport_DoneState_COMPLETE : ILibTransport_DoneState_INCOMPLETE;
+ 		ILibMemory_Free(dataFrame);
+@@ -4297,258 +4293,239 @@
+ 
+ duk_ret_t ILibDuktape_WebSocket_DecompressData(duk_context *ctx)
+ {
+-	duk_push_this(ctx);							// [self]
+-	duk_push_array(ctx);						// [self][array]
+-	if (duk_has_prop_string(ctx, -2, "_ddata"))
+-	{
+-		duk_get_prop_string(ctx, -2, "_ddata");	// [self][array][buffer]
+-		duk_array_push(ctx, -2);				// [self][array]
+-	}
+-	duk_dup(ctx, 0);							// [self][array][buffer]
+-	duk_array_push(ctx, -2);					// [self][array]
+-	duk_buffer_concat(ctx);						// [self][buffer]
+-	duk_put_prop_string(ctx, -2, "_ddata");		// [self]
++	duk_size_t addLen = 0;
++	Duktape_GetBuffer(ctx, 0, &addLen);
++	duk_push_this(ctx);
++	if (Duktape_GetIntPropertyValue(ctx, -1, "_overflow", 0) != 0) { return(0); }
++	int oldLen = Duktape_GetIntPropertyValue(ctx, -1, "_dlen", 0);
++	if (oldLen < 0 || oldLen > (64 << 20) || addLen > (duk_size_t)((64 << 20) - oldLen))
++	{
++		duk_push_int(ctx, 1); duk_put_prop_string(ctx, -2, "_overflow");
++		return(0);
++	}
++	if (!duk_has_prop_string(ctx, -1, "_dchunks"))
++	{
++		duk_push_array(ctx);
++		duk_put_prop_string(ctx, -2, "_dchunks");
++	}
++	duk_get_prop_string(ctx, -1, "_dchunks");
++	duk_dup(ctx, 0);
++	duk_array_push(ctx, -2);
++	duk_pop(ctx);
++	duk_push_int(ctx, oldLen + (int)addLen);
++	duk_put_prop_string(ctx, -2, "_dlen");
+ 	return(0);
+ }
+-duk_ret_t ILibDuktape_WebSocket_DecompressData_End(duk_context *ctx)
+-{
+-	duk_push_this(ctx);							// [self]
+-	ILibDuktape_WebSocket_State *state = (ILibDuktape_WebSocket_State*)Duktape_GetPointerProperty(ctx, -1, "state");
+-	int reserved = Duktape_GetIntPropertyValue(ctx, -1, "reserved", 0);
+-	duk_size_t bufLen;
+-	char *buffer = Duktape_GetBufferPropertyEx(ctx, -1, "_ddata", &bufLen);
+-	state->uncompressedReceived += (uint64_t)bufLen;
+-	ILibDuktape_DuplexStream_WriteDataEx(state->decodedStream, reserved, buffer, (int)bufLen);
+-	return(0);
+-}
++static void ILibDuktape_httpStream_webSocket_Shutdown(ILibDuktape_WebSocket_State *state, duk_context *ctx, int invalidFrame)
++{
++	void *readable = state->encodedStream->writableStream->pipedReadable;
++	int onChain = ILibIsRunningOnChainThread(state->chain) != 0;
++	/* 在 decoded.end 的同步回调前保留底层 readable，不再依赖可变的 state 字段。 */
++	if (readable != NULL) { duk_push_heapptr(ctx, readable); }
++	else { duk_push_null(ctx); }
++	state->closed = 1;
++	sc_ws_decoder_drop(state->RustWebSocket); state->RustWebSocket = NULL;
++	if (invalidFrame)
++	{
++		char message[] = "Invalid WebSocket frame or message";
++		Duktape_Console_Log(ctx, state->chain, ILibDuktape_LogType_Error, message, sizeof(message) - 1);
++	}
++	ILibDuktape_DuplexStream_WriteEnd(state->decodedStream);
++	if (readable != NULL && onChain)
++	{
++		duk_prepare_method_call(ctx, -1, "end");
++		duk_pcall_method(ctx, 0);
++		duk_pop(ctx);
++	}
++	duk_pop(ctx);
++}
++
+ ILibTransport_DoneState ILibDuktape_httpStream_webSocket_EncodedWriteSink(ILibDuktape_DuplexStream *stream, char *buffer, int bufferLen, void *user)
+ {
+-	int x;
+-	int i = 2;
+-	int plen;
+-	unsigned short hdr;
+-	char* maskingKey = NULL;
+-	int FIN;
+-	unsigned char OPCODE;
+-	unsigned char RSV;
+-	unsigned char RSV1;
+ 	ILibDuktape_WebSocket_State *state = (ILibDuktape_WebSocket_State*)user;
+-
+-	if (!ILibMemory_CanaryOK(state)) { return(ILibTransport_DoneState_ERROR); }
+-
+-	if (bufferLen < 2) 
+-	{ 
+-		// We need at least 2 bytes to read enough of the headers to know how long the frame is
+-		return(ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer, bufferLen));
+-	} 
+-
+-	hdr = ntohs(((unsigned short*)(buffer))[0]);
+-	FIN = (hdr & WEBSOCKET_FIN) != 0;
+-	OPCODE = (hdr & WEBSOCKET_OPCODE) >> 8;
+-	RSV = (hdr & WEBSOCKET_RSV) >> 8;
+-	RSV1 = (hdr & WEBSOCKET_RSV1) >> 8;
+-
+-	if (state->permessageDeflate == 0 && RSV != 0)
+-	{
+-		char msg[] = "Reserved Field of Websocket was not ZERO";
+-		Duktape_Console_Log(state->ctx, state->chain, ILibDuktape_LogType_Error, msg, sizeof(msg) - 1);
+-		return(ILibTransport_DoneState_ERROR);
+-	}
+-
+-	plen = (unsigned char)(hdr & WEBSOCKET_PLEN);
+-	if (plen == 126)
+-	{
+-		if (bufferLen < 4) { return(ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer, bufferLen)); } // We need at least 4 bytes to read enough of the headers
+-		plen = (unsigned short)ntohs(((unsigned short*)(buffer))[1]);
+-		i += 2;
+-	}
+-	else if (plen == 127)
+-	{
+-		if (bufferLen < 10)
+-		{
+-			return(ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer, bufferLen)); // We need at least 10 bytes to read enough of the headers
+-		}
+-		else
+-		{
+-			unsigned long long v = ILibNTOHLL(((unsigned long long*)(buffer + 2))[0]);
+-			if (v > 0x7FFFFFFFUL)
++	ScWsHeader header = {{0}, 0, 0};
++	ScWsFrame frame;
++	ScWsDelivery delivery = {0};
++	const ScWsLease *lease = NULL;
++	char *ownedPayload = NULL;
++	duk_context *ctx;
++	int stackTop, start, payloadLength, compressed;
++	ILibTransport_DoneState result = ILibTransport_DoneState_COMPLETE;
++
++	if (!ILibMemory_CanaryOK(state) || bufferLen < 0 || (bufferLen > 0 && buffer == NULL)) { return ILibTransport_DoneState_ERROR; }
++	ctx = state->ctx;
++	stackTop = duk_get_top(ctx);
++	/* 使对象在同步 JS 回调期间保持存活；Rust 借用只在无回调的 FFI 内存在。 */
++	duk_push_heapptr(ctx, state->ObjectPtr);
++	if (!state->closed && state->RustWebSocket != NULL) { lease = sc_ws_decoder_lease(state->RustWebSocket); }
++	if (bufferLen < 2)
++	{
++		result = ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer, bufferLen);
++		goto finish;
++	}
++	header.count = (uint8_t)(bufferLen < 14 ? bufferLen : 14);
++	memcpy(header.bytes, buffer, header.count);
++	frame = sc_ws_parse_extensions(header, (uint32_t)bufferLen, state->permessageDeflate != 0);
++	if (frame.status == 0)
++	{
++		result = ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer, bufferLen);
++		goto finish;
++	}
++	if (frame.status != 1 || state->RustWebSocket == NULL || state->closed)
++	{
++		result = ILibTransport_DoneState_ERROR;
++		goto finish;
++	}
++	start = (int)frame.header_len;
++	payloadLength = (int)frame.payload_len;
++	if ((frame.flags & 0x100) && !sc_ws_mask((uint8_t*)buffer + start, (uint32_t)payloadLength, frame.mask))
++	{
++		result = ILibTransport_DoneState_ERROR;
++		goto finish;
++	}
++	if (lease == NULL) { result = ILibTransport_DoneState_ERROR; goto finish; }
++	if ((frame.flags & 15) < 8)
++	{
++		/* 所有数据帧只经一个 Rust 解码器；脚本层需要完整消息，预算外直接拒绝。 */
++		if ((frame.flags & 15) != 0) { state->RustCompressed = (frame.flags & 0x200) != 0; }
++		delivery = sc_ws_decoder_feed(state->RustWebSocket, frame.flags & 15, (frame.flags & 0x80) != 0,
++			(uint8_t*)buffer + start, (uint32_t)payloadLength);
++		if (!delivery.valid || delivery.prefix_status == 2 || delivery.input_status == 2 || delivery.input_status == 3)
++		{
++			result = ILibTransport_DoneState_ERROR;
++			goto release;
++		}
++		/* 上游的 unshift 可能同步回调并释放接收区间；单帧完成时保留正文。 */
++		if (delivery.input_status == 1 && delivery.prefix_status != 1)
++		{
++			ownedPayload = (char*)malloc((size_t)payloadLength == 0 ? 1 : (size_t)payloadLength);
++			if (ownedPayload == NULL) { result = ILibTransport_DoneState_ERROR; goto release; }
++			if (payloadLength > 0) { memcpy(ownedPayload, buffer + start, (size_t)payloadLength); }
++		}
++		if (bufferLen > start + payloadLength)
++		{
++			result = ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream,
++				buffer + start + payloadLength, bufferLen - start - payloadLength);
++			if (result == ILibTransport_DoneState_ERROR || !sc_ws_lease_alive(lease)) { goto release; }
++		}
++		if (delivery.prefix_status == 1 || delivery.input_status == 1)
++		{
++			char *message = delivery.prefix_status == 1 ? (char*)delivery.prefix : ownedPayload;
++			int length = delivery.prefix_status == 1 ? (int)delivery.prefix_len : payloadLength;
++			state->WebSocketDataFrameType = (int)delivery.opcode;
++			state->actualReceived += (uint64_t)length;
++			compressed = state->RustCompressed;
++			state->RustCompressed = 0;
++			if (compressed)
+ 			{
+-				// this value is too big to store in a 32 bit signed variable, so disconnect the websocket.
+-				return(ILibTransport_DoneState_ERROR);
++				/* 保留解压窗口，兼容未协商 server_no_context_takeover 的连续消息。 */
++				duk_push_heapptr(ctx, state->encodedStream->writableStream->obj);
++				if (duk_has_prop_string(ctx, -1, ILibDuktape_WebSocket_Decompressor))
++				{
++					duk_get_prop_string(ctx, -1, ILibDuktape_WebSocket_Decompressor);
++				}
++				else
++				{
++					if (duk_peval_string(ctx, "require('compressed-stream');") != 0) { result = ILibTransport_DoneState_ERROR; goto release; }
++					duk_prepare_method_call(ctx, -1, "createDecompressor");
++					duk_remove(ctx, -3);
++					duk_push_object(ctx);
++					duk_push_int(ctx, -15); duk_put_prop_string(ctx, -2, "WBITS");
++					if (duk_pcall_method(ctx, 1) != 0) { result = ILibTransport_DoneState_ERROR; goto release; }
++					duk_dup(ctx, -1); duk_put_prop_string(ctx, -3, ILibDuktape_WebSocket_Decompressor);
++					ILibDuktape_EventEmitter_AddOnEx(ctx, -1, "data", ILibDuktape_WebSocket_DecompressData);
++				}
++				duk_push_pointer(ctx, state); duk_put_prop_string(ctx, -2, "state");
++				duk_push_int(ctx, delivery.opcode == WEBSOCKET_OPCODE_TEXTFRAME ? 1 : 0); duk_put_prop_string(ctx, -2, "reserved");
++				duk_prepare_method_call(ctx, -1, "write");
++				duk_push_fixed_buffer(ctx, (duk_size_t)length + 4);
++				memcpy(duk_get_buffer(ctx, -1, NULL), message, (size_t)length);
++				memcpy((char*)duk_get_buffer(ctx, -1, NULL) + length, "\0\0\xff\xff", 4);
++				duk_push_buffer_object(ctx, -1, 0, (duk_size_t)length + 4, DUK_BUFOBJ_NODEJS_BUFFER);
++				duk_remove(ctx, -2);
++				if (duk_pcall_method(ctx, 1) != 0) { result = ILibTransport_DoneState_ERROR; goto release; }
++				if (!duk_is_boolean(ctx, -1) || !duk_get_boolean(ctx, -1))
++				{
++					result = ILibTransport_DoneState_ERROR;
++					goto release;
++				}
++				duk_pop(ctx);
++				if (Duktape_GetIntPropertyValue(ctx, -1, "_overflow", 0) != 0)
++				{
++					result = ILibTransport_DoneState_ERROR;
++					goto release;
++				}
++				duk_get_prop_string(ctx, -1, "_dchunks");
++				if (duk_is_array(ctx, -1)) { duk_buffer_concat(ctx); }
++				else { duk_pop(ctx); duk_push_fixed_buffer(ctx, 0); }
++				duk_size_t uncompressedLen = 0;
++				char *uncompressed = Duktape_GetBuffer(ctx, -1, &uncompressedLen);
++				if (uncompressedLen > (64 << 20)) { result = ILibTransport_DoneState_ERROR; goto release; }
++				state->uncompressedReceived += (uint64_t)uncompressedLen;
++				ILibDuktape_DuplexStream_WriteDataEx(state->decodedStream,
++					delivery.opcode == WEBSOCKET_OPCODE_TEXTFRAME ? 1 : 0, uncompressed, (int)uncompressedLen);
++				duk_pop(ctx);
++				duk_del_prop_string(ctx, -1, "_dchunks");
++				duk_del_prop_string(ctx, -1, "_dlen");
++				duk_set_top(ctx, stackTop + 1);
+ 			}
+ 			else
+ 			{
+-				// this value can be represented with a signed 32 bit variable
+-				plen = (int)v;
+-				i += 8;
++				ILibDuktape_DuplexStream_WriteDataEx(state->decodedStream,
++					delivery.opcode == WEBSOCKET_OPCODE_TEXTFRAME ? 1 : 0, message, length);
+ 			}
+ 		}
+ 	}
+-
+-	if (bufferLen < (i + plen + ((unsigned char)(hdr & WEBSOCKET_MASK) != 0 ? 4 : 0)))
+-	{
+-		return(ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer, bufferLen)); // Don't have the entire packet
+-	}
+-
+-	maskingKey = ((unsigned char)(hdr & WEBSOCKET_MASK) == 0) ? NULL : (buffer + i);
+-	if (maskingKey != NULL)
+-	{
+-		// Unmask the data
+-		i += 4;	// Move ptr to start of data
+-
+-		int maskKeyInt = ((int*)(maskingKey))[0];
+-		if (plen > 0)
+-		{
+-			for (x = 0; x < (plen >> 2); ++x) { ((int*)(buffer+i))[x] = ((int*)(buffer+i))[x] ^ (int)maskKeyInt; } // Mask 4 bytes at a time
+-			for (x = (x << 2); x < plen; ++x) { buffer[x + i] = buffer[x + i] ^ maskingKey[x % 4]; } // Mask the reminder
+-		}
+-	}
+-
+-	if (OPCODE < 0x8)
+-	{
+-		// NON-CONTROL OP-CODE
+-		// We will try to automatically re-assemble fragments, up to the max buffer size the user specified
+-		if (OPCODE != 0) { state->WebSocketDataFrameType = (int)OPCODE; } // Set the DataFrame Type, so the user can query it
+-		if (FIN != 0 && state->WebSocketFragmentIndex == 0) { state->actualReceived += (uint64_t)plen; }
+-
+-		if (state->permessageDeflate != 0 && RSV1 != 0)
+-		{
+-			// This is compressed
+-			if (state->WebSocketFragmentIndex == 0)
+-			{
+-				duk_context *ctx = state->encodedStream->writableStream->ctx;
+-				int ctx_top = duk_get_top(ctx);
+-
+-				duk_push_heapptr(ctx, state->encodedStream->writableStream->obj);		// [stream]
+-				if (duk_has_prop_string(ctx, -1, ILibDuktape_WebSocket_Decompressor))
+-				{
+-					duk_get_prop_string(ctx, -1, ILibDuktape_WebSocket_Decompressor);	// [stream][decompresor]
+-				}
+-				else
+-				{
+-					duk_eval_string(ctx, "require('compressed-stream');");				// [stream][CS]
+-					duk_prepare_method_call(ctx, -1, "createDecompressor");				// [stream][CS][createDecompressor][this]
+-					duk_remove(ctx, -3);												// [stream][createDecompressor][this]
+-					duk_push_object(ctx);												// [stream][createDecompressor][this][options]
+-					duk_push_int(ctx, -15); duk_put_prop_string(ctx, -2, "WBITS");		// [stream][createDecompressor][this][options]
+-					if (duk_pcall_method(ctx, 1) != 0)									// [stream][decompressor]
+-					{
+-						ILibDuktape_Process_UncaughtExceptionEx(ctx, "websocket inflate() error ");
+-						duk_set_top(ctx, ctx_top);
+-						return(ILibTransport_DoneState_ERROR);
+-					}
+-					duk_dup(ctx, -1);													// [stream][decompressor][dup]
+-					duk_put_prop_string(ctx, -3, ILibDuktape_WebSocket_Decompressor);	// [stream][decompressor]
+-					duk_push_pointer(ctx, state); duk_put_prop_string(ctx, -2, "state");
+-					duk_push_int(ctx, OPCODE == WEBSOCKET_OPCODE_TEXTFRAME ? 1 : 0); duk_put_prop_string(ctx, -2, "reserved");
+-					ILibDuktape_EventEmitter_AddOnEx(ctx, -1, "data", ILibDuktape_WebSocket_DecompressData);
+-					ILibDuktape_EventEmitter_AddOnEx(ctx, -1, "end", ILibDuktape_WebSocket_DecompressData_End);
+-				}
+-				duk_prepare_method_call(ctx, -1, FIN != 0 ? "end" : "write");			// [stream][decompressor][write][this]
+-				duk_push_external_buffer(ctx);											// [stream][decompressor][write][this][buffer]
+-				duk_config_buffer(ctx, -1, buffer + i, (duk_size_t)plen);
+-				duk_push_buffer_object(ctx, -1, 0, (duk_size_t)plen, DUK_BUFOBJ_NODEJS_BUFFER); //.[decompressor][write][this][buffer][njsbuffer]
+-				duk_remove(ctx, -2);													// [stream][decompressor][write][this][buffer]
+-				duk_pcall_method(ctx, 1);												// [stream][decompressor][ret]
+-				if (FIN != 0)
+-				{
+-					duk_del_prop_string(ctx, -3, ILibDuktape_WebSocket_Decompressor);
+-				}
+-				duk_set_top(ctx, ctx_top);
+-				
+-				if (bufferLen > (i + plen))
+-				{
+-					return(ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer + i + plen, bufferLen - (i + plen))); // We need at least 10 bytes to read enough of the headers
+-				}
+-
+-				return(ILibTransport_DoneState_COMPLETE);
+-			}
+-		}
+-
+-
+-		if (FIN != 0 && state->WebSocketFragmentIndex == 0)
+-		{
+-			// We have an entire fragment, and we didn't save any of it yet... We can just forward it up without copying the buffer
+-			ILibDuktape_DuplexStream_WriteDataEx(state->decodedStream, OPCODE == WEBSOCKET_OPCODE_TEXTFRAME ? 1 : 0, buffer + i, plen);
+-		}
+-		else
+-		{
+-			if (state->WebSocketFragmentIndex + plen >= state->WebSocketFragmentBufferSize)
+-			{
+-				// Need to grow the buffer
+-				if (state->WebSocketFragmentBufferSize == 0) { state->WebSocketFragmentBufferSize = 4096; }
+-				state->WebSocketFragmentBufferSize = state->WebSocketFragmentBufferSize * 2;
+-				if ((state->WebSocketFragmentBuffer = (char*)realloc(state->WebSocketFragmentBuffer, state->WebSocketFragmentBufferSize)) == NULL) { ILIBCRITICALEXIT(254); } // MS Static Analyser erroneously reports that this leaks the original memory block
+-			}
+-
+-			memcpy_s(state->WebSocketFragmentBuffer + state->WebSocketFragmentIndex, state->WebSocketFragmentBufferSize - state->WebSocketFragmentIndex, buffer + i, plen);
+-			state->WebSocketFragmentIndex += plen;
+-
+-			if (FIN != 0)
+-			{
+-				ILibDuktape_DuplexStream_WriteDataEx(state->decodedStream, OPCODE == WEBSOCKET_OPCODE_TEXTFRAME ? 1 : 0, state->WebSocketFragmentBuffer, state->WebSocketFragmentIndex);
+-				state->WebSocketFragmentIndex = 0; // Reset (We can write to the start of the buffer)
+-			}
+-		}
+-	}
+ 	else
+ 	{
+-		// CONTROL
+-		switch (OPCODE)
++		if (bufferLen > start + payloadLength)
++		{
++			result = ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream,
++				buffer + start + payloadLength, bufferLen - start - payloadLength);
++			if (result == ILibTransport_DoneState_ERROR || !sc_ws_lease_alive(lease)) { goto release; }
++		}
++		switch (frame.flags & 15)
+ 		{
+ 		case WEBSOCKET_OPCODE_CLOSE:
+-			state->closed = 1;
+-			ILibDuktape_DuplexStream_WriteEnd(state->decodedStream);
+-			if (ILibMemory_CanaryOK(state) && ILibIsRunningOnChainThread(state->chain) != 0 && state->encodedStream->writableStream->pipedReadable != NULL)
+-			{
+-				duk_context *ctx = state->ctx;
+-				duk_push_heapptr(state->ctx, state->encodedStream->writableStream->pipedReadable);	// [stream]
+-				duk_get_prop_string(state->ctx, -1, "end");											// [stream][end]
+-				duk_swap_top(state->ctx, -2);														// [end][this]
+-				if (duk_pcall_method(state->ctx, 0) != 0) { ILibDuktape_Process_UncaughtExceptionEx(ctx, "http.webSocketStream.write(): Error Dispatching 'end' "); }
+-				duk_pop(ctx);																// ...
+-			}
++			ILibDuktape_httpStream_webSocket_Shutdown(state, ctx, 0);
+ 			break;
+ 		case WEBSOCKET_OPCODE_PING:
+-			if (ILibIsRunningOnChainThread(state->chain) != 0)
+-			{
+-				duk_push_heapptr(state->ctx, state->decodedStream->ParentObject);		// [stream]
+-				duk_get_prop_string(state->ctx, -1, "emit");							// [stream][emit]
+-				duk_swap_top(state->ctx, -2);											// [emit][this]
+-				duk_push_string(state->ctx, "ping");									// [emit][this][ping]
+-
+-				if (duk_pcall_method(state->ctx, 1) != 0) { ILibDuktape_Process_UncaughtExceptionEx(state->ctx, "http.webSocketStream.write(): Error Dispatching Ping "); }
+-				duk_pop(state->ctx);													// ...
+-			}
+-
+-			ILibDuktape_httpStream_webSocket_WriteWebSocketPacket(state, WEBSOCKET_OPCODE_PONG, NULL, 0, ILibWebClient_WebSocket_FragmentFlag_Complete);
+-			break;
+ 		case WEBSOCKET_OPCODE_PONG:
+ 			if (ILibIsRunningOnChainThread(state->chain) != 0)
+ 			{
+-				duk_push_heapptr(state->ctx, state->decodedStream->ParentObject);		// [stream]
+-				duk_get_prop_string(state->ctx, -1, "emit");							// [stream][emit]
+-				duk_swap_top(state->ctx, -2);											// [emit][this]
+-				duk_push_string(state->ctx, "pong");									// [emit][this][pong]
+-
+-				if (duk_pcall_method(state->ctx, 1) != 0) { ILibDuktape_Process_UncaughtExceptionEx(state->ctx, "http.webSocketStream.write(): Error Dispatching Pong "); }
+-				duk_pop(state->ctx);													// ...
++				duk_push_heapptr(ctx, state->decodedStream->ParentObject);
++				duk_get_prop_string(ctx, -1, "emit"); duk_swap_top(ctx, -2);
++				duk_push_string(ctx, (frame.flags & 15) == WEBSOCKET_OPCODE_PING ? "ping" : "pong");
++				if (duk_pcall_method(ctx, 1) != 0) { result = ILibTransport_DoneState_ERROR; }
++				duk_set_top(ctx, stackTop + 1);
++			}
++			if ((frame.flags & 15) == WEBSOCKET_OPCODE_PING && sc_ws_lease_alive(lease))
++			{
++				ILibDuktape_httpStream_webSocket_WriteWebSocketPacket(state, WEBSOCKET_OPCODE_PONG, NULL, 0, ILibWebClient_WebSocket_FragmentFlag_Complete);
+ 			}
+ 			break;
+ 		}
+ 	}
+-
+-	if (bufferLen > (i + plen))
+-	{
+-		return(ILibDuktape_httpStream_webSocket_EncodedWriteSink_DispatchUnshift(stream, buffer + i + plen, bufferLen - (i + plen))); // We need at least 10 bytes to read enough of the headers
+-	}
+-
+-	return(ILibTransport_DoneState_COMPLETE);
+-}
++release:
++	free(ownedPayload);
++	sc_ws_delivery_drop(delivery);
++finish:
++	if (result == ILibTransport_DoneState_ERROR && lease != NULL && sc_ws_lease_alive(lease))
++	{
++		ILibDuktape_httpStream_webSocket_Shutdown(state, ctx, 1);
++	}
++	if (lease != NULL) { sc_ws_lease_drop(lease); }
++	duk_set_top(ctx, stackTop);
++	return result;
++}
++
+ void ILibDuktape_httpStream_webSocket_EncodedEndSink(ILibDuktape_DuplexStream *stream, void *user)
+ {
+ 	ILibDuktape_WebSocket_State *state = (ILibDuktape_WebSocket_State*)user;
+ 	if (!ILibMemory_CanaryOK(state) || duk_ctx_shutting_down(state->ctx)) { return; }
++	int wasClosed = state->closed;
++	state->closed = 1;
++	sc_ws_decoder_drop(state->RustWebSocket); state->RustWebSocket = NULL;
+ 
+ 	duk_push_heapptr(state->ctx, state->ObjectPtr);					// [websocket]
+ 	duk_get_prop_string(state->ctx, -1, "decoded");					// [websocket][decoded]
+@@ -4564,7 +4541,7 @@
+ 	duk_del_prop_string(state->ctx, -1, ILibDuktape_WSENC2WS);
+ 	duk_pop(state->ctx);											// ...
+ 
+-	if (!state->closed) { ILibDuktape_DuplexStream_WriteEnd(state->decodedStream); }
++	if (!wasClosed) { ILibDuktape_DuplexStream_WriteEnd(state->decodedStream); }
+ }
+ void ILibDuktape_httpStream_webSocket_EncodedPauseSink_Chain(void *chain, void *user)
+ {
+@@ -4653,6 +4630,8 @@
+ {
+ 	ILibDuktape_WebSocket_State *state = (ILibDuktape_WebSocket_State*)user;
+ 	ILibDuktape_httpStream_webSocket_WriteWebSocketPacket(state, WEBSOCKET_OPCODE_CLOSE, NULL, 0, ILibWebClient_WebSocket_FragmentFlag_Complete);
++	state->closed = 1;
++	sc_ws_decoder_drop(state->RustWebSocket); state->RustWebSocket = NULL;
+ }
+ void ILibDuktape_httpStream_webSocket_DecodedPauseSink_Chain(void *chain, void *user)
+ {
+@@ -4747,6 +4726,7 @@
+ {
+ 	duk_get_prop_string(ctx, 0, ILibDuktape_WebSocket_StatePtr);
+ 	ILibDuktape_WebSocket_State *state = (ILibDuktape_WebSocket_State*)Duktape_GetBuffer(ctx, -1, NULL);
++	sc_ws_decoder_drop(state->RustWebSocket); state->RustWebSocket = NULL;
+ 	
+ 	if (state->encodedStream != NULL && state->encodedStream->writableStream->pipedReadable != NULL)
+ 	{
+@@ -5006,6 +4986,8 @@
+ 	state->ctx = ctx;
+ 	state->ObjectPtr = duk_get_heapptr(ctx, -1);
+ 	state->chain = Duktape_GetChain(ctx);
++	state->RustWebSocket = sc_ws_decoder_new(64 << 20);
++	if (state->RustWebSocket == NULL) { return ILibDuktape_Error(ctx, "WebSocket decoder allocation failed"); }
+ 	if (narg > 1 && duk_is_object(ctx, 1))
+ 	{
+ 		state->permessageDeflate = Duktape_GetIntPropertyValue(ctx, 1, "perMessageDeflate", 0);
+--- a/microscript/ILibDuktape_CompressedStream.c
++++ b/microscript/ILibDuktape_CompressedStream.c
+@@ -252,6 +252,11 @@
+ 		{
+ 			cs->crc = crc32(cs->crc, (unsigned char*)tmp, (unsigned int)avail);
+ 			ret = ILibDuktape_DuplexStream_WriteData(cs->ds, tmp, (int)avail);
++			/* WebSocket 输出超预算后立即停止解压，避免继续消耗 CPU。 */
++			duk_push_heapptr(cs->ctx, cs->object);
++			int overflow = Duktape_GetIntPropertyValue(cs->ctx, -1, "_overflow", 0);
++			duk_pop(cs->ctx);
++			if (overflow) { return ILibTransport_DoneState_ERROR; }
+ 			if (ret == 1)
+ 			{
+ 				// Downstream was paused, so we have to save state, so we can resume later

@@ -176,9 +176,11 @@ func (p *fileProcess) Relay(ctx context.Context, client *websocket.Conn) error {
 		}
 	}()
 	go func() {
+		reader := g0files.NewFrameReader(p.output)
 		for {
-			data, e := g0files.ReadFrame(p.output)
+			data, e := reader.Read()
 			if e == nil {
+				// Write 返回后才读取下一帧，避免复用仍在发送中的字节。
 				e = client.Write(ctx, websocket.MessageBinary, data)
 			}
 			if e != nil {

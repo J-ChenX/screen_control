@@ -1,0 +1,338 @@
+--- a/meshcore/agentcore.c
++++ b/meshcore/agentcore.c
+@@ -46,6 +46,10 @@
+ #ifdef _POSIX
+ #include <sys/stat.h>
+ #include <sys/wait.h>
++#endif
++
++#if defined(__linux__) && defined(__GLIBC__)
++#include <malloc.h>		// malloc_trim (glibc only; MUSL/Alpine has no such symbol): return GC-freed pages to the OS (see MeshAgent_HeapGcTimerSink)
+ #endif
+ 
+ #ifdef _OPENBSD
+@@ -3783,8 +3787,8 @@
+ 
+ 	printf("Network Timeout occurred...\n");
+ 
++	// OnResponse schedules the retry; a second attempt can reenter proxy discovery.
+ 	ILibWebClient_CancelRequest(request);
+-	MeshServer_ConnectEx(agent);
+ }
+ void MeshServer_ConnectEx_NetworkError_Cleanup(void *j)
+ {
+@@ -6063,6 +6067,45 @@
+ 
+ #endif
+ 
++// Duktape's voluntary GC trigger scales with heap size, so a steady stream of short-lived
++// EventEmitter/child_process/ScriptContainer graphs climbs to ever higher plateaus before a
++// sweep runs. The worst offender is MeshCentral's once-a-second getclip clipboard poll during
++// a Desktop session: each poll spawns session-lookup children plus a clipboard read container,
++// all finalizable (so refcounting cannot reclaim them), and that churn outpaces voluntary GC,
++// growing the main agent RSS without bound. Force a mark-and-sweep once
++// the script heap grows past a fixed delta since the last one, so the churn is reclaimed
++// promptly and RSS stays bounded regardless of which object types are involved. The check is a
++// cheap counter comparison; the sweep only runs while the heap is actually growing.
++extern size_t ILibDuktape_ScriptContainer_TotalAllocations;
++static size_t g_meshCoreGcMark = 0;
++#define MESHAGENT_GC_GROWTH_BYTES (1024 * 1024)
++void MeshAgent_HeapGcTimerSink(void *object)
++{
++	MeshAgentHostContainer *agent = (MeshAgentHostContainer*)object;
++	if (agent == NULL || agent->chain == NULL || ILibIsChainBeingDestroyed(agent->chain)) { return; }
++	if (agent->meshCoreCtx != NULL && duk_ctx_is_alive(agent->meshCoreCtx) && !duk_ctx_shutting_down(agent->meshCoreCtx))
++	{
++		size_t total = ILibDuktape_ScriptContainer_TotalAllocations;
++		if (total > g_meshCoreGcMark + MESHAGENT_GC_GROWTH_BYTES)
++		{
++			duk_gc(agent->meshCoreCtx, 0);
++			g_meshCoreGcMark = ILibDuktape_ScriptContainer_TotalAllocations;	// post-sweep baseline
++#if defined(__linux__) && defined(__GLIBC__)
++			// The finalizers duk_gc just ran free large native buffers (child pipe buffers,
++			// readable paused_data). glibc keeps those pages, so return them to the OS or RSS
++			// stays at the high-water mark and still looks like a leak. glibc only: MUSL (Alpine)
++			// has no malloc_trim and hands freed pages back on its own, so it just skips this.
++			malloc_trim(0);
++#endif
++		}
++		else if (total < g_meshCoreGcMark)
++		{
++			g_meshCoreGcMark = total;	// heap shrank (e.g. core restart); re-baseline downward
++		}
++	}
++	ILibLifeTime_AddEx(ILibGetBaseTimer(agent->chain), agent, 2000, MeshAgent_HeapGcTimerSink, NULL);
++}
++
+ int MeshAgent_Start(MeshAgentHostContainer *agentHost, int paramLen, char **param)
+ {
+ 	char *startParms = NULL;
+@@ -6161,6 +6204,10 @@
+ #endif
+ 
+ 	void *reserved[] = { agentHost, &paramLen, param };
++
++	// Keep the script heap bounded against short-lived spawn churn (see MeshAgent_HeapGcTimerSink).
++	g_meshCoreGcMark = 0;
++	ILibLifeTime_AddEx(ILibGetBaseTimer(agentHost->chain), agentHost, 2000, MeshAgent_HeapGcTimerSink, NULL);
+ 
+ 	// Check to see if we are running as just a JavaScript Engine
+ 	if (agentHost->meshCoreCtx_embeddedScript != NULL || (paramLen >= 2 && ILibString_EndsWith(param[1], -1, ".js", 3) != 0) || (paramLen >= 2 && ILibString_EndsWith(param[1], -1, ".zip", 4) != 0))
+--- a/microscript/ILibDuktape_ChildProcess.c
++++ b/microscript/ILibDuktape_ChildProcess.c
+@@ -57,6 +57,24 @@
+ 	{
+ 		duk_get_prop_string(ctx, i, name);			// [sub]
+ 		duk_del_prop_string(ctx, -1, "parent");
++		duk_pop(ctx);								// ...
++	}
++}
++// After the child exits, the subProcess and its stdio objects still carry the finalizer
++// that every ILibDuktape emitter installs, and a finalizable object is not freed by
++// refcounting; it waits for a mark-and-sweep. Under a rapid spawn/exit workload (the
++// session lookups MeshCentral's 1s getclip poll runs during a Desktop session) that
++// garbage outpaces GC. The finalizers are moot once the child has exited (the subProcess
++// one only kills a still-running child), so clearing them lets refcounting reclaim the
++// graph at once. Readable streams are only detached when nothing is buffered or piped, so
++// their finalizer still runs to release native paused_data / a pending pipe immediate.
++static void ILibDuktape_ChildProcess_DetachFinalizer(duk_context *ctx, duk_idx_t i, char *name, ILibDuktape_readableStream *rs)
++{
++	if (rs != NULL && (rs->paused_data != NULL || rs->pipeImmediate != NULL)) { return; }
++	if (duk_has_prop_string(ctx, i, name))
++	{
++		duk_get_prop_string(ctx, i, name);			// [sub]
++		duk_push_undefined(ctx); duk_set_finalizer(ctx, -2);
+ 		duk_pop(ctx);								// ...
+ 	}
+ }
+@@ -171,6 +189,13 @@
+ 	ILibDuktape_ChildProcess_DeleteBackReferences(p->ctx, -1, "stdin");
+ 	ILibDuktape_ChildProcess_DeleteBackReferences(p->ctx, -1, "stdout");
+ 	ILibDuktape_ChildProcess_DeleteBackReferences(p->ctx, -1, "stderr");
++
++	// Drop the now-moot finalizers so the exited child's graph is reclaimed by refcounting
++	// instead of lingering as finalizable garbage until the next mark-and-sweep.
++	ILibDuktape_ChildProcess_DetachFinalizer(p->ctx, -1, "stdout", p->stdOut);
++	ILibDuktape_ChildProcess_DetachFinalizer(p->ctx, -1, "stderr", p->stdErr);
++	ILibDuktape_ChildProcess_DetachFinalizer(p->ctx, -1, "stdin", NULL);
++	duk_push_undefined(p->ctx); duk_set_finalizer(p->ctx, -2);	// subProcess itself
+ 	duk_pop(p->ctx);								// ...
+ }
+ void ILibDuktape_ChildProcess_SubProcess_StdOutHandler(ILibProcessPipe_Process sender, char *buffer, size_t bufferLen, size_t* bytesConsumed, void* user)
+--- a/microscript/ILibDuktape_Helpers.c
++++ b/microscript/ILibDuktape_Helpers.c
+@@ -429,7 +429,7 @@
+ 	else if (duk_is_buffer(ctx, i))
+ 	{
+ 		retVal = (char*)duk_require_buffer(ctx, i, &len);
+-		if (ILibMemory_CanaryOK(ILibMemory_FromRaw(retVal)) && ILibMemory_RawSize(ILibMemory_FromRaw(retVal)) == len)
++		if (retVal != NULL && len >= sizeof(ILibMemory_Header) && ILibMemory_CanaryOK(ILibMemory_FromRaw(retVal)) && ILibMemory_RawSize(ILibMemory_FromRaw(retVal)) == len)
+ 		{
+ 			retVal = ILibMemory_FromRaw(retVal);
+ 			if (bufLen != NULL) { *bufLen = ILibMemory_Size(retVal); }
+@@ -442,7 +442,7 @@
+ 	else if(duk_is_buffer_data(ctx, i))
+ 	{
+ 		retVal = (char*)duk_require_buffer_data(ctx, i, &len);
+-		if (ILibMemory_CanaryOK(ILibMemory_FromRaw(retVal)) && ILibMemory_RawSize(ILibMemory_FromRaw(retVal)) == len)
++		if (retVal != NULL && len >= sizeof(ILibMemory_Header) && ILibMemory_CanaryOK(ILibMemory_FromRaw(retVal)) && ILibMemory_RawSize(ILibMemory_FromRaw(retVal)) == len)
+ 		{
+ 			retVal = ILibMemory_FromRaw(retVal);
+ 			if (bufLen != NULL) { *bufLen = ILibMemory_Size(retVal); }
+--- a/microscript/ILibDuktape_Polyfills.c
++++ b/microscript/ILibDuktape_Polyfills.c
+@@ -157,8 +157,8 @@
+ 		}
+ 		else
+ 		{
+-			// Just convert to a string
+-			duk_push_lstring(ctx, buffer, strnlen_s(buffer, bufferLen));			// [buffer][string]
++			char *end = (char*)memchr(buffer, 0, bufferLen);
++			duk_push_lstring(ctx, buffer, end == NULL ? bufferLen : (duk_size_t)(end - buffer));
+ 		}
+ 	}
+ 	else
+--- a/microscript/ILibDuktape_ScriptContainer.c
++++ b/microscript/ILibDuktape_ScriptContainer.c
+@@ -1607,47 +1607,26 @@
+ size_t ILibDuktape_ScriptContainer_TotalAllocations = 0;
+ void *ILibDuktape_ScriptContainer_Engine_malloc(void *udata, duk_size_t size)
+ {
+-	ILibDuktape_ScriptContainer_TotalAllocations += size;
+ 	void *ptr = ILibMemory_SmartAllocateEx(size, sizeof(void*));
++	ILibDuktape_ScriptContainer_TotalAllocations += ILibMemory_Size(ptr);
+ 	((void**)ILibMemory_Extra(ptr))[0] = udata;
+ 	return(ptr);
+ }
+ void *ILibDuktape_ScriptContainer_Engine_realloc(void *udata, void *ptr, duk_size_t size)
+ {
+-	size_t difference = 0;
++	size_t oldSize = ptr == NULL ? 0 : ILibMemory_Size(ptr);
+ 	if (ptr != NULL) 
+ 	{ 
+-		if (ILibMemory_Size(ptr) > size)
+-		{
+-			// Memory Shrink
+-			difference = ILibMemory_Size(ptr) - size;
+-			ILibDuktape_ScriptContainer_TotalAllocations -= difference;
+-		}
+-		else
+-		{
+-			difference = size - ILibMemory_Size(ptr);
+-			ILibDuktape_ScriptContainer_TotalAllocations += difference;
+-		}
+-		//if (size == 0)
+-		//{
+-		//	ILibMemory_Free(ptr);
+-		//	ptr = NULL;
+-		//}
+-		//else
+-		{
+-			ptr = ILibMemory_SmartReAllocate(ptr, size);
+-		}
++		ptr = ILibMemory_SmartReAllocate(ptr, size);
+ 	}
+ 	else
+ 	{
+-		//if (size > 0)
+-		{
+-			ptr = ILibMemory_SmartAllocateEx(size, sizeof(void*));
+-			((void**)ILibMemory_Extra(ptr))[0] = udata;
+-			ILibDuktape_ScriptContainer_TotalAllocations += size;
+-		}
+-	}
+-
++		ptr = ILibMemory_SmartAllocateEx(size, sizeof(void*));
++		((void**)ILibMemory_Extra(ptr))[0] = udata;
++	}
++	// The allocator rounds sizes up for alignment; frees use those rounded sizes.
++	ILibDuktape_ScriptContainer_TotalAllocations -= oldSize;
++	ILibDuktape_ScriptContainer_TotalAllocations += ILibMemory_Size(ptr);
+ 	return(ptr);
+ }
+ void ILibDuktape_ScriptContainer_Engine_free(void *udata, void *ptr)
+--- a/microstack/ILibParsers.c
++++ b/microstack/ILibParsers.c
+@@ -11054,12 +11054,24 @@
+ 	pthread_t newThread;
+ 	fptr = (void*(*)(void*))method;
+ #if defined(__APPLE__) || defined(ILIB_NO_TIMEDJOIN)
++	if (detached != 0)
++	{
++		result = (intptr_t)pthread_create(&newThread, NULL, fptr, arg);
++		if (result == 0) { pthread_detach(newThread); }
++		return(result == 0 ? (void*)newThread : NULL);
++	}
+ 	ILibThread_AppleThread *ret = (ILibThread_AppleThread*)ILibMemory_SmartAllocate(sizeof(ILibThread_AppleThread));
+ 	ret->method = method; ret->arg = arg;
+-	if (detached != 0) { sem_init(&(ret->s), 0, 0); ret->joinable = 1; }
++	ret->joinable = 1;
++	sem_init(&(ret->s), 0, 0);
+ 	result = (intptr_t)pthread_create(&newThread, NULL, ILibThread_AppleThread_Start, ret);
++	if (result != 0)
++	{
++		sem_destroy(&(ret->s));
++		ILibMemory_Free(ret);
++		return(NULL);
++	}
+ 	ret->tid = newThread;
+-	if (detached != 0) { pthread_detach(newThread); }
+ 	return(ret);
+ #else
+ 	result = (intptr_t)pthread_create(&newThread, NULL, fptr, arg);
+@@ -11085,8 +11097,12 @@
+ 	if (ILibMemory_CanaryOK(thr) && ((ILibThread_AppleThread*)thr)->joinable != 0)
+ 	{
+ 		ILibThread_AppleThread *ath = (ILibThread_AppleThread*)thr;
+-		if ((ret = sem_timedwait(&(ath->s), timeout)) == 0) { sem_destroy(&(ath->s)); }
+-		ILibMemory_Free(thr);
++		if ((ret = sem_timedwait(&(ath->s), timeout)) == 0)
++		{
++			pthread_join(ath->tid, NULL);
++			sem_destroy(&(ath->s));
++			ILibMemory_Free(thr);
++		}
+ 	}
+ 	return(ret);
+ #else
+@@ -11096,7 +11112,6 @@
+ struct timespec *ILibThread_ms2ts(uint32_t ms, struct timespec *ts)
+ {
+ 	struct timeval tv;
+-	long lv;
+ 
+ 	gettimeofday(&tv, NULL);
+ 	ts->tv_sec = tv.tv_sec;
+@@ -11104,12 +11119,8 @@
+ 
+ 	ts->tv_sec += (ms / 1000);
+ 	ts->tv_nsec += ((ms % 1000) * 1000000);
+-
+-	if ((lv = ts->tv_nsec % 1000000000) > 0)
+-	{
+-		ts->tv_sec += 1;
+-		ts->tv_nsec = lv;
+-	}
++	ts->tv_sec += ts->tv_nsec / 1000000000;
++	ts->tv_nsec %= 1000000000;
+ 
+ 	return(ts);
+ }
+@@ -11134,6 +11145,7 @@
+ 		if (ILibMemory_CanaryOK(thr) && ((ILibThread_AppleThread*)thr)->joinable!=0)
+ 		{
+ 			pthread_join(((ILibThread_AppleThread*)thr)->tid, NULL);
++			sem_destroy(&(((ILibThread_AppleThread*)thr)->s));
+ 			ILibMemory_Free(thr);
+ 		}
+ 	#else
+@@ -11482,4 +11494,3 @@
+ 	}
+ }
+ #endif
+-
+--- a/microstack/ILibParsers.h
++++ b/microstack/ILibParsers.h
+@@ -497,11 +497,13 @@
+ 	void ILibMemory_Free(void *ptr);
+ 	void* ILibMemory_AllocateTemp(void* chain, size_t sz);
+ 
+-	#define ILibMemory_AllocateA_ValidateSize(bufferLen) (bufferLen<(UINT32_MAX-(sizeof(void*) + (2*sizeof(ILibMemory_Header)))))
++	#define ILibMemory_AllocateA_ValidateSize(bufferLen) ((size_t)(bufferLen)<(UINT32_MAX-(2*sizeof(void*) - 1 + (2*sizeof(ILibMemory_Header)))))
++	// ILibMemory_Init rounds the primary size before placing the extra header.
++	#define ILibMemory_AllocateA_AllocationSize(bufferLen) ((((size_t)(bufferLen) + sizeof(void*) - 1) & ~(sizeof(void*) - 1)) + sizeof(void*) + (2*sizeof(ILibMemory_Header)))
+ #ifdef WIN32
+-	#define ILibMemory_AllocateA(bufferLen) ILibMemory_AllocateA_Init(ILibMemory_Init(ILibMemory_AllocateA_ValidateSize(bufferLen)?_alloca(bufferLen + sizeof(void*) + (2*sizeof(ILibMemory_Header))):NULL, bufferLen, sizeof(void*), ILibMemory_Types_STACK))
+-#else
+-	#define ILibMemory_AllocateA(bufferLen) ILibMemory_AllocateA_Init(ILibMemory_Init(ILibMemory_AllocateA_ValidateSize(bufferLen)?alloca(bufferLen + sizeof(void*) + (2*sizeof(ILibMemory_Header))):NULL, bufferLen, sizeof(void*), ILibMemory_Types_STACK))
++	#define ILibMemory_AllocateA(bufferLen) ILibMemory_AllocateA_Init(ILibMemory_Init(ILibMemory_AllocateA_ValidateSize(bufferLen)?_alloca(ILibMemory_AllocateA_AllocationSize(bufferLen)):NULL, bufferLen, sizeof(void*), ILibMemory_Types_STACK))
++#else
++	#define ILibMemory_AllocateA(bufferLen) ILibMemory_AllocateA_Init(ILibMemory_Init(ILibMemory_AllocateA_ValidateSize(bufferLen)?alloca(ILibMemory_AllocateA_AllocationSize(bufferLen)):NULL, bufferLen, sizeof(void*), ILibMemory_Types_STACK))
+ #endif
+ 	#define ILibMemory_AllocateA_Size(buffer)		ILibMemory_Size(buffer)
+ 	#define ILibMemory_AllocateA_Next(buffer)		(((void**)buffer)[0])
+--- a/microstack/ILibWebClient.c
++++ b/microstack/ILibWebClient.c
+@@ -3156,10 +3156,22 @@
+ 					&(_wcdo->PAUSE)); // Pause is also zero
+ 			}
+ 
++			if (_wcdo->IsWebSocket != 0)
++			{
++				free(((ILibWebClient_WebSocketState*)wr->Buffer[0])->WebSocketFragmentBuffer);
++			}
+ 			ILibWebClient_DestroyWebRequest(wr);
+ 			wr = (struct ILibWebRequest*)ILibQueue_DeQueue(PendingRequestQ);
+ 		}
+ 		ILibQueue_Destroy(PendingRequestQ);
++		if (HeadDeleted != 0 && _wcdo->IsOrphan != 0 && ILibQueue_IsEmpty(_wcdo->RequestQueue))
++		{
++			// WebSocket requests leave the manager's table before connecting.
++			ILibSpinLock_Lock(&(_wcdo->Parent->QLock));
++			ILibLinkedList_Remove_ByData(_wcdo->Parent->backlogQueue, _wcdo);
++			ILibSpinLock_UnLock(&(_wcdo->Parent->QLock));
++			ILibWebClient_DestroyWebClientDataObject(_wcdo);
++		}
+ 	}
+ }
+ 

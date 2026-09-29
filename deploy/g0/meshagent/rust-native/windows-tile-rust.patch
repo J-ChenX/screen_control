@@ -1,0 +1,153 @@
+--- a/meshcore/KVM/Windows/tile.cpp
++++ b/meshcore/KVM/Windows/tile.cpp
+@@ -43,6 +43,7 @@
+ 
+ extern "C"
+ {
++#include "microstack/screen_control_protocol.h"
+ #include "microstack/ILibCrypto.h"
+ extern int TILE_WIDTH;
+ extern int TILE_HEIGHT;
+@@ -109,30 +110,34 @@
+ 	return pixles;
+ }
+ 
+-// Extracts the required tile buffer from the desktop buffer
+-int get_tile_buffer(int x, int y, void **buffer, void *desktop, int tilewidth, int tileheight) 
+-{
+-	void *target = *buffer;
+-	for (int height = adjust_screen_size(SCALED_HEIGHT) - y - tileheight; height < adjust_screen_size(SCALED_HEIGHT) - y; height++)
+-	{
+-		memcpy_s(target, tilebuffersize, (const void *)((unsigned char *)desktop + (((height * adjust_screen_size(SCALED_WIDTH)) + x) * PIXEL_SIZE) ), (size_t)(tilewidth * PIXEL_SIZE));
+-		target = (void *) ((unsigned char *)target + tilewidth * PIXEL_SIZE);
+-	}
++int get_tile_buffer(int x, int y, void **buffer, void *desktop, long long desktopSize,
++                    int tilewidth, int tileheight)
++{
++	if (buffer == NULL || *buffer == NULL || desktop == NULL || desktopSize <= 0 ||
++	    SCALED_WIDTH <= 0 || SCALED_HEIGHT <= 0 || TILE_WIDTH <= 0 ||
++	    SCALED_WIDTH > INT32_MAX - TILE_WIDTH || SCALED_HEIGHT > INT32_MAX - TILE_WIDTH) return 1;
++	return sc_win_tile_copy((uint8_t *)*buffer, (uint64_t)tilebuffersize,
++	                        (const uint8_t *)desktop, (uint64_t)desktopSize,
++	                        adjust_screen_size(SCALED_WIDTH), adjust_screen_size(SCALED_HEIGHT),
++	                        PIXEL_SIZE, x, y, tilewidth, tileheight) == 1 ? 0 : 1;
++}
++
++int tile_crc(int x, int y, void *desktop, long long desktopSize,
++             int tilewidth, int tileheight, int *result)
++{
++	uint32_t checksum = 0;
++	if (desktop == NULL || result == NULL || desktopSize <= 0 ||
++	    SCALED_WIDTH <= 0 || SCALED_HEIGHT <= 0 || TILE_WIDTH <= 0 ||
++	    SCALED_WIDTH > INT32_MAX - TILE_WIDTH || SCALED_HEIGHT > INT32_MAX - TILE_WIDTH ||
++	    sc_win_tile_crc((const uint8_t *)desktop, (uint64_t)desktopSize,
++	                    adjust_screen_size(SCALED_WIDTH), adjust_screen_size(SCALED_HEIGHT),
++	                    PIXEL_SIZE, x, y, tilewidth, tileheight, &checksum) != 1) return 1;
++	*result = (int)checksum;
+ 	return 0;
+ }
+ 
+-int tile_crc(int x, int y, void *desktop, int tilewidth, int tileheight) 
+-{
+-	int crc = 0;
+-	for (int height = adjust_screen_size(SCALED_HEIGHT) - y - tileheight; height < adjust_screen_size(SCALED_HEIGHT) - y; height++)
+-	{
+-		crc = util_crc(((unsigned char *)desktop + (((height * adjust_screen_size(SCALED_WIDTH)) + x) * PIXEL_SIZE) ), (size_t)(tilewidth * PIXEL_SIZE), crc);
+-	}
+-	return crc;
+-}
+-
+ // This function returns 0 and *buffer != NULL if everything was good. retval = jpegsize if the captured image was too large.
+-int calc_opt_compr_send(int x, int y, int captureWidth, int captureHeight, void* desktop, void ** buffer, long long *bufferSize) 
++int calc_opt_compr_send(int x, int y, int captureWidth, int captureHeight, void* desktop, long long desktopSize, void ** buffer, long long *bufferSize) 
+ {
+ 	BITMAPINFO bmpInfo;
+ 	LARGE_INTEGER Offset;
+@@ -142,7 +147,8 @@
+ 
+ 	KVMDEBUG("calc_opt_compr_send()", 0);
+ 
+-	// Get the bmpInfo structure
++	if (captureWidth <= 0 || captureHeight <= 0 || (PIXEL_SIZE != 3 && PIXEL_SIZE != 4) ||
++	    (uint64_t)captureWidth * (uint64_t)captureHeight * (uint64_t)PIXEL_SIZE > UINT32_MAX) return -1;
+ 	bmpInfo = get_bmp_info(captureWidth, captureHeight);
+ 
+ 	// Make sure a tile buffer is available. Most of the time, this is skipped.
+@@ -154,7 +160,7 @@
+ 	}
+ 
+ 	// Get the final coalesced tile
+-	get_tile_buffer(x, y, &tilebuffer, desktop, captureWidth, captureHeight);
++	if (get_tile_buffer(x, y, &tilebuffer, desktop, desktopSize, captureWidth, captureHeight) != 0) return -1;
+ 
+ 	bmpFileHeader.bfReserved1 = 0;
+ 	bmpFileHeader.bfReserved2 = 0;
+@@ -296,7 +302,7 @@
+ {
+ 
+ //Fetches the encoded jpeg tile at the given location. The neighboring tiles are coalesed to form a larger jpeg before returning.
+-int get_tile_at(int x, int y, void** buffer, long long *bufferSize, void *desktop, int row, int col)
++int get_tile_at(int x, int y, void** buffer, long long *bufferSize, void *desktop, long long desktopSize, int row, int col)
+ {	
+ 	int CRC;
+ 	int rightcol = col;		// Used in coalescing. Indicates the right-most column to be coalesced.
+@@ -312,7 +318,8 @@
+ 	if (tileInfo[row][col].flags == (char)TILE_TODO) // First check whether the tile-crc needs to be calcualted or not.
+ 	{ 
+ 		// Compute CRC on the contents of the bitmap; Proceed with image encoding only if the CRC is different.
+-		if ((CRC = tile_crc(x, y, desktop, TILE_WIDTH, TILE_HEIGHT)) == tileInfo[row][col].crc) return 0;
++		if (tile_crc(x, y, desktop, desktopSize, TILE_WIDTH, TILE_HEIGHT, &CRC) != 0) return 1;
++		if (CRC == tileInfo[row][col].crc) return 0;
+ 		tileInfo[row][col].crc = CRC; // Update the tile CRC in the global data structure.
+ 	}
+ 
+@@ -331,7 +338,7 @@
+ 
+ 		if (tileInfo[row][rightcol].flags == (char)TILE_TODO) {
+ 			// Compute CRC on the contents of the bitmap.
+-			CRC = tile_crc(r_x, y, desktop, TILE_WIDTH, TILE_HEIGHT);
++			if (tile_crc(r_x, y, desktop, desktopSize, TILE_WIDTH, TILE_HEIGHT, &CRC) != 0) return 1;
+ 		}
+ 
+ 		if (CRC != tileInfo[row][rightcol].crc || tileInfo[row][rightcol].flags == (char)TILE_MARKED_NOT_SENT) // If the tile has changed, increment the capturewidth.
+@@ -374,7 +381,7 @@
+ 			if (tileInfo[botrow][rcol].flags == (char)TILE_TODO)
+ 			{
+ 				// Compute CRC on the contents of the bitmap; Proceed with image encoding only if the CRC is different.
+-				CRC = tile_crc(r_x, r_y, desktop, TILE_WIDTH, TILE_HEIGHT);
++				if (tile_crc(r_x, r_y, desktop, desktopSize, TILE_WIDTH, TILE_HEIGHT, &CRC) != 0) return 1;
+ 			}
+ 
+ 			if (CRC != tileInfo[botrow][rcol].crc || tileInfo[botrow][rcol].flags == (char)TILE_MARKED_NOT_SENT)
+@@ -434,7 +441,8 @@
+ 	// This loop is used to adjust the COMPRESSION_RATIO. This loop runs only once most of the time.
+ 	do {
+ 		// retval here is 0 if everything was good. It is > 0 if it contains the size of the jpeg that was created and not sent.
+-		retval = calc_opt_compr_send(x, y, captureWidth, captureHeight, desktop, buffer, bufferSize);
++		retval = calc_opt_compr_send(x, y, captureWidth, captureHeight, desktop, desktopSize, buffer, bufferSize);
++		if (retval < 0) return 1;
+ 		if (retval == 0 && *bufferSize == 0) break;
+ 		if (retval != 0)
+ 		{
+--- a/meshcore/KVM/Windows/tile.h
++++ b/meshcore/KVM/Windows/tile.h
+@@ -39,7 +39,7 @@
+ 
+ short initialize_gdiplus();
+ void teardown_gdiplus();
+-int get_tile_at(int x, int y, void** buffer, long long *bufferSize, void *desktop, int row, int col);
++int get_tile_at(int x, int y, void** buffer, long long *bufferSize, void *desktop, long long desktopSize, int row, int col);
+ int get_desktop_buffer(void **buffer, long long *bufferSize, long*);
+ BITMAPINFO get_bmp_info(int width, int height);
+ void set_tile_compression(int type, int level);
+--- a/meshcore/KVM/Windows/kvm.c
++++ b/meshcore/KVM/Windows/kvm.c
+@@ -1142,7 +1142,7 @@
+ 						continue;
+ 					}
+ 
+-					if (get_tile_at(width, height, &buf, &tilesize, desktop, row, col) == 1)
++					if (get_tile_at(width, height, &buf, &tilesize, desktop, desktopsize, row, col) == 1)
+ 					{
+ 						// GetTileAt failed, lets not send the tile
+ 						continue;

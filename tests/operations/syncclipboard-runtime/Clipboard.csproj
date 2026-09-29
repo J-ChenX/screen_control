@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Clipboard.cs" />
+    <Reference Include="$(SyncClipboardInstallDir)/Avalonia*.dll;$(SyncClipboardInstallDir)/Microsoft.Extensions.DependencyInjection*.dll;$(SyncClipboardInstallDir)/NativeNotification*.dll;$(SyncClipboardInstallDir)/SyncClipboard.Core.dll;$(SyncClipboardInstallDir)/SyncClipboard.Shared.dll;$(SyncClipboardInstallDir)/SyncClipboard.Desktop.dll;$(SyncClipboardInstallDir)/System.Text.Json.dll;$(SyncClipboardInstallDir)/System.Net.Http.Json.dll;$(SyncClipboardInstallDir)/System.Text.Encodings.Web.dll;$(SyncClipboardInstallDir)/System.Threading.Channels.dll;$(SyncClipboardInstallDir)/System.Diagnostics.DiagnosticSource.dll" />
+  </ItemGroup>
+</Project>

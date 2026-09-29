@@ -1,7 +1,5 @@
 package g0files
 
-import "os"
-
 const transferChunkSize = 256 << 10
 const maxTransferWindow = 8
 
@@ -22,12 +20,7 @@ func (w *worker) advanceDownload(c command) error {
 		valid = false
 	}
 	if !valid {
-		w.download.Close()
-		w.download = nil
-		if w.downloadTemp != "" {
-			os.Remove(w.downloadTemp)
-			w.downloadTemp = ""
-		}
+		w.closeDownload()
 		return w.json(map[string]any{"action": "download", "sub": "cancel", "id": c.ID, "message": "下载累计确认无效"})
 	}
 	if w.downloadStarted && c.Ack <= w.downloadAck {

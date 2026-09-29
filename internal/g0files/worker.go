@@ -19,6 +19,32 @@ const MaxFrameSize = 1 << 20
 
 // ReadFrame/WriteFrame 用于 SSH 标准流；文件字节不会经过文本编码。
 func ReadFrame(r io.Reader) ([]byte, error) {
+	return readFrameInto(r, nil)
+}
+
+// FrameReader 为串行消费者复用标准流缓冲；返回的字节只在下一次 Read 前有效。
+// 大于普通传输块的偶发帧不会作为连接常驻缓存。
+type FrameReader struct {
+	source io.Reader
+	buffer []byte
+}
+
+func NewFrameReader(r io.Reader) *FrameReader {
+	return &FrameReader{source: r}
+}
+
+func (r *FrameReader) Read() ([]byte, error) {
+	data, err := readFrameInto(r.source, r.buffer)
+	if err != nil || cap(data) > transferChunkSize+12 {
+		r.buffer = nil
+	} else {
+		r.buffer = data
+	}
+	return data, err
+}
+
+// readFrameInto 只供串行消费者复用输入；公开的 ReadFrame 始终返回独立缓冲。
+func readFrameInto(r io.Reader, reuse []byte) ([]byte, error) {
 	var header [4]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, err
@@ -27,7 +53,10 @@ func ReadFrame(r io.Reader) ([]byte, error) {
 	if size == 0 || size > MaxFrameSize {
 		return nil, errors.New("文件协议帧大小无效")
 	}
-	data := make([]byte, size)
+	if cap(reuse) < int(size) {
+		reuse = make([]byte, size)
+	}
+	data := reuse[:size]
 	_, err := io.ReadFull(r, data)
 	return data, err
 }
@@ -88,6 +117,7 @@ type worker struct {
 	out             io.Writer
 	upload          *upload
 	download        *os.File
+	downloadBuffer  []byte
 	downloadID      int64
 	downloadTemp    string
 }
@@ -109,14 +139,18 @@ func (w *worker) abortUpload() {
 func (w *worker) close() {
 	w.closeDirectory()
 	w.abortUpload()
+	w.closeDownload()
+}
+func (w *worker) closeDownload() {
 	if w.download != nil {
 		w.download.Close()
-		if w.downloadTemp != "" {
-			os.Remove(w.downloadTemp)
-			w.downloadTemp = ""
-		}
 		w.download = nil
 	}
+	if w.downloadTemp != "" {
+		os.Remove(w.downloadTemp)
+		w.downloadTemp = ""
+	}
+	w.downloadBuffer = nil
 }
 func validName(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
@@ -262,7 +296,7 @@ func (w *worker) uploadData(data []byte) error {
 		w.abortUpload()
 		return w.json(map[string]any{"action": "uploaderror", "reqid": u.id, "message": "上传分块大小无效"})
 	}
-	if u.received+int64(len(data)) > u.size {
+	if u.received < 0 || u.received > u.size || int64(len(data)) > u.size-u.received {
 		w.abortUpload()
 		return w.json(map[string]any{"action": "uploaderror", "reqid": u.id, "message": "上传长度超过声明大小"})
 	}
@@ -373,12 +407,7 @@ func (w *worker) downloadCommand(c command) error {
 		return w.failure(c, errors.New("下载标识无效"))
 	}
 	if c.Sub == "stop" {
-		w.download.Close()
-		if w.downloadTemp != "" {
-			os.Remove(w.downloadTemp)
-			w.downloadTemp = ""
-		}
-		w.download = nil
+		w.closeDownload()
 		return nil
 	}
 	if c.Sub != "ack" && c.Sub != "startack" {
@@ -395,7 +424,11 @@ func (w *worker) sendDownloadBlock(id int64, chunkSize int) error {
 	if w.downloadWindow > 1 {
 		headerSize = 12
 	}
-	data := make([]byte, chunkSize+headerSize)
+	if len(w.downloadBuffer) < chunkSize+headerSize {
+		w.downloadBuffer = make([]byte, chunkSize+headerSize)
+	}
+	data := w.downloadBuffer[:chunkSize+headerSize]
+	clear(data[:headerSize])
 	if headerSize == 12 {
 		binary.BigEndian.PutUint64(data[4:12], uint64(id))
 	}
@@ -403,21 +436,11 @@ func (w *worker) sendDownloadBlock(id int64, chunkSize int) error {
 	data[0] = 1
 	if err != nil {
 		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			w.download.Close()
-			if w.downloadTemp != "" {
-				os.Remove(w.downloadTemp)
-				w.downloadTemp = ""
-			}
-			w.download = nil
+			w.closeDownload()
 			return w.json(map[string]any{"action": "download", "sub": "cancel", "id": id})
 		}
 		data[3] = 1
-		w.download.Close()
-		if w.downloadTemp != "" {
-			os.Remove(w.downloadTemp)
-			w.downloadTemp = ""
-		}
-		w.download = nil
+		w.closeDownload()
 	}
 	w.downloadSent++
 	return WriteFrame(w.out, data[:headerSize+n])
@@ -505,8 +528,9 @@ func (w *worker) handle(data []byte) error {
 func Run(in io.Reader, out io.Writer) error {
 	w := &worker{out: out}
 	defer w.close()
+	var inputBuffer []byte
 	for {
-		data, err := ReadFrame(in)
+		data, err := readFrameInto(in, inputBuffer)
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -515,6 +539,12 @@ func Run(in io.Reader, out io.Writer) error {
 		}
 		if err = w.handle(data); err != nil {
 			return err
+		}
+		// 大块缓冲只在上传期间保留，避免一个长连在传输结束后常驻 1 MiB。
+		if w.upload != nil || cap(data) <= 64<<10 {
+			inputBuffer = data
+		} else {
+			inputBuffer = nil
 		}
 	}
 }

@@ -1,0 +1,85 @@
+--- a/meshcore/KVM/Linux/linux_tile.c
++++ b/meshcore/KVM/Linux/linux_tile.c
+@@ -141,31 +141,15 @@
+ }
+ #endif
+ 
+-// Really fast CRC-like method. Used for the KVM.
+-int util_crc(int x, int y, long long bufferSize, void *desktop, long long desktopsize, int tilewidth, int tileheight)
++// 仅计算 tile 内字节；失败时不返回可能与真实 CRC 相等的哨兵值。
++int util_crc(int x, int y, void *desktop, long long desktopsize, int tilewidth, int tileheight, int *result)
+ {
+-    int hval = 0;
+-    int *bp = NULL;
+-    int *be = NULL;
+-    int height = 0;
+-
+-    for (height = y; height < y + tileheight; height++) {
+-    	bp = (int *)(((char *)desktop) + (3 * ((height * adjust_screen_size(SCREEN_WIDTH)) + x)));
+-    	be = (int *)(((char *)desktop) + (3 * ((height * adjust_screen_size(SCREEN_WIDTH)) + x + tilewidth)));
+-    	while ((bp + 1) <= be)
+-		{
+-			// hval *= 0x01000193;
+-			hval += (hval << 1) + (hval << 4) + (hval << 7) + (hval << 8) + (hval << 24);
+-			hval ^= *bp++;
+-		}
+-
+-    	if (be - bp >= 0) {
+-    		hval += (hval << 1) + (hval << 4) + (hval << 7) + (hval << 8) + (hval << 24);
+-    		hval ^= (*(int *)(((char *)be) - 3));
+-    	}
+-    }
+-
+-    return hval;
++	uint32_t checksum;
++	if (result == NULL || desktopsize <= 0 ||
++		!sc_tile_crc_rgb24((const uint8_t *)desktop, (uint64_t)desktopsize,
++			SCREEN_WIDTH, TILE_WIDTH, x, y, tilewidth, tileheight, &checksum)) return -1;
++	*result = (int)checksum;
++	return 0;
+ }
+ 
+ /******************************************************************************
+@@ -221,7 +205,8 @@
+ 	*bufferSize = 0;
+ 
+ 	if (g_tileInfo[row][col].flag == TILE_TODO) { //First check whether the tile-crc needs to be calculated or not.
+-		if ((CRC = util_crc(x, y, TILE_HEIGHT * TILE_WIDTH * 3, desktop, desktopsize, TILE_WIDTH, TILE_HEIGHT)) == g_tileInfo[row][col].crc) return 0;
++		if (util_crc(x, y, desktop, desktopsize, TILE_WIDTH, TILE_HEIGHT, &CRC) != 0) return -1;
++		if (CRC == g_tileInfo[row][col].crc) return 0;
+ 		g_tileInfo[row][col].crc = CRC; //Update the tile CRC in the global data structure.
+ 	}
+ 
+@@ -237,7 +222,7 @@
+ 		CRC = g_tileInfo[row][rightcol].crc;
+ 
+ 		if (g_tileInfo[row][rightcol].flag == TILE_TODO) {
+-			CRC = util_crc(r_x, y, TILE_HEIGHT * TILE_WIDTH * 3, desktop, desktopsize, TILE_WIDTH, TILE_HEIGHT);
++			if (util_crc(r_x, y, desktop, desktopsize, TILE_WIDTH, TILE_HEIGHT, &CRC) != 0) return -1;
+ 		}
+ 
+ 		if (CRC != g_tileInfo[row][rightcol].crc || g_tileInfo[row][rightcol].flag == TILE_MARKED_NOT_SENT) { //If the tile has changed, increment the capturewidth.
+@@ -283,7 +268,7 @@
+ 
+ 			CRC = g_tileInfo[botrow][rcol].crc;
+ 			if (g_tileInfo[botrow][rcol].flag == TILE_TODO) {
+-				CRC = util_crc(r_x, r_y, TILE_HEIGHT * TILE_WIDTH * 3, desktop, desktopsize, TILE_WIDTH, TILE_HEIGHT);
++				if (util_crc(r_x, r_y, desktop, desktopsize, TILE_WIDTH, TILE_HEIGHT, &CRC) != 0) return -1;
+ 			}
+ 
+ 			if (CRC != g_tileInfo[botrow][rcol].crc || g_tileInfo[botrow][rcol].flag == TILE_MARKED_NOT_SENT) {
+--- a/meshcore/KVM/Linux/linux_kvm.c
++++ b/meshcore/KVM/Linux/linux_kvm.c
+@@ -1329,7 +1329,11 @@
+ 						continue;
+ 					}
+ 
+-					getTileAt(width, height, &buf, &tilesize, desktop, desktopsize, y, x);
++					if (getTileAt(width, height, &buf, &tilesize, desktop, desktopsize, y, x) < 0)
++					{
++						g_shutdown = 1;
++						break;
++					}
+ 
+ 					if (buf && !g_shutdown)
+ 					{

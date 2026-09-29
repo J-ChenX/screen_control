@@ -1,0 +1,13 @@
+{
+  "status": "candidate-not-deployed",
+  "baselineCommit": "62b206e0b485b296e8a73a6547cef02bbf5a2d62",
+  "upstreamFixCommits": [
+    "29ce82c2c281c5f03993e3ae02a14c1b39380610",
+    "c1405433a5aabb051951e0cbccc1e2697e36d419"
+  ],
+  "sourceArchiveSha256": "90931268906e6dd174a048949fa2e28200cca56f909d99aa4be843bfa918e602",
+  "backportPatchSha256": "43718a55230bdba8f7e0cfdced8a7ec23bc4a7eeae8e594d212be4257aa95adf",
+  "candidateSha256": "bf5717afac08db477d822eeefc49867b4181cd79aca8fee06fcc7eeff9b63868",
+  "build": "make linux ARCHID=6 -j4",
+  "note": "保留旧基线，仅回移回收相关补丁；旧基线的 __APPLE__ 平台条件保留。编译通过不等于可部署。"
+}

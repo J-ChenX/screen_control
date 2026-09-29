@@ -1,6 +1,6 @@
 // 在本次专用临时目录验证真实普通用户文件进程，不读取或覆盖用户已有文件。
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 const device = process.argv[2];
@@ -9,6 +9,15 @@ const token = process.argv[4];
 const directory = process.env.SCREEN_CONTROL_PERF_DIRECTORY;
 if (!['echova', 'nix', 'jiang-chenx'].includes(device) || !['current', 'staged', 'local'].includes(mode) || !/^perf-[a-z0-9-]+$/.test(token ?? '') || !directory?.replaceAll('\\', '/').split('/').at(-1)?.startsWith('screen-control-perf-')) throw new Error('只允许本次登记设备与隔离目录');
 const targets = Object.fromEntries((process.env.SCREEN_CONTROL_FILE_SSH_TARGETS ?? '').split(',').map(entry => entry.split('=')));
+if (mode !== 'local' && !targets[device]) throw new Error('缺少已登记的文件 SSH 目标');
+if (mode === 'staged') {
+  // 文件专用 SSH 可能使用 ForceCommand；它会忽略 staged 路径却仍返回成功。
+  const probe = spawnSync('ssh', ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=8', '--', targets[device], 'printf SCREEN_CONTROL_STAGED_COMMAND_OK'],
+    { encoding: 'utf8', timeout: 12000, maxBuffer: 4096 });
+  if (probe.status !== 0 || probe.stdout !== 'SCREEN_CONTROL_STAGED_COMMAND_OK') {
+    throw new Error('SSH 目标未执行 staged 命令；可能启用了 ForceCommand，拒绝将当前进程误报为候选');
+  }
+}
 const workerPath = mode === 'staged' ? `staging/${token}` : 'current';
 const command = device === 'jiang-chenx' ? `"%USERPROFILE%\\.local\\lib\\screen-control-files\\${workerPath.replaceAll('/', '\\')}\\screen-control-files.exe"` : `exec "$HOME/.local/lib/screen-control-files/${workerPath}/screen-control-files"`;
 const child = mode === 'local' ? spawn(process.env.SCREEN_CONTROL_PERF_BINARY, [], { stdio: ['pipe', 'pipe', 'pipe'] }) : spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=8', '--', targets[device], command], { stdio: ['pipe', 'pipe', 'pipe'] });
