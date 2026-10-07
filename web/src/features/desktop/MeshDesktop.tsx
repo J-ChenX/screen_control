@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { ConnectionRecovery } from "../../network/recovery";
 import { normalizeCursorCommand } from "./cursor";
 import { installTouchInput } from "./touch";
+import { createDesktopViewport } from "./viewport";
 import { createDesktopSession, endDesktopSession, lockExitDesktopSession } from "../../api/client";
 import type { Device } from "../../app/model";
 import type { AgentRedirect, MeshDesktopModule } from "../meshcentral";
@@ -19,24 +20,28 @@ const labels: Record<SessionState, string> = {
   error: "连接失败",
 };
 
-export function fitRemoteCanvas(screenWidth: number, screenHeight: number, viewportWidth: number, viewportHeight: number) {
-  if (screenWidth <= 0 || screenHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) return { width: 0, height: 0 };
-  const scale = Math.min(viewportWidth / screenWidth, viewportHeight / screenHeight);
-  return { width: Math.round(screenWidth * scale), height: Math.round(screenHeight * scale) };
-}
+export { fitRemoteCanvas } from "./viewport";
 
 export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: { device: Device; toolbarTarget: HTMLElement | null; inputSuspended?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const memoryCleanupRef = useRef<(() => void) | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<ReturnType<typeof createDesktopViewport> | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [moving, setMoving] = useState(false);
+  const movingRef = useRef(false);
   const redirectRef = useRef<AgentRedirect<MeshDesktopModule> | null>(null);
   const inputSuspendedRef = useRef(inputSuspended);
   inputSuspendedRef.current = inputSuspended;
   useEffect(() => {
     const module = redirectRef.current?.m;
     if (!module) return;
-    if (inputSuspended) { module.UnGrabKeyInput(); module.UnGrabMouseInput(); }
-    else if (state === "connected") { module.GrabKeyInput(); module.GrabMouseInput(); }
+    if (inputSuspended) {
+      touchCleanupRef.current?.(); touchCleanupRef.current = null;
+      module.UnGrabKeyInput(); module.UnGrabMouseInput();
+    } else if (state === "connected" && !endingRef.current) {
+      module.GrabKeyInput(); module.GrabMouseInput(); installMobileInput(module);
+    }
   }, [inputSuspended]);
   const sessionRef = useRef<string | null>(null);
   const wheelCleanupRef = useRef<(() => void) | null>(null);
@@ -61,13 +66,17 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
   if (!recovery.current) recovery.current = new ConnectionRecovery(() => startRef.current());
 
   const fitCanvas = () => {
-    const canvas = canvasRef.current;
-    const viewport = viewportRef.current;
-    if (!canvas || !viewport) return;
-    const fitted = fitRemoteCanvas(canvas.width, canvas.height, viewport.clientWidth, viewport.clientHeight);
-    if (fitted.width === 0 || fitted.height === 0) return;
-    canvas.style.width = `${fitted.width}px`;
-    canvas.style.height = `${fitted.height}px`;
+    viewRef.current?.fit();
+  };
+
+  const installMobileInput = (module: MeshDesktopModule) => {
+    touchCleanupRef.current?.();
+    touchCleanupRef.current = installTouchInput(canvasRef.current!, module, () => rightClickRef.current, {
+      enabled: () => !inputSuspendedRef.current && !endingRef.current,
+      moving: () => movingRef.current,
+      zoomBy: (factor, anchor) => viewRef.current?.zoomBy(factor, anchor),
+      pan: delta => viewRef.current?.pan(delta),
+    });
   };
 
   const installWheelInput = (module: MeshDesktopModule) => {
@@ -76,6 +85,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     wheelCleanupRef.current?.();
     (canvas as HTMLCanvasElement & { onmousewheel: ((event: Event) => unknown) | null }).onmousewheel = null;
     const handleWheel = (event: WheelEvent) => {
+      if (inputSuspendedRef.current || endingRef.current) return;
       if (event.deltaY === 0) return;
       event.preventDefault();
       event.stopPropagation();
@@ -131,6 +141,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     recovery.current!.stop();
     // 锁屏期间禁止重连，保留中继直到服务端发出锁屏指令。
     generation.current++;
+    touchCleanupRef.current?.(); touchCleanupRef.current = null;
     redirectRef.current?.m.UnGrabKeyInput();
     redirectRef.current?.m.UnGrabMouseInput();
     let notice = "锁屏请求已发送，连接已结束；暂无法确认目标是否已锁屏。";
@@ -158,11 +169,13 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
 
   useEffect(() => {
     const viewport = viewportRef.current;
-    if (!viewport) return;
+    const canvas = canvasRef.current;
+    if (!viewport || !canvas) return;
+    viewRef.current = createDesktopViewport(canvas, viewport, setZoom);
     const observer = new ResizeObserver(fitCanvas);
     observer.observe(viewport);
     fitCanvas();
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); viewRef.current = null; };
   }, []);
 
   const start = async () => {
@@ -225,8 +238,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
             activeRedirect.m.GrabKeyInput();
           }
           installWheelInput(activeRedirect.m);
-          touchCleanupRef.current?.();
-          touchCleanupRef.current = installTouchInput(canvasRef.current!, activeRedirect.m, () => rightClickRef.current);
+          if (!inputSuspendedRef.current) installMobileInput(activeRedirect.m);
           setState("connected");
         }
         if (relayState === 0 && sessionRef.current) {
@@ -265,7 +277,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
   const active = state === "starting" || state === "relay" || state === "connected";
 
   return (
-    <div className={`mesh-desktop mesh-desktop-${state}`}>
+    <div className={`mesh-desktop mesh-desktop-${state}`} onKeyDownCapture={event => { if (event.target !== canvasRef.current) event.stopPropagation(); }} onKeyUpCapture={event => { if (event.target !== canvasRef.current) event.stopPropagation(); }} onKeyPressCapture={event => { if (event.target !== canvasRef.current) event.stopPropagation(); }}>
       <div className="mesh-canvas-wrap" ref={viewportRef}>
         <canvas
           ref={canvasRef}
@@ -290,6 +302,11 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
         {active && state !== "connected" && <div className="mesh-connecting"><span /><strong>{labels[state]}</strong></div>}
       </div>
       {toolbarTarget && createPortal(<>
+        <div className="desktop-zoom-controls" role="group" aria-label="画面缩放">
+          <button aria-label="缩小画面" disabled={zoom <= 1} onClick={() => viewRef.current?.zoomBy(1 / 1.5)}>−</button>
+          <button title="恢复完整画面" onClick={() => { viewRef.current?.reset(); movingRef.current = false; setMoving(false); }}>适应 · {Math.round(zoom * 100)}%</button>
+          <button aria-label="放大画面" disabled={zoom >= 8} onClick={() => viewRef.current?.zoomBy(1.5)}>＋</button>
+        </div>
         <span className="desktop-session-status" role="status" aria-label={labels[state]} title={labels[state]}>
           <span aria-hidden="true" className={state === "connected" ? "live-dot" : "session-state-dot"} />
           <span className="desktop-session-label">{labels[state]}</span>
@@ -303,10 +320,14 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
         <button onClick={() => void lockAndStop()} disabled={ending || (!active && !recovery.current!.enabled)} title="锁定被控电脑并结束连接；直接返回不会锁屏">{ending ? "正在结束…" : state === "connected" ? "锁屏并结束连接" : "结束连接"}</button>
       </>, toolbarTarget)}
       <div className="mobile-input-toolbar" aria-label="触屏控制" hidden={state !== "connected"}>
-        <span>轻触点击，按住拖动</span>
+        <span>单指点击 / 拖动控屏 · 双指缩放 / 移动画面</span>
+        <button aria-pressed={moving} onClick={() => { movingRef.current = !moving; setMoving(!moving); }}>移画面{moving ? "：开" : "：关"}</button>
+        {moving && <div className="desktop-pan-controls" role="group" aria-label="移动画面">
+          {[[100, 0, "向左查看"], [-100, 0, "向右查看"], [0, 100, "向上查看"], [0, -100, "向下查看"]].map(([x, y, label]) => <button key={label} onClick={() => viewRef.current?.pan({ x: Number(x), y: Number(y) })}>{label}</button>)}
+        </div>}
         <button aria-pressed={rightClick} onClick={() => { rightClickRef.current = !rightClick; setRightClick(!rightClick); }}>右键{rightClick ? "：开" : "：关"}</button>
         {[[-40, "向下滚动"], [40, "向上滚动"]].map(([delta, label]) => <button key={label} onClick={() => {
-          const rect = canvasRef.current!.getBoundingClientRect();
+          const rect = viewportRef.current!.getBoundingClientRect();
           const module = redirectRef.current?.m;
           module?.SendMouseMsg(module.KeyAction.SCROLL, { pageX: rect.left + rect.width / 2 + window.scrollX, pageY: rect.top + rect.height / 2 + window.scrollY, wheelDelta: Number(delta) });
         }}>{label}</button>)}
@@ -315,7 +336,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           module?.SendKeyMsgKC(module.KeyAction.DOWN, Number(code));
           module?.SendKeyMsgKC(module.KeyAction.UP, Number(code));
         }}>{label}</button>)}
-        <input aria-label="远程输入文字" placeholder="输入文字后发送" value={inputText} onChange={(event) => setInputText(event.target.value)} onFocus={() => redirectRef.current?.m.UnGrabKeyInput()} onBlur={() => { if (state === "connected") redirectRef.current?.m.GrabKeyInput(); }} />
+        <input aria-label="远程输入文字" placeholder="输入文字后发送" value={inputText} onChange={(event) => setInputText(event.target.value)} onFocus={() => redirectRef.current?.m.UnGrabKeyInput()} onBlur={() => { if (state === "connected" && !inputSuspendedRef.current && !endingRef.current) redirectRef.current?.m.GrabKeyInput(); }} />
         <button disabled={!inputText} onClick={() => { redirectRef.current?.m.SendStringUnicode(inputText); setInputText(""); }}>发送文字</button>
       </div>
       {lockNotice && <div className="mesh-error" role="status">{lockNotice}</div>}

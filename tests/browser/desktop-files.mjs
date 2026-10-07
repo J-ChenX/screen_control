@@ -38,7 +38,7 @@ try {
   await expect(button).toBeVisible();
   const rect=await button.boundingBox();assert.ok(rect.x>=0 && rect.x+rect.width<=width);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  if(width===1440) { await page.getByRole('button',{name:'进入全屏'}).click();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true); }
+  if(width===1440) { await page.getByRole('button',{name:'进入全屏'}).click();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await page.getByRole('button',{name:'工具',exact:true}).click(); }
   await button.click();
   const popup=page.getByRole('dialog',{name:'文件传输 · echova',exact:true});
   await expect(popup).toBeVisible();

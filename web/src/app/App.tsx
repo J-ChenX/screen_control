@@ -292,21 +292,35 @@ function DesktopView({ device, devices, localDeviceId, goBack, blocked, navigate
   const workspaceRef = useRef<HTMLElement>(null);
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
+  const [toolsVisible, setToolsVisible] = useState(true);
 
   useEffect(() => {
-    const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const update = () => {
+      const fullscreen = Boolean(document.fullscreenElement);
+      setIsFullscreen(fullscreen);
+      setToolsVisible(!fullscreen);
+    };
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
 
   const toggleFullscreen = async () => {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await workspaceRef.current?.requestFullscreen();
+    if (isFullscreen) {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      setIsFullscreen(false);
+      setToolsVisible(true);
+    } else {
+      setIsFullscreen(true);
+      setToolsVisible(false);
+      // 不支持原生全屏的手机浏览器仍使用铺满页面的沉浸布局。
+      try { await workspaceRef.current?.requestFullscreen?.(); } catch { /* 保留页面内全屏。 */ }
+    }
   };
 
   return (
-    <section className="desktop-workspace" ref={workspaceRef}>
-      <header className="desktop-commandbar">
+    <section className={`desktop-workspace${isFullscreen ? " desktop-immersive" : ""}${isFullscreen && !toolsVisible ? " desktop-tools-hidden" : ""}`} ref={workspaceRef}>
+      {isFullscreen && <button className="desktop-tools-toggle" aria-expanded={toolsVisible} aria-controls="desktop-commandbar" onKeyDown={event => event.stopPropagation()} onKeyUp={event => event.stopPropagation()} onKeyPress={event => event.stopPropagation()} onClick={() => setToolsVisible(!toolsVisible)}>{toolsVisible ? "收起工具" : "工具"}</button>}
+      <header className="desktop-commandbar" id="desktop-commandbar" onKeyDownCapture={event => event.stopPropagation()} onKeyUpCapture={event => event.stopPropagation()} onKeyPressCapture={event => event.stopPropagation()}>
         <button className="desktop-back" onClick={goBack}><Icon name="arrow" size={18} />返回</button>
         <div><strong>{device.name}</strong><span>{device.platform} · 主屏控制</span><StatusPill state={desktop.state} detail={desktop.detail} /></div>
         <div className="desktop-session-slot" ref={setToolbarTarget} />

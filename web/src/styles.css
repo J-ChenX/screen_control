@@ -194,7 +194,7 @@ button:focus-visible { outline: 3px solid rgba(36, 165, 136, .3); outline-offset
 .desktop-mode .content { max-width: none; height: 100vh; padding: 0; }
 .desktop-workspace { height: 100vh; height: 100dvh; display: flex; flex-direction: column; color: #c8d7d6; background: #07171c; }
 .desktop-workspace:fullscreen { width: 100vw; height: 100vh; height: 100dvh; }
-.desktop-commandbar { min-height: 58px; flex-shrink: 0; display: flex; align-items: center; gap: 18px; padding: 8px 16px; border-bottom: 1px solid #20383e; background: #0c2026; }
+.desktop-commandbar { min-height: 58px; flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #20383e; background: #0c2026; }
 .desktop-commandbar > div:not(.desktop-session-slot) { flex: 1; min-width: 0; }
 .desktop-commandbar > div > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desktop-session-status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
@@ -237,7 +237,7 @@ button:focus-visible { outline: 3px solid rgba(36, 165, 136, .3); outline-offset
 .session-toolbar button.lock-exit { display: flex; align-items: center; gap: 6px; color: #f2c98d; border-color: #705c3d; background: #3a3228; }
 .mesh-desktop { position: relative; height: 478px; display: flex; flex-direction: column; background: #07171c; }
 .mesh-canvas-wrap { min-height: 0; position: relative; display: flex; flex: 1; align-items: center; justify-content: center; overflow: hidden; }
-.mesh-canvas-wrap canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; outline: none; background: #000; touch-action: none; }
+.mesh-canvas-wrap canvas { position: absolute; display: block; width: auto; height: auto; max-width: none; max-height: none; outline: none; background: #000; touch-action: none; }
 .mesh-canvas-wrap canvas:focus-visible { box-shadow: inset 0 0 0 3px rgba(45,199,157,.45); }
 .mesh-desktop-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px; text-align: center; color: #88a0a2; background: radial-gradient(circle at 50% 42%, rgba(28,105,91,.22), transparent 33%), #102229; }
 .mesh-desktop-empty h2 { margin: 18px 0 7px; color: #dce8e7; font-size: 15px; }
@@ -570,8 +570,8 @@ footer span:first-child { color: #6b777f; font-weight: 800; }
 
 .mobile-input-toolbar { display: none; }
 @media (pointer: coarse) {
-  .mobile-input-toolbar:not([hidden]) { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #fff; }
-  .mobile-input-toolbar button, .mobile-input-toolbar input { min-height: 44px; border: 1px solid #ccd5d0; border-radius: 6px; padding: 8px; }
+  .mobile-input-toolbar:not([hidden]) { display: flex; flex-wrap: wrap; flex-shrink: 0; max-height: 36dvh; overflow: auto; gap: 8px; padding: 10px; color: #c8d7d6; background: #0c2026; }
+  .mobile-input-toolbar button, .mobile-input-toolbar input { min-height: 44px; border: 1px solid #315058; border-radius: 6px; padding: 8px; color: #e0ebea; background: #142d34; font-size: 12px; }
   .mobile-input-toolbar span { flex-basis: 100%; font-size: 12px; }
   .mobile-input-toolbar input { min-width: 0; flex: 1; }
   .mesh-desktop { min-height: 0; }
@@ -944,4 +944,24 @@ footer span:first-child { color: #6b777f; font-weight: 800; }
   .file-action-controls { flex-basis: 100%; }
   .file-workspace-page .file-action-controls > button, .file-action-controls > .file-create-wrap { flex: 1; }
   .file-workspace-page .file-create-wrap > .file-create-button { width: 100%; }
+}
+
+/* 控屏缩放使用实际画布尺寸；全屏工具浮在画面上，不占画面高度。 */
+.desktop-commandbar .desktop-session-slot { flex-wrap: wrap; }
+.desktop-zoom-controls { display: flex; gap: 4px; align-items: center; }
+.desktop-commandbar .desktop-zoom-controls button { min-width: 36px; justify-content: center; }
+.desktop-commandbar button:disabled { opacity: .45; cursor: default; }
+.desktop-commandbar button:hover:not(:disabled), .desktop-tools-toggle:hover { background: #24464c; border-color: #62c7ad; }
+.desktop-commandbar button:focus-visible, .desktop-tools-toggle:focus-visible, .mobile-input-toolbar :is(button, input):focus-visible { outline: 2px solid #62c7ad; outline-offset: 2px; }
+.desktop-immersive { position: fixed; inset: 0; width: 100%; height: 100dvh; z-index: 80; }
+.desktop-immersive .desktop-commandbar { position: absolute; inset: 0 0 auto; z-index: 3; padding: max(8px, env(safe-area-inset-top)) calc(100px + env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); max-height: 40dvh; overflow: auto; background: rgba(12,32,38,.96); }
+.desktop-tools-toggle { position: absolute; z-index: 4; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); min-width: 64px; min-height: 44px; padding: 8px 12px; border: 1px solid #315058; border-radius: 8px; color: #e0ebea; background: rgba(12,32,38,.88); font-size: 12px; }
+.desktop-immersive .mobile-input-toolbar:not([hidden]) { position: absolute; z-index: 3; inset: auto 0 0; max-height: 40dvh; overflow: auto; padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+.desktop-tools-hidden .desktop-commandbar, .desktop-tools-hidden .mobile-input-toolbar:not([hidden]) { display: none; }
+.desktop-pan-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (pointer: coarse) {
+  .desktop-commandbar :is(button, .desktop-file-transfer) { min-height: 44px; font-size: 12px; }
+  .desktop-commandbar .desktop-zoom-controls button { min-width: 44px; }
+  .mobile-input-toolbar button[aria-pressed="true"] { border-color: #62c7ad; background: #215047; }
+  .mobile-input-toolbar button:hover { background: #24464c; }
 }

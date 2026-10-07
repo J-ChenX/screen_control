@@ -1,4 +1,4 @@
-// 六项隔离回归共用临时端口；不加载私有配置或连接真实后端。
+// 隔离回归共用临时端口；不加载私有配置或连接真实后端。
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { access, mkdir, mkdtemp } from 'node:fs/promises';
@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 const root = resolve(import.meta.dirname, '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { preview } = await import(pathToFileURL(require.resolve('vite')).href);
-const scenarios = ['files', 'transfer-window', 'directory-performance', 'desktop-files', 'desktop-lock-exit', 'desktop-performance'];
+const scenarios = ['files', 'transfer-window', 'directory-performance', 'desktop-files', 'desktop-lock-exit', 'desktop-performance', 'desktop-mobile'];
 const selected = process.argv.slice(2);
 if (selected.some(name => !scenarios.includes(name))) {
   throw new Error(`支持的隔离场景：${scenarios.join(', ')}`);
