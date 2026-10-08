@@ -1,187 +1,110 @@
+<p align="center">
+  <img src="web/public/logo.svg" width="80" height="80" alt="Screen Control 标志" />
+</p>
+
 # Screen Control
 
-私有部署值现在通过根目录 `.env` 加载；配置步骤、系统服务和 Windows 说明见 [配置指南](docs/CONFIGURATION.md)。公开示例见 [.env.example](.env.example)。
+**在浏览器中连接自己的电脑，统一处理远程桌面、文件与剪贴板。**
 
-> 公开版本已将实际地址与用户路径替换为配置变量/占位符；历史环境记录不表示当前部署配置。变量说明见根目录 `.env.example` 和 `docs/CONFIGURATION.md`。
+[![CI](https://github.com/J-ChenX/screen_control/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/J-ChenX/screen_control/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-08705C.svg)](LICENSE)
+[![阶段：G0 桥接](https://img.shields.io/badge/阶段-G0_桥接-d97706.svg)](docs/ROADMAP.md)
 
-这是一个供四台已登记 Tailscale 电脑与 xiaomi-15 手机使用的私人网页远控项目。当前已经提供 G0 实机桥接：门户会从 MeshCentral 读取 `echova`、`nix`、`Jiang_ChenX`、`lerrem` 的权威在线状态，并可在自有桌面视图中建立真实画面、输入与文件通道。
+[使用指南](docs/USAGE.md) · [配置指南](docs/CONFIGURATION.md) · [文档导航](docs/README.md) · [参与贡献](CONTRIBUTING.md) · [安全政策](SECURITY.md)
 
-这仍不是生产服务：正式身份模块、统一文件数据面、独立桌面源站、生产级会话/租约与完整 G0/G3 证据门尚未完成。统一套件只绑定回环地址，再由 Tailscale Serve 暴露给 Tailscale 私有网络；不要绑定 `0.0.0.0`，也不要暴露到局域网或公网。
+Screen Control 是一个面向个人登记设备的网页远控项目，以 Tailscale 私有网络为主要入口。当前环境包含四台电脑与一部 Android 手机：电脑可以互相控屏和复制文件，手机作为浏览器控制端使用。门户使用 Go 与 React/TypeScript，桌面通道桥接 MeshCentral，文件操作由目标电脑的普通用户进程执行，剪贴板由独立的 SyncClipboard 服务同步。
 
-## 环境要求
+> **当前为 G0 实机桥接，尚未完成生产验收。** 正式身份模块、生产会话与租约、独立桌面源站、统一文件数据面及完整 G0/G3 证据门仍有待完成。此仓库适合了解实现、参与开发和按说明配置自有环境；不能直接视作通用多用户远控服务。
 
-- `mise`
-- GNU Make
-- Docker（仅运行 MeshCentral G0 尖峰时需要）
+## 当前能力
 
-项目由 [.mise.toml](.mise.toml) 固定 Go、Node.js 和 Rust，前端由 `web/package.json` 固定 pnpm；Rust 同时由 `rust-toolchain.toml` 固定并接受一致性校验。不要用系统中的近似版本替代正式验证。
+| 能力 | 已有实现 | 边界与限制 |
+| --- | --- | --- |
+| 设备门户 | 读取 MeshCentral 权威在线状态，识别已登记的来源设备 | 来源基于服务端 Tailscale 节点身份；不能控屏连接自身 |
+| 远程桌面 | 真实画面、键鼠输入、画质切换、断线恢复、控屏内文件弹窗 | 恢复不重放旧输入；只有明确“锁屏并结束连接”才请求锁屏，尚无锁屏完成回执 |
+| 手机控制 | 点击、拖动、常用按键、文字发送、全屏与缩放平移 | 手机作为控制端，不安装 MeshAgent，也不提供被控手机存储入口 |
+| 文件工作区 | 双栏浏览、排序、共享文件夹收藏、上传下载、临时预览、压缩、设备间复制 | 普通用户权限；覆盖与删除须确认；永久删除，无回收站或断点续传 |
+| 文件夹传输 | 普通用户进程自动打包、流式转发和隔离解压 | 目标同名目录拒绝合并；受磁盘空间与系统权限约束；未确认结果不报告成功 |
+| 剪贴板 | 独立 SyncClipboard 侧车与历史保留补丁 | 非收藏历史按既有 48 小时规则清理；浏览器不承担后台同步 |
+| 可选 HTTPS 网关 | 独立设备访问密钥、登录 Cookie、API 与 WebSocket 代理 | 默认关闭，需单独配置；不能直接公开原 G0 入口 |
 
-## 第一次安装
+详细交互、浏览器存储限制和各设备验证范围见[使用指南](docs/USAGE.md)。
+
+## 当前运行链路
+
+```mermaid
+flowchart LR
+    Browser["电脑 / 手机浏览器"] --> Tail["Tailscale 私有入口"]
+    Browser -. "可选，独立鉴权" .-> Gateway["HTTPS 网关"]
+    Tail --> Portal["Go 门户 + React 界面"]
+    Gateway --> Portal
+    Portal --> Mesh["MeshCentral 桌面中继"]
+    Mesh --> Agent["目标电脑 MeshAgent"]
+    Portal --> SSH["已核验 SSH 通道"]
+    SSH --> Files["目标普通用户文件进程"]
+    Clipboard["SyncClipboard 客户端"] <--> Sync["独立剪贴板服务"]
+```
+
+该图描述当前桥接链路。设备间文件正文由浏览器逐块转发，目标确认后继续；规划中的端点直传、生产授权链与模块关系见[架构全景](docs/ARCHITECTURE.md)。架构和早期任务文档含历史三机范围，当前能力与限制以本页及使用、配置指南为入口。
+
+## 快速开始
+
+### 只开发与验证
+
+需要 Git、GNU Make、[mise](https://mise.jdx.dev/) 以及 C 编译器。Python、OpenSSL、GnuPG 等宿主工具要求见[测试说明](tests/README.md)与[工具链清单](deploy/releases/current/toolchain.lock.json)。Docker 仅在运行 MeshCentral 尖峰时需要。
 
 ```bash
+git clone https://github.com/J-ChenX/screen_control.git
+cd screen_control
 make setup
-```
-
-该命令安装锁定的 Go/Node/Rust 工具链，并按锁文件安装前端依赖。
-
-## Rust 的实际接入范围
-
-当前日常套件仍由 Go 门户后端、Go 普通用户文件进程和 React/TypeScript 前端组成，`make build`、`make bundle` 不会构建或安装 Rust MeshAgent。`native/protocol-core` 与 `native/protocol-ffi` 提供 WebSocket 帧、分片和图像缓冲处理，由[独立候选构建](deploy/g0/meshagent/rust-native/README.md)接入上游 MeshAgent；候选尚未完成正式发布和长期验收，不能表述为“全项目已完成 Rust 优化”。
-
-2026-09-29，含 Rust 的 Windows 工件已接入已登记设备并按摘要管理，实际运行状态见[工件清单](deploy/g0/meshagent/rust-native/windows-runtime-manifest.json)。Rust 负责分片缓冲所有权与释放、帧处理和 Windows 图块边界；最后分片扩容不再预留倍增空间，正常输入对照中输出容量从 20,000 降至 10,003 字节，连接结束本条消息后保留容量为零。Ubuntu 设备 `nix`、`echova`、`lerrem` 同日已同步共享 Rust 优化和 Linux 图像处理，并修正采集暂停；逐机状态、回滚与回收限制见[Ubuntu 更新记录](docs/performance/UBUNTU_RUST_RUNTIME_20260929.md)及[Linux 工件清单](deploy/g0/meshagent/rust-native/linux-runtime-manifest.json)。Windows 的主进程常驻增加、整体内存和长期回收限制仍见[实机记录](docs/performance/RUST_RUNTIME_20260929.md)，不能把局部分配收益外推为整机降幅。
-
-Python 负责运维、构建编排和跨语言验证；JS/MJS 负责 MeshCentral 管理包装与浏览器回归。文件扩展名比例不代表运行时性能或迁移完成度。脚本分工、清理依据和测试入口见[测试与流程维护](tests/README.md)。
-
-## 启动 G0 门户
-
-```bash
-make dev
-```
-
-`make dev` 会同时启动 `127.0.0.1:8787` 的 Go 桥接后端、兼容跳转入口和仅绑定 Tailscale IP 的门户；关闭命令时三者会一起退出。
-
-开发模式入口为 `${SCREEN_CONTROL_DEV_ORIGIN}`；日常使用请优先采用下方不带端口的统一套件入口。
-
-`http://127.0.0.1:5173` 只保留为本机开发兼容地址，打开时会以 `308` 跳转到上述统一入口；它不再作为用户入口记录或分发。
-
-统一入口的 TCP 流量由 Tailscale WireGuard 隧道加密。当前已启用 Tailscale HTTP Serve；Tailscale 私有网络管理端尚未启用 HTTPS 证书，因此管理员授权前浏览器地址仍是 HTTP。若 Windows 开启了系统代理，需将 `*.your-tailnet.ts.net` 放入代理例外；当前登记的 Windows 设备已经配置。
-
-桥接后端通过配置连接 `${SCREEN_CONTROL_MESH_URL}`。桌面通道使用禁止文件和终端权限的 `g0-desktop`；历史 Mesh 文件账号 `g0-files` 已不用于文件页；文件页改用 `SCREEN_CONTROL_FILE_SSH_TARGETS` 指定的普通用户通道。原 Mesh 配置的两个密码分别从权限为 `0600` 的 `${SCREEN_CONTROL_MESH_PASSWORD_FILE}` 和 `${SCREEN_CONTROL_MESH_FILE_PASSWORD_FILE}` 读取。可通过对应的 `SCREEN_CONTROL_MESH_*` 环境变量覆盖；不要把密码写进命令行、URL 或仓库。
-
-文件页沿用 G0 文件消息，通过目标普通用户文件进程浏览磁盘、刷新、新建目录、重命名、上传、下载与永久删除。覆盖必须确认，永久删除必须选择目标并输入“删除”；设备间复制采用有接收确认的逐块转发，无固定传输大小上限，也不依赖浏览器磁盘。右键下载到浏览器的大文件仍使用私有磁盘暂存。支持通过浏览器中继在电脑间逐个复制多个文件，但不包含生产文件数据面计划中的回收站、断点续传、哈希校验和端点直传。
-
-文件页可选择当前电脑作为来源或接收端，设备名称旁标注“本机”；只有控屏禁止连接自身。使用 Ctrl/⌘ 点选增减选择、Shift 连选；普通点选替换当前选择。选好文件后点击“发送到目标设备名”复制到另一侧当前目录。界面不再提供多选模式、全选、取消选择或下载到本机按钮；单文件仍可右键选择“下载”。复制逐项等待目标确认，同名覆盖逐项确认；取消覆盖、失败或断线后停止队列，显示已完成数量，不自动重试。文件夹可直接发送：来源端自动生成临时 `.tar.gz`，目标端完整接收后自动解压，保留原目录名、子目录和空目录；仅在解压完成后报告成功。目标已有同名项目时拒绝传输，请先改名。
-
-文件操作现由目标设备的普通用户文件进程执行，经已核验的 SSH 通道传输，不再使用 root/SYSTEM MeshAgent 写文件。Linux 新文件归接收用户所有，权限 `0600`；Windows 使用登录账号与目录 ACL。Linux 覆盖保留权限模式位，Windows 接收文件继承目标目录 ACL，权限不足或文件通道未配置时明确失败，不提权、不回退旧代理。安装、配置及回滚见 [普通用户文件通道](deploy/g0/files/README.md)。此前产生的 root 文件不会被自动接管，需要定向核对后单独修复。
-
-也可以预览生产构建：
-
-```bash
-make build
-make preview
-```
-
-然后三台设备统一打开 `${SCREEN_CONTROL_PREVIEW_ORIGIN}`；本机 `http://127.0.0.1:4173` 仅作兼容跳转。构建产物 `bin/screen-control --serve` 可单独运行桥接后端；不带参数时只输出构建信息。
-
-## 安装统一 Tailscale 套件
-
-日常使用推荐安装统一套件，不再分别启动 Go 和 Vite：
-
-```bash
-make install-suite
-make configure-tailscale
-```
-
-安装完成后，三台设备统一打开 `${SCREEN_CONTROL_CANONICAL_ORIGIN}/`；当前 Tailscale 私有网络尚未启用证书，HTTP 正文仍由底层 Tailscale/WireGuard 加密，启用证书并重新运行配置脚本后同一入口自动升级为 HTTPS。旧的默认端口入口只负责把浏览器导航到这个直接 Tailscale 入口。门户根据真实套接字对端调用 LocalAPI `WhoIsForIP`，把 Tailscale 稳定节点 ID 映射为登记设备，不再要求浏览器手工选择，也不接受前端自报的当前设备。SyncClipboard 继续以独立侧车运行。
-
-另外两台设备的 SyncClipboard 只需迁移一次服务器地址；Linux 和 Windows 脚本及回滚说明位于 `deploy/g0/suite/`。在三台设备都完成迁移前保留 cpolar，可避免剪贴板中断。详细说明见 `deploy/g0/suite/README.md`。
-
-SyncClipboard 非收藏历史超过最近复制／使用时间（不早于创建时间）48 小时后自动清除，收藏保留；置顶但未收藏不豁免，原有数量上限继续生效。三台客户端及服务端已部署配套清理补丁，离线设备重新同步后收敛；规则见[历史保留说明](deploy/g0/suite/syncclipboard-retention/README.md)，最新修复与备份见[图片和历史修复](docs/performance/SYNCCLIPBOARD_IMAGE_HISTORY_REPAIR_20260928.md)。
-
-也可生成一个可搬运的安装包：
-
-```bash
-make bundle
-```
-
-产物为 `dist/screen-control-suite.tar.gz`。
-
-## 验证
-
-```bash
+make doctor
 make test
 make verify
 ```
 
-`make test` 汇总 Rust/C ABI、Python 运维、Go 普通与竞态测试、前端测试和类型检查；也可分别执行 `make test-native`、`make test-operations`、`make test-go`、`make test-web`。`make verify` 检查锁定工具链、验证场景模式及 MeshCentral 静态配置。
-
-隔离浏览器回归使用独立入口，自动构建前端、启动回环预览、顺序运行六项场景并关闭预览，不需要手工启动 Go 或 Vite：
+`make setup` 按 `.mise.toml` 与前端锁文件安装固定工具链和依赖。这些开发检查不要求连接真实设备，不会安装或重启线上服务。安装锁定 Chromium 后，可运行六项隔离浏览器回归：
 
 ```bash
 mise exec -- corepack pnpm --dir web exec playwright install chromium
 make test-browser
 ```
 
-浏览器默认使用锁定 Playwright 配套的 Chromium；实机对照可显式设置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`，该结果需注明所用浏览器。CI 也运行这六项隔离场景。真实设备、网关与原生候选专项的前置条件见[测试入口说明](tests/README.md)。
+### 连接自有环境
 
-## MeshCentral G0 尖峰
-
-尖峰配置位于 `deploy/spike/meshcentral/`。当前门户使用该环境完成 G0 实机桥接，但它只允许在 `echova` 的隔离环境中运行，不能视为生产部署。先阅读该目录 README 并执行静态校验：
+先按[配置指南](docs/CONFIGURATION.md)填写 `.env`，准备已登记的 Tailscale 身份、MeshCentral 桌面账号和普通用户文件通道；示例值不能直接用于部署。
 
 ```bash
-mise exec -- python3 deploy/spike/meshcentral/verify.py
+cp .env.example .env
+chmod 600 .env
+# 按配置指南填写私有值，并将凭据放入受限文件。
+make dev
 ```
 
-真实 G0 会修改三台机器的服务/网络状态并包含重启，必须按 `docs/tasks/private-web-remote-remote/_INDEX.md` 的八个工作包逐项执行和留存签名证据。
+门户入口由 `SCREEN_CONTROL_DEV_ORIGIN` 等现有配置决定。生产构建、统一套件、手机接入与网关安装的完整步骤见[使用指南](docs/USAGE.md)。统一套件绑定回环地址，通过 Tailscale Serve 接入；可选公网访问必须使用独立 HTTPS 网关。
 
-## 桌面连接恢复
+## 代码与文档地图
 
-桌面中继每 20 秒并行探测浏览器与上游，两段探测共用本轮 10 秒截止时间，互不串行占用预算。断线后以 1～30 秒退避重建通道，连续稳定连接 30 秒后重置失败次数；浏览器网络恢复事件会加快待执行的重试。手动重新连接会取消待执行的自动重试，结束连接后不再自动恢复。桌面已连接时，点击“锁屏并结束连接”会向被控电脑发送系统锁屏请求后断开；直接返回、关闭页面或意外断线不会触发锁屏。连接尚未建立时，“结束连接”仅取消连接。当前 MeshAgent 不提供锁屏完成回执，页面不会将请求已发送表述为已锁屏；失败或结果未知时需检查目标电脑。恢复不重放旧输入或文件操作，不改变原有会话到期规则。
+| 路径 | 职责 |
+| --- | --- |
+| [`cmd/`](cmd/) | Go 门户与普通用户文件进程入口 |
+| [`internal/`](internal/) | 桥接、文件操作、身份适配、协议与门户后端 |
+| [`web/`](web/) | React/TypeScript 门户、控屏与文件工作区 |
+| [`native/`](native/) | Rust 协议核心和 C ABI；独立 MeshAgent 候选集成 |
+| [`deploy/`](deploy/) | 当前桥接、套件、网关与候选构建部署说明 |
+| [`ops/`](ops/) | 配置加载、引导、备份、网络保护与验收工具 |
+| [`tests/`](tests/README.md) | 运维、原生、浏览器和性能专项 |
+| [`docs/`](docs/README.md) | 使用、架构、契约、规划和可追溯证据 |
 
-桌面默认保留 JPEG 质量 60 与原分辨率，将采集间隔由 80 毫秒调整为 40 毫秒（理论上限约 25 次/秒）。顶部“流畅”按钮可在当前连接中切换：开启后 JPEG 质量为 45、传输宽高各减半，像素数降至四分之一，以减少带宽和解码负担；文字清晰度也会降低。关闭后恢复原画质和分辨率。自动重连保留本次选择，离开控屏页后恢复默认。重复的屏幕尺寸通知不再清空同尺寸画布。
+Rust 已通过独立候选工件接入部分实机，日常 `make build` / `make bundle` 仍构建 Go 与前端，不会构建或安装 Rust MeshAgent。适用范围和内存测量见[使用指南](docs/USAGE.md#rust-的实际接入范围)与[内存评估](docs/performance/MEMORY.md)。
 
-这些是 G0 中继的参数与绘制优化，实际帧率仍受目标采集/编码、网络和浏览器影响，不代表已经通过短边 1080、动态画面持续 25 FPS 的实机验证；流畅模式可能低于短边 1080。
+## 质量与协作
 
-## 项目入口
+CI 覆盖 Linux/Windows Rust 与 Go、Go 兼容版本和 Linux 竞态检查、前端测试/类型检查/构建、六项隔离浏览器回归及 Python 运维检查。徽章显示真实主分支状态；通过 CI 不表示真实设备或生产阶段门已经验收。
 
-- 架构与当前状态：`docs/ARCHITECTURE.md`
-- 当前任务指针：`docs/tasks/_ACTIVE.md`
-- 完整需求：`docs/tasks/private-web-remote/_INDEX.md`
-- 远控 G0：`docs/tasks/private-web-remote-remote/_INDEX.md`
-- 验证入口：`ops/verify/run`
+提交问题前请查看[支持说明](SUPPORT.md)。欢迎通过 Issue 反馈缺陷或讨论功能，通过 PR 改进代码和文档；具体开发流程见[贡献指南](CONTRIBUTING.md)，交流遵循[行为准则](CODE_OF_CONDUCT.md)。漏洞请使用[私密安全报告](SECURITY.md)，避免在公开 Issue 中附上凭据、屏幕内容或个人文件。
 
-## 手机控制端 xiaomi-15
-
-已登记手机：`xiaomi-15`，Tailscale IPv4 `${SCREEN_CONTROL_PHONE_IP}`。身份通过 Tailscale 稳定节点 ID 验证，IP 只用于接入核对。手机不安装 MeshAgent，不出现在被控电脑或远程文件代理列表中。
-
-手机连接 Tailscale 后打开 `${SCREEN_CONTROL_CANONICAL_ORIGIN}/`。可控制四台已登记电脑；轻触点击、按住拖动，触屏工具栏提供右键、滚动、常用按键和文字发送。文件页沿用浏览器文件选择上传、下载与电脑间复制，设备间复制逐块转发，不依赖浏览器磁盘；其他电脑不能直接浏览手机存储，手机文件由手机用户主动选择上传。
-
-控屏进入全屏后默认收起上下工具栏，画面使用整个可用视口；点击右上角“工具”展开浮动工具栏，使用后可“收起工具”。双指张合缩放、双指拖动查看局部，倍率为适应尺寸的 1–8 倍；也可用“＋”“−”按钮缩放，点击“适应”恢复完整画面。“移画面：开”时单指只移动本地画面，关闭后恢复单指控屏；移动按钮也可查看四个方向。双指手势结束后需重新落指才能控屏，取消或断线不会重放输入。横竖屏切换保留倍率并重新适应视口。不支持或拒绝原生全屏的浏览器使用页面内全屏，浏览器自身的地址栏仍由浏览器管理。工具栏的“退出全屏”恢复常规布局，不结束连接、不锁屏。
-
-剪贴板沿用同一 SyncClipboard 服务和原有账号。当前已运行的 Tailscale TCP 转发入口是 `${SCREEN_CONTROL_CLIPBOARD_URL}`，启用 HTTPS 后可使用 `${SCREEN_CONTROL_CLIPBOARD_URL}`。手机需安装与现有服务器版本兼容的 Android 客户端，填写相同服务地址及账号；请参照 [SyncClipboard Android 文档](https://github.com/Jeric-X/SyncClipboard#android)。手机端后台同步能力取决于客户端与系统权限，浏览器页面不承担后台剪贴板同步。
-
-## 可选 HTTPS 公网网关
-
-为浏览器跨 VPN/代理网络访问增加了独立鉴权入口，默认关闭。该入口使用每设备随机访问密钥与 8 小时登录 Cookie，统一代理网页、API 和 WebSocket；原 Tailscale 私有入口继续保留。公网域名和反向隧道尚需配置，不能直接公开旧 G0 入口。部署、撤销和实际限制见 [HTTPS 网关说明](deploy/gateway/README.md)。
+[路线图](docs/ROADMAP.md)说明当前实现与生产规划的边界；[变更记录](CHANGELOG.md)只记录可追溯的已有变化；[仓库维护说明](docs/REPOSITORY.md)记录 GitHub 配置与检查依据。
 
 ## 开源协议
 
-本项目自有代码采用 [MIT 协议](LICENSE)，版权归 Nix Jiang 所有。第三方依赖及其资源仍遵循各自的许可证。
-
-控屏顶部的“文件传输”打开页内弹窗，直接连接当前被控设备；当前电脑默认作为另一侧接收端，手机可通过浏览器上传、下载。弹窗期间保留桌面连接并暂停远程键鼠捕获，关闭后恢复控屏；关闭弹窗会结束文件会话并中断未完成的传输。
-
-设备间文件管理在桌面端将两个等高文件框延伸至页面底部，填满剩余视口，不随目录项目数量变化；文件列表与收藏栏在框内独立滚动，手机端保持固定高度并上下排列。文件页不显示页脚说明，公网网关的退出登录入口移至顶部。地址栏使用带箭头的“返回上一级”文字按钮，点击区域至少高 44 像素；窄屏将路径输入独立成行。文件页按钮的悬停保持文字对比度与布局稳定；主操作、普通操作和危险操作分别配色，并提供键盘焦点标识。
-
-文件列表支持名称、修改时间、大小排序及升降序，目录保持优先。Ctrl/⌘ 多选后右键“压缩选中项（当前设备）”，调用设备自带系统 tar 生成 `.tar.gz`，仅保存在当前设备当前目录，不触发跨设备复制。支持普通文件和文件夹，拒绝符号链接、特殊文件、同名输出及目录越界；输入总大小上限 512 MB、执行最长 2 分钟。失败不发布目标包，成功以 `compressed/reqid/name` 确认；断线后结果未确认须检查目录，不自动重试。请求为 `compress/reqid/path/name/names`，后端独立校验且不接受工具路径、命令或跨设备目标。
-
-文件面板左侧提供按目标设备区分的文件夹收藏，由服务端统一保存，已登记电脑和手机共享同一份列表与排序；打开的页面约每 3 秒同步，切回页面时立即刷新。旧浏览器收藏在访问对应设备时自动合并一次，去重且不覆盖已有列表；可右键文件夹、拖入同一设备的收藏栏或点击“收藏当前目录”添加，点击收藏打开，点击 × 取消。收藏栏整栏（包括标题、按钮、列表间隙和底部空白）均可接收拖入，拖动时高亮整个区域；拖动收藏项调整顺序，插入线显示目标位置，顺序随收藏一起保存；重复拖入不会创建副本。手机可从文件夹图标拖入，通过收藏项左侧手柄拖动排序；手柄也支持上下方向键排序。拖动只改变收藏，不移动远端文件。普通文件和磁盘根入口不能收藏。已收藏文件夹使用亮绿色实心图标与白色星标；手机端也保留收藏栏。收藏保存的是路径，文件夹改名或删除后需取消旧收藏并重新添加；打开仍由设备端校验访问权限。文件图标按文件名与扩展名区分图片、视频、音频、PDF、文档、表格、演示文稿、压缩包、代码、配置和程序，未知类型保留通用图标，不读取文件内容。
-
-### 文件夹自动传输（2026-09-17 更新）
-
-选择文件夹后使用“发送到目标设备名”，普通用户文件进程自动打包、传输和解压，无需手工处理压缩包。文件和文件夹传输不设固定大小或项目数上限；设备间复制由浏览器逐块转发，接收端确认上一块后才请求来源的下一块，不聚合整个文件，不依赖 OPFS、安全上下文或浏览器磁盘配额。仍受源端临时空间、目标磁盘空间和普通用户权限约束。右键“下载”保存到浏览器时，大于 16 MiB 的文件仍使用 OPFS 暂存，需要支持该接口的安全上下文及足够浏览器存储配额。文件夹内的符号链接（包括断链、绝对路径和目录外引用）只复制链接本身、不读取其目标；解压最后创建链接，不允许归档利用链接向目录外写入。套接字、设备节点、管道等运行时特殊文件无法按普通文件复制，会报告具体路径，不静默跳过。Windows 专有文件名限制仅在 Windows 目标上校验；Windows 创建符号链接仍须操作系统授予当前用户权限。解压先写入目标目录中的隔离临时目录，完整成功后发布；已有同名文件或文件夹不合并、不覆盖，请先改名。临时包在完成、失败或正常断线时清理；强制结束进程可能留下临时文件。断线或超时不重试，结果未确认时请检查目标目录。Linux 新文件 `0600`（源文件有属主执行位时保留为 `0700`）、目录 `0700`，Windows 沿用普通用户和目标目录 ACL。此功能仍为 G0 浏览器中继，不代表生产文件数据面验收通过。
-
-Windows 文件页使用 `C:/` 等绝对盘符路径；选择磁盘、刷新和从子目录返回时保留根目录斜杠，手动输入 `C:` 自动转为 `C:/`。读取失败显示“无法访问该目录”，不会同时显示空目录提示。
-
-文件地址栏的“根目录”返回该设备文件窗口首次打开的目录，与初次连接使用相同入口；Linux 返回默认用户目录，Windows 返回初始磁盘列表。“返回上一级”仍按当前路径逐级返回。
-
-### 文件临时预览与桌面目录跳转
-
-文件工作区顶部先选择设备与传输方向；每侧窗口依次显示目录标题和控屏入口、路径导航、排序与文件操作。桌面双栏保持一致层级，手机自动换行，选中数量显示在操作栏。
-
-文件传输窗口中双击文件或右键选择“预览”，可临时查看常见图片、PDF 和 UTF-8 文本（含 Markdown、CSV、代码）。预览上限 16 MiB；HTML、脚本仅显示为纯文本，不执行。关闭时释放临时资源，读取中关闭会取消该次读取，不保存到下载目录、不上传第三方服务。Word、Excel、PowerPoint 等格式暂不支持，请下载后使用本机应用打开。PDF 显示依赖浏览器自带阅读器。
-
-点击文件传输窗口顶部的目录标题区的“在控屏中打开目录”，或右键文件/文件夹选择“在控屏中打开所在目录”，会请求目标电脑的系统文件管理器打开该目录，随后跳转并自动连接控屏。文件定位其父目录，文件夹打开自身；本机一侧显示禁用按钮并提示切换目标设备，不允许控屏跳转。该操作需要目标文件进程升级且对应普通用户已登录图形桌面；Windows 使用当前用户普通权限的临时交互任务，执行后删除，不保存密码、不提权。返回启动回执只表示请求已受理，窗口与路径仍须在控屏画面确认；失败、超时或重连不会自动重放。
-
-控屏中的文件传输弹窗接近全屏宽高，桌面端两侧文件框填满剩余空间，手机端在弹窗内上下滚动且保留关闭入口。排序与设备选择统一使用向下展开的自定义菜单，支持方向键、Home/End、Enter、Esc 和点击外部关闭；菜单不会被文件框裁切。
-
-## 新电脑 lerrem 接入（2026-09-22）
-
-`lerrem`（Ubuntu 22.04、X11）已接入现有 Tailscale 私有入口，支持作为控制端及被控电脑，并安装普通用户文件进程。桌面代理随系统启动，网络规则仅允许已登记的 Tailscale 地址；私有地址、稳定节点 ID 与 SSH 目标保存在既有私有配置中，配置方式见 [第四台电脑配置](docs/CONFIGURATION.md#第四台电脑-lerrem)。
-
-本次已验证来源身份识别、代理在线、真实浏览器桌面画面，以及隔离文件上传、覆盖、下载的内容哈希和普通用户属主权限。首次安装的定时回退在 SSH 救援与代理检查通过后取消，服务器旧配置及门户版本保留供回滚。本次未重启新电脑，未验证登录前、锁屏和重启后控屏；未新增 SyncClipboard 同步或公网网关密钥，不代表 G0/G3 正式验收完成。
-
-## 内存管理
-
-门户对会话数量和流式中继缓冲设限；桌面图块逐块解码并在绘制后释放；积压时暂停采集、回落后恢复，异常积压自动清理并请求完整画面，保持会话连接；结束后释放画布。Linux 门户与 MeshAgent 服务增加内存预算，超出硬上限可能中断连接并重启。后台常驻与使用期间的测量、C++/Rust 评估、部署范围及尚未完成的长期验证见[内存预算与语言选型评估](docs/performance/MEMORY.md)。
-
-剪贴板客户端恢复与 lerrem 接入（2026-09-28）：三台 Linux 已启用双向同步与通知重连修复，保留 48 小时历史清理；Windows 本次因 SSH 连接超时尚未更新。详见[部署验证与回滚](docs/performance/SYNCCLIPBOARD_LATENCY_20260928.md)。
+本项目自有代码采用 [MIT 协议](LICENSE)，版权归 Nix Jiang 所有。MeshCentral、MeshAgent、SyncClipboard 及其他第三方代码和资源遵循各自许可证；本仓库的 MIT 协议不替代第三方许可义务。

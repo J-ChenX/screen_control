@@ -2,8 +2,10 @@ import importlib.util
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +43,13 @@ class BackupRestoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir="/dev/shm") as temporary:
             key = Path(temporary) / "backup.key"
             MODULE.init_key(key)
-            result = MODULE.exercise(key)
+            # 使用独立 GnuPG 目录，避免依赖 runner 或开发者已有的密钥配置。
+            with tempfile.TemporaryDirectory(prefix="screen-control-gpg-") as gnupg_home:
+                with patch.dict(os.environ, {"GNUPGHOME": gnupg_home}):
+                    try:
+                        result = MODULE.exercise(key)
+                    finally:
+                        subprocess.run(["gpgconf", "--kill", "gpg-agent"], check=True)
         self.assertEqual(result["status"], "passed")
         self.assertTrue(result["sourceUnchanged"])
         self.assertTrue(result["isolatedRestore"])
