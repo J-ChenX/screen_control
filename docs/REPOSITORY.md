@@ -18,17 +18,32 @@
 
 ## 自动检查
 
-[CI](../.github/workflows/ci.yml)在 PR、`main` 推送和手动触发时运行，保留现有跨平台矩阵。只读 `contents` 权限、完整 Action SHA、关闭 checkout 凭据保留、作业超时和 PR 并发取消共同限制不必要的授权与资源占用。
+[CI](../.github/workflows/ci.yml)是唯一自建工作流入口，将构建、测试与 CodeQL 集中到同一个流程。Linux 统一使用 `ubuntu-22.04`，Windows 保留 `windows-2025`；不建立 Ubuntu 小版本矩阵。托管 runner 的内核和软件包会更新，该标签不能代替真实设备的环境快照或实机验收。
 
-- Go：生产版本 Linux/Windows、下一兼容版本 Linux，全包测试、`go vet`、Linux 竞态检查与两个可执行入口的构建。
-- Rust：Linux/Windows 格式、测试、Clippy 和静态库，Linux 补充 C ABI sanitizer。
-- 前端：先安装固定 Node/pnpm，再按锁文件安装依赖，执行类型检查、测试、构建和六项隔离 Chromium 场景。关闭依赖未安装时会调用 pnpm 的 setup-node 缓存初始化。
-- 运维：Python 回归、当前工具链清单、bootstrap 场景 dry-run 与 MeshCentral 静态配置校验。
-- 工作流：Linux Go 作业使用固定 actionlint 版本检查工作流结构与表达式。
+| 触发与变更 | 实际运行范围 |
+| --- | --- |
+| PR 仅修改 Markdown、许可证、CODEOWNERS 或 Issue 表单 | 变更与文档轻量检查；不编译、不启动浏览器、不运行 CodeQL |
+| PR 修改 Go 源码 | Go Linux/Windows、Linux 竞态与相关 Go CodeQL |
+| PR 修改前端或浏览器场景 | 前端测试、类型检查、构建、七项隔离浏览器回归及相关 CodeQL |
+| PR 修改 Rust / C ABI | Linux/Windows 原生检查及 Linux C ABI sanitizer |
+| PR 修改运维或部署实现 | 运维回归与静态校验，Python/JS 改动追加对应 CodeQL |
+| PR 修改应用锁文件或清单 | 对应模块检查，并校验当前工具链固定哈希 |
+| PR 修改工作流、CI 范围判断、共享构建配置，或范围无法确定 | 保守运行全量，Go 下一兼容版本仍留给主分支或手动检查 |
+| `main` 推送或手动触发 | 全量构建、测试、四语言 CodeQL 和 Go 下一兼容版本 |
 
-[CodeQL](../.github/workflows/codeql.yml)单独分析 Go、JavaScript/TypeScript、Python 与 GitHub Actions。Go 使用固定工具链和显式构建，不运行部署目标；只有扫描作业获得 `security-events: write` 用于上传结果。该配置不宣称覆盖所有 Rust、C/C++、第三方上游或实机权限问题。
+[范围判断脚本](../ops/ci/plan.py)仅使用 Python 标准库与 Git 提交差异，包含删除和重命名两侧路径；未知文件不会静默跳过。轻量入口每次执行范围选择回归、可确定提交差异的 `git diff --check`，并核对本次修改 Markdown 的本地链接路径。文档检查不执行代码示例，不访问外部链接，也不验证锚点。
 
-两份工作流均使用普通 `pull_request`，不在特权上下文 checkout 外部 PR，不访问私人环境。检查结果以实际 GitHub run 为准；成功上传扫描结果不等于没有漏洞，告警仍需逐项核查。
+各检查的职责保留：
+
+- Go 生产版本在 Linux/Windows 执行全包测试、`go vet` 和两个可执行入口构建；Linux 补充竞态和固定 actionlint。下一兼容版本只在主分支/手动执行测试与构建。
+- Rust 在 Linux/Windows 执行测试、Clippy 和静态库构建；格式检查与 C ABI sanitizer 在 Linux 执行。
+- 前端先安装固定 Node/pnpm 和锁文件依赖，执行测试、构建与浏览器回归。`build` 已包含 TypeScript 检查，CI 不重复执行 `tsc`；本地 `make test-web` 保持原入口。
+- 运维执行 Python 回归、工具链清单、bootstrap dry-run 和 MeshCentral 静态配置校验。
+- CodeQL 对 PR 按相关语言分析，主分支/手动运行 Go、JavaScript/TypeScript、Python 与 Actions。Go 显式构建；仅扫描作业拥有 `security-events: write`。不宣称覆盖 Rust、C/C++、第三方上游或实机权限问题。
+
+工作流始终接收普通 `pull_request`，通过作业条件跳过无关检查，避免在工作流层过滤后留下阻塞合并的 Pending 必需检查。仍使用只读权限、完整 Action SHA、关闭 checkout 凭据保留、超时与 PR 并发取消；不在特权上下文 checkout 外部 PR，不访问私人环境。
+
+当前未修改分支保护。后续启用时须核对必需检查名称及作业跳过语义；CI / CodeQL 成功不等于正式生产验收或没有安全告警。
 
 ## GitHub 管理端核对
 
@@ -66,7 +81,7 @@
 git diff --check
 make test-operations
 make verify
-mise exec -- go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/codeql.yml
+mise exec -- go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/ci.yml
 ```
 
 actionlint 使用固定工具版本，只检查工作流，不修改应用依赖。YAML 和文档变动还须检查表单字段唯一性、本地链接与使用说明的相对路径；行为或构建矩阵发生变化时执行受影响检查。发布前查看 GitHub 实际 CI / CodeQL 结果，不把本地通过写成远端通过。

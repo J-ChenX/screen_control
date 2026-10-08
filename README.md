@@ -62,7 +62,7 @@ make test
 make verify
 ```
 
-`make setup` 按 `.mise.toml` 与前端锁文件安装固定工具链和依赖。这些开发检查不要求连接真实设备，不会安装或重启线上服务。安装锁定 Chromium 后，可运行六项隔离浏览器回归：
+`make setup` 按 `.mise.toml` 与前端锁文件安装固定工具链和依赖。这些开发检查不要求连接真实设备，不会安装或重启线上服务。安装锁定 Chromium 后，可运行七项隔离浏览器回归：
 
 ```bash
 mise exec -- corepack pnpm --dir web exec playwright install chromium
@@ -99,7 +99,7 @@ Rust 已通过独立候选工件接入部分实机，日常 `make build` / `make
 
 ## 质量与协作
 
-CI 覆盖 Linux/Windows Rust 与 Go、Go 兼容版本和 Linux 竞态检查、前端测试/类型检查/构建、六项隔离浏览器回归及 Python 运维检查。徽章显示真实主分支状态；通过 CI 不表示真实设备或生产阶段门已经验收。
+CI 与 CodeQL 共用一个入口，Linux 使用 `ubuntu-22.04`，保留 Windows、Go 竞态、Rust/C ABI、前端和七项隔离浏览器回归。PR 按变更范围执行，纯文档走轻量检查；主分支与手动触发保留完整回归、四语言扫描及 Go 兼容版本。徽章显示真实主分支状态；通过 CI 不表示真实设备或生产阶段门已经验收。
 
 提交问题前请查看[支持说明](SUPPORT.md)。欢迎通过 Issue 反馈缺陷或讨论功能，通过 PR 改进代码和文档；具体开发流程见[贡献指南](CONTRIBUTING.md)，交流遵循[行为准则](CODE_OF_CONDUCT.md)。漏洞请使用[私密安全报告](SECURITY.md)，避免在公开 Issue 中附上凭据、屏幕内容或个人文件。
 

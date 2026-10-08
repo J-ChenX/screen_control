@@ -5,7 +5,7 @@
 
 ## 当前开发检查与正式验收的区别
 
-日常开发检查使用根目录 `make test`、`make test-browser` 和 `make verify`，按模块运行及专项脚本说明见[测试与流程维护](../../tests/README.md)。其中六项隔离浏览器回归已接入 CI。下文的阶段门、完整浏览器矩阵和签名证据仍是正式验收契约；本地测试或静态检查通过不能自动标记这些门完成。
+日常开发检查使用根目录 `make test`、`make test-browser` 和 `make verify`，按模块运行及专项脚本说明见[测试与流程维护](../../tests/README.md)。其中七项隔离浏览器回归已接入 CI。当前日常 PR 按变更范围选择检查，Linux 使用 `ubuntu-22.04`，主分支和手动触发保留全量与下一 Go 兼容版；触发规则见[仓库维护说明](../REPOSITORY.md)。下列正式验收和发布候选要求不等同于已实现的日常 CI。下文的阶段门、完整浏览器矩阵和签名证据仍是正式验收契约；本地测试或静态检查通过不能自动标记这些门完成。
 
 ## 1. 单一入口与工作包契约
 
@@ -47,8 +47,8 @@
 
 | 触发 | 必跑矩阵 | 不允许替代的实机门 |
 |---|---|---|
-| PR | Go 生产版与下一兼容版 × Linux；Go 生产版 × Windows；Node 生产版；单元、竞态、契约、网页、lint、依赖/秘密扫描 | 无 |
-| 主分支 | PR 矩阵 + Linux/Windows 构建产物、SBOM、迁移 fresh/upgrade/rollback、Compose smoke | 无 |
+| PR | 按变更选择 Go 生产版 × Linux/Windows、Rust × Linux/Windows、Node 生产版、运维与相关语言扫描；保留对应单元、竞态、网页和 lint；仅文档执行轻量检查 | 无 |
+| 主分支 | 全量 PR 检查 + 下一 Go 兼容版；生产发布规划还需构建产物、SBOM、迁移 fresh/upgrade/rollback、Compose smoke，后者不能因日常 CI 通过而宣称完成 | 无 |
 | 发布候选 | 三台真实节点 × 其实际 OS/显示/GPU；锁定 Chromium、Firefox、Windows Edge；安全负测、E2E、备份恢复 | G0、G3、G4、G5、G6 不得由容器或模拟代替 |
 | 夜间/观察 | 24h SyncClipboard 长稳测试、容量/故障矩阵、依赖与镜像重扫 | 真实登录前/安全桌面、WebRTC 路径和跨机文件旅程仍在对应实机包执行 |
 
