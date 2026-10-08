@@ -46,6 +46,20 @@
 
 没有 Discussions、资助入口、自动关闭 Issue 或英文副本不构成缺陷；按实际维护需求启用，避免无用入口和重复文档。
 
+## 本次检查发现的依赖告警
+
+2026-10-08 启用 Dependabot alerts 后，仓库清单检出 7 项告警：1 项严重、5 项高危、1 项中危。它们在本次修改前已存在；下表记录当时 GitHub 给出的修复版本，不表示已经验证实际部署的可利用性。最新状态见[仓库依赖告警](https://github.com/J-ChenX/screen_control/security/dependabot)。
+
+| 清单与依赖 | 告警 | 当时已公布的修复版本 |
+| --- | --- | --- |
+| `deploy/spike/meshcentral/package-lock.json`：`proxy-addr` | 严重，IPv4-mapped IPv6 信任子网中的来源 IP 伪造 | `2.0.8`，见[告警 6](https://github.com/J-ChenX/screen_control/security/dependabot/6) |
+| 同上：`compression` | 高危，响应提前关闭导致内存泄漏与拒绝服务 | `1.8.2`，见[告警 5](https://github.com/J-ChenX/screen_control/security/dependabot/5) |
+| 同上：`node-forge` | 高危，RSA PKCS#1 v1.5 签名验证接受异常嵌套结构 | 尚无已公布修复版本，见[告警 4](https://github.com/J-ChenX/screen_control/security/dependabot/4) |
+| 同上：`brace-expansion` | 两项高危递归拒绝服务、一项中危 CPU 拒绝服务 | 同时覆盖当时三个范围需 `2.1.7`；见[告警 1](https://github.com/J-ChenX/screen_control/security/dependabot/1)、[2](https://github.com/J-ChenX/screen_control/security/dependabot/2)、[3](https://github.com/J-ChenX/screen_control/security/dependabot/3) |
+| `web/pnpm-lock.yaml`：`source-map-js`（开发依赖） | 高危，索引 source map 偏移导致事件循环拒绝服务 | `1.2.2`，见[告警 7](https://github.com/J-ChenX/screen_control/security/dependabot/7) |
+
+本次仓库建设没有升级应用或上游依赖。[项目约束](../AGENTS.md)第 4 节要求未经本次需求要求不升级依赖；MeshCentral 尖峰还在当前桥接链路使用，不能因目录名含 `spike` 忽略其告警。修复需要另行明确升级范围，核对上游支持、当前锁文件与固定哈希，运行相关测试，并按既有流程准备实际部署、备份和回滚。没有修复版本的 `node-forge` 需追踪上游处理及适用调用路径；不通过隐藏或忽略告警宣称安全通过。
+
 ## 本地检查与维护
 
 ```bash
