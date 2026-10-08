@@ -39,7 +39,9 @@ mise exec -- node tests/browser/run.mjs desktop-files desktop-lock-exit
 
 ## GitHub 检查与跨平台范围
 
-CI 对 Go 增加 `go vet` 与两个可执行入口构建，使用固定 actionlint 校验工作流；前端先安装固定 pnpm，再安装依赖，避免缓存初始化早于 pnpm。CodeQL 单独检查 Go、JavaScript/TypeScript、Python 与 Actions，结果和未覆盖范围见[仓库维护说明](../docs/REPOSITORY.md)。
+CI 与 CodeQL 共用一个入口，Linux 统一使用 `ubuntu-22.04`，Windows 检查继续保留。PR 按变更选择 Go、前端、原生、运维与相关语言扫描；文档 PR 只运行轻量检查，锁文件追加哈希校验，共享构建配置或范围未知时运行全量。主分支与手动触发保留全量及下一 Go 兼容版；字段与映射在 `ops/ci/plan.py`，回归在 `operations/test_ci_plan.py`。完整触发规则与未覆盖范围见[仓库维护说明](../docs/REPOSITORY.md)。
+
+Go 保留 `go vet`、两个入口构建及 Linux 生产版本竞态；原生格式检查集中在 Linux，Windows 测试与 Clippy 保留。前端固定 pnpm 初始化后安装依赖，`build` 包含类型检查，CI 不重复执行 `tsc`；本地 `make test-web` 不变。
 
 Windows 文件权限基于 ACL；共享测试继续验证内容、原子发布和权限保持，但只在支持的平台断言 POSIX `0600`。目录打开测试核对实际目录身份，兼容 Windows 临时路径大小写规范化；这不代替 Windows ACL 实机验收。加密备份回归使用隔离的 `GNUPGHOME` 并清理其 agent，不依赖 runner 或开发者原有 GnuPG 配置。
 
@@ -70,6 +72,6 @@ Windows 文件权限基于 ACL；共享测试继续验证内容、原子发布�
 - 合并 13 处浏览器启动配置；网关的 JS 场景从 Python 内嵌字符串移至独立文件，Python 继续承担临时 HTTPS 与后端进程生命周期。网关测试显式使用临时配置与模拟设备快照，避免继承真实后端配置和收藏路径。
 - 文件回归的非安全测试域名由 Playwright 转取回环静态资源，避免依赖系统 DNS 或代理；控屏文件弹窗的旧尺寸断言按当前接近全宽的布局修正，继续检查留白和视口边界。
 - 网关桌面模拟遵守连接回调可被清除的契约，修正停止阶段调用空回调导致重连检查失败的过时夹具。
-- 补齐六项隔离浏览器回归的统一入口并接入 CI，删除文件回归中可提前成功退出、跳过其余断言的临时 `SCREEN_CONTROL_PREVIEW_ONLY` 分支。
+- 补齐七项隔离浏览器回归的统一入口并接入 CI，删除文件回归中可提前成功退出、跳过其余断言的临时 `SCREEN_CONTROL_PREVIEW_ONLY` 分支。
 
 后续清理先核对调用方与覆盖范围。名称含 `spike`、使用 Python/JS、仅由人工执行或未被具名引用，都不足以证明文件可以删除。已替代实验从当前目录移除并留下历史定位；有独立覆盖的回归继续保留。
