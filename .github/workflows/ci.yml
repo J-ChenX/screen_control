@@ -4,12 +4,18 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   native:
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -17,6 +23,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - run: rustup show active-toolchain
       - run: cargo fmt --all --check
       - run: cargo test --workspace --locked
@@ -28,6 +36,7 @@ jobs:
           /tmp/websocket-abi
 
   go:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -39,24 +48,33 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ matrix.go }}
           cache-dependency-path: go.sum
       - run: go test ./...
+      - run: go vet ./...
+      - name: 检查 GitHub 工作流
+        if: runner.os == 'Linux' && matrix.go == '1.26.8'
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/codeql.yml
       - if: runner.os == 'Linux'
         run: go test -race ./...
-      - run: go build -trimpath ./cmd/screen-control
+      - run: go build -trimpath ./cmd/screen-control ./cmd/screen-control-files
 
   web:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24.20.0
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          # setup-node 的 pnpm 缓存要求 pnpm 已安装；先完成固定版本初始化。
+          package-manager-cache: false
       - run: corepack enable
       - run: corepack install --global pnpm@11.25.0
       - run: pnpm --dir web install --frozen-lockfile
@@ -67,12 +85,16 @@ jobs:
       - run: node tests/browser/run.mjs
 
   bootstrap-security:
+    timeout-minutes: 10
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.12.13
       - run: python -m unittest discover -s tests/operations -p 'test_*.py'
       - run: python ops/bootstrap/validate_toolchain.py
       - run: ./ops/verify/run suite bootstrap --dry-run
+      - run: python deploy/spike/meshcentral/verify.py

@@ -1,0 +1,33 @@
+name: 功能建议
+description: 说明使用场景、期望结果和可验证边界。
+title: "[建议] "
+body:
+  - type: markdown
+    attributes:
+      value: "先查看 [路线图](https://github.com/J-ChenX/screen_control/blob/main/docs/ROADMAP.md)。当前为 G0 桥接，请区分已有实现与生产规划。"
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题
+      description: 描述具体场景、用户角色和当前遇到的限制。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 期望行为与验收方式
+      description: 描述怎样的结果算完成，以及如何验证。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围与影响
+      description: 是否涉及手机、Windows/Linux、身份权限、文件数据、服务或网络边界？请不要附私人配置。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 现有方法与替代方案
+      description: 说明已经尝试的办法及其不足。

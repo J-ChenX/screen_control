@@ -12,8 +12,18 @@ func TestDirectoryToOpen(t *testing.T) {
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := directoryToOpen(directory); err != nil || got != directory {
-		t.Fatalf("合法目录未保持原样: %q %v", got, err)
+	got, err := directoryToOpen(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows 可能规范化临时目录的大小写；核对实际目录身份。
+	wantInfo, err := os.Stat(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotInfo, err := os.Stat(got)
+	if err != nil || !os.SameFile(wantInfo, gotInfo) {
+		t.Fatalf("合法目录身份改变: %q %v", got, err)
 	}
 	file := filepath.Join(root, "文件.txt")
 	if err := os.WriteFile(file, []byte("测试"), 0600); err != nil {

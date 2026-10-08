@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -64,7 +65,7 @@ func TestNewUploadBelongsToCurrentUserAndPreservesBinary(t *testing.T) {
 		t.Fatal("内容或普通用户读取失败")
 	}
 	info, _ := os.Stat(filepath.Join(dir, "中文文档.md"))
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("新文件权限 %v", info.Mode())
 	}
 }
@@ -112,7 +113,13 @@ func TestInterruptedAndChangedDestinationPreserveExistingFile(t *testing.T) {
 func TestOverwritePreservesModeAndRejectsReadonlyOrSymlink(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "file.md")
-	os.WriteFile(dest, []byte("old"), 0640)
+	if err := os.WriteFile(dest, []byte("old"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	w := &worker{out: &out}
 	defer w.close()
@@ -123,7 +130,7 @@ func TestOverwritePreservesModeAndRejectsReadonlyOrSymlink(t *testing.T) {
 		t.Fatal("空文件覆盖失败")
 	}
 	info, _ := os.Stat(dest)
-	if info.Mode().Perm() != 0640 || info.Size() != 0 {
+	if info.Mode().Perm() != before.Mode().Perm() || info.Size() != 0 {
 		t.Fatal("覆盖未保留权限")
 	}
 	os.Chmod(dest, 0400)

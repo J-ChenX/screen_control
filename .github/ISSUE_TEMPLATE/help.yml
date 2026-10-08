@@ -1,0 +1,32 @@
+name: 使用与文档反馈
+description: 提问安装、配置、使用方式，或反馈文档缺漏。
+title: "[支持] "
+body:
+  - type: markdown
+    attributes:
+      value: "请先查看 [支持说明](https://github.com/J-ChenX/screen_control/blob/main/SUPPORT.md)；不要发送真实地址、账号、配置文件或凭据。"
+  - type: dropdown
+    id: category
+    attributes:
+      label: 问题类型
+      options:
+        - 安装与工具链
+        - 启动与配置
+        - 日常使用
+        - 文档缺漏或错误
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 问题与环境
+      description: 请说明提交、系统、浏览器、入口类型或对应文档位置；未知项可注明。
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: 已查阅内容与尝试
+      description: 附相关文档链接、预期结果和脱敏错误片段。
+    validations:
+      required: true

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -63,7 +64,11 @@ func TestFavoritesSharedPersistentAndIsolatedByTarget(t *testing.T) {
 		t.Fatal(got)
 	}
 	info, err := os.Stat(file)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows 使用目录 ACL，POSIX 模式位只在支持的平台核对。
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatal("收藏文件权限应为 0600")
 	}
 }

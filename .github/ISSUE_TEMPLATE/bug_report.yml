@@ -1,0 +1,64 @@
+name: 缺陷报告
+description: 报告可复现的运行、界面或文件操作问题。
+title: "[缺陷] "
+body:
+  - type: markdown
+    attributes:
+      value: "安全漏洞请使用 [私密报告](https://github.com/J-ChenX/screen_control/security/advisories/new)。请仅附脱敏日志和合成数据，不发送配置、凭据或个人文件。"
+  - type: checkboxes
+    id: preparation
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索已有 Issue，确认本报告不包含凭据或个人内容。
+          required: true
+  - type: input
+    id: revision
+    attributes:
+      label: 提交或版本
+      description: 可运行 git rev-parse --short HEAD；不知道时请说明。
+      placeholder: 提交摘要或未知
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: 受影响组件
+      options:
+        - 门户与设备身份
+        - 远程桌面
+        - 文件管理与传输
+        - 手机控制端
+        - 剪贴板
+        - 安装、配置或网关
+        - 测试与 CI
+        - 尚不确定
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 填写系统、浏览器、来源/目标角色，以及开发入口、统一套件或 HTTPS 网关；不要填写真实地址。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 使用临时目录、测试账号和合成文件描述最小复现。
+      placeholder: "1. 打开……\n2. 执行……\n3. 观察……"
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: 预期与实际结果
+      description: 若操作结果未知，请说明，不要将未知结果写成成功。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏日志与补充信息
+      description: 可附最小错误片段和合成页面截图；不要上传完整 .env、Cookie、服务配置或私人桌面截图。

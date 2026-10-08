@@ -37,6 +37,12 @@ mise exec -- node tests/browser/run.mjs desktop-files desktop-lock-exit
 
 浏览器启动统一在 `support/browser.mjs`；默认使用锁定 Playwright 配套 Chromium。`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 仅用于明确选择其他浏览器的对照，不能冒充锁定工具链验收。整组执行的合成页面截图存入 `web/test-results/browser-*`，失败时保留；直接执行使用 `web/test-results/browser`，也可设置 `SCREEN_CONTROL_TEST_OUTPUT`。这些路径受 Git 忽略，不写入历史验收证据。
 
+## GitHub 检查与跨平台范围
+
+CI 对 Go 增加 `go vet` 与两个可执行入口构建，使用固定 actionlint 校验工作流；前端先安装固定 pnpm，再安装依赖，避免缓存初始化早于 pnpm。CodeQL 单独检查 Go、JavaScript/TypeScript、Python 与 Actions，结果和未覆盖范围见[仓库维护说明](../docs/REPOSITORY.md)。
+
+Windows 文件权限基于 ACL；共享测试继续验证内容、原子发布和权限保持，但只在支持的平台断言 POSIX `0600`。目录打开测试核对实际目录身份，兼容 Windows 临时路径大小写规范化；这不代替 Windows ACL 实机验收。加密备份回归使用隔离的 `GNUPGHOME` 并清理其 agent，不依赖 runner 或开发者原有 GnuPG 配置。
+
 ## 保留的专项脚本
 
 这些入口与上述本地检查有不同前置条件，不能因为未进入默认测试就判定过时，也不能用模拟回归替代实机结果。

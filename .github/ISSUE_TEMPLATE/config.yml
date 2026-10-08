@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密报告安全漏洞
+    url: https://github.com/J-ChenX/screen_control/security/advisories/new
+    about: 权限绕过、凭据泄漏等问题请通过私密渠道报告。
+  - name: 使用与配置说明
+    url: https://github.com/J-ChenX/screen_control/blob/main/docs/README.md
+    about: 先核对文档入口、当前实现范围与测试前置条件。
