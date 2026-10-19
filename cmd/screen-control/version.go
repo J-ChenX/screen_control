@@ -68,6 +68,15 @@ func main() {
 			}
 		}
 		bridge := g0bridge.NewServerWithIdentity(mesh, identityResolver, slog.Default(), splitValues(*allowedOrigins)...)
+		var network *g0bridge.NetworkTester
+		if strings.TrimSpace(*deviceNodes) != "" {
+			network, err = g0bridge.NewNetworkTester(*deviceNodes, os.Getenv("SCREEN_CONTROL_NETWORK_SSH_TARGETS"), os.Getenv("SCREEN_CONTROL_NETWORK_PROBE_VIA"))
+			if err != nil {
+				slog.Error("直连测试配置无效")
+				os.Exit(1)
+			}
+		}
+		bridge.SetNetworkTester(network)
 		if err := bridge.ConfigureFiles(*fileSSHTargets); err != nil {
 			slog.Error("文件通道配置无效")
 			os.Exit(1)
@@ -117,6 +126,7 @@ func main() {
 				os.Exit(1)
 			}
 			publicBridge.SetFavoriteStore(favorites)
+			publicBridge.SetNetworkTester(network)
 			publicAPI := publicBridge.Handler()
 			publicUI, uiErr := portalui.NewHandler(publicAPI, *portalDir)
 			if uiErr != nil {

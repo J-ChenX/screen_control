@@ -252,7 +252,7 @@ func (c *meshClient) Devices(ctx context.Context) ([]Device, error) {
 			continue
 		}
 		platform, role := "Ubuntu", "开发机"
-		if id == "echova" {
+		if id == "lerrem" {
 			role = "常驻服务端"
 		}
 		if id == "jiang-chenx" {

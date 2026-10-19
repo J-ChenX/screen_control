@@ -4,12 +4,12 @@
 
 浏览器 → HTTPS 443 网关/反向隧道 → **127.0.0.1:8791** → 受认证的 Portal/API/WebSocket → 原 MeshCentral/Tailscale 网络。
 
-此入口不依赖访问端 Tailscale 私网 DNS 或 VPN 的 DIRECT 规则。要求浏览器所在网络允许访问选定域名的 HTTPS 与 WebSocket，并且 echova 能连接隧道服务。受控端仍使用现有 Tailscale/MeshAgent 链路；尚未实现受控端的独立公网出站中继。不能保证任意网络下始终在线。
+此入口不依赖访问端 Tailscale 私网 DNS 或 VPN 的 DIRECT 规则。要求浏览器所在网络允许访问选定域名的 HTTPS 与 WebSocket，并且常驻主机 `lerrem` 能连接隧道服务。受控端仍使用现有 Tailscale/MeshAgent 链路；尚未实现受控端的独立公网出站中继。不能保证任意网络下始终在线。
 
 ## 上线步骤
 
 1. 准备一个实际可用的域名及 HTTPS 反向隧道。不要把旧的 8790、8444、4443 或 MeshCentral 管理页面映射到公网。
-2. 在 echova 运行（将域名替换为实际域名）：
+2. 在 `lerrem` 运行（将域名替换为实际域名）：
 
    ```bash
    python3 deploy/gateway/prepare.py --origin https://remote.your-domain.com
@@ -17,7 +17,7 @@
 
    创建 `~/.config/screen-control/gateway/`，包含权限为 0600 的凭据哈希、三台设备的独立随机访问密钥、环境配置和 Cloudflare 命名隧道示例。命令不打印密钥，不替换已有目录，也不修改网络。
 3. `make install-suite` 安装新服务。服务读取可选的 `%h/.config/screen-control/gateway/gateway.env`；如使用自定义目录，需自行配置 systemd EnvironmentFile。网关只能监听回环地址，原私有入口仍可使用。
-4. 按 `cloudflared.yml.example` 创建命名隧道和 DNS 记录，在 echova 运行连接器，保持 Host 为公网域名，并转发 WebSocket。TLS 必须由公网网关终止。若使用自建 VPS，需建立到回环地址的加密反向隧道，不能直接把 8791 绑定公网。
+4. 按 `cloudflared.yml.example` 创建命名隧道和 DNS 记录，在 `lerrem` 运行连接器，保持 Host 为公网域名，并转发 WebSocket。TLS 必须由公网网关终止。若使用自建 VPS，需建立到回环地址的加密反向隧道，不能直接把 8791 绑定公网。
 5. 将各 `.key` 文件通过现有受信 SSH 交给对应设备的用户；在浏览器登录页输入一次。密钥不得写入 URL、聊天、仓库、日志或网页 Storage。
 6. 从代理网络和手机热点测试：未登录访问 API 返回 401；登录后身份与签发设备对应；控屏、文件、退出和网络切换正常。必须验证实际长连接，不能只测首页。
 

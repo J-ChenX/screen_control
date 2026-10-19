@@ -32,7 +32,7 @@
 
 ## 私网认证与加密边界
 
-SyncClipboard 服务本体只监听 `echova` 回环地址，不直接监听 Tailscale 私有网络、LAN 或公网。`clipboard-gateway` 在 echova 的固定 Tailscale 地址上终止 TLS 1.3，并要求逐设备 mTLS；三台设备各有不同、不可导出的客户端私钥和证书序列号，证书绑定身份模块登记中的稳定设备 ID、用途 `syncclipboard`、登记代次和有效期。网关同时以真实套接字对端调用 `WhoIsForIP`，只有“mTLS 设备 ID = 套接字对端稳定节点 ID = 当前有效登记”时才代理到回环地址，任一身份源未知或不一致即失败关闭。
+SyncClipboard 服务本体只监听 `lerrem` 回环地址，不直接监听 Tailscale 私有网络、LAN 或公网。`clipboard-gateway` 在 lerrem 的固定 Tailscale 地址上终止 TLS 1.3，并要求逐设备 mTLS；三台设备各有不同、不可导出的客户端私钥和证书序列号，证书绑定身份模块登记中的稳定设备 ID、用途 `syncclipboard`、登记代次和有效期。网关同时以真实套接字对端调用 `WhoIsForIP`，只有“mTLS 设备 ID = 套接字对端稳定节点 ID = 当前有效登记”时才代理到回环地址，任一身份源未知或不一致即失败关闭。
 
 若 SyncClipboard 客户端不能直接提供客户端证书，则在每台机器以对应普通用户运行 `screen-control-clipboard-connector`：SyncClipboard 只连接本机回环地址连接器，连接器再以操作系统凭据存储中的逐设备证书建立 mTLS；禁止退化成三机共享密码、URL 令牌或明文 5033。服务端证书按精确 MagicDNS/FQDN 校验并固定受控 CA，不接受跳过验证、自签名任意信任或 HTTP 回退。连接器和网关均不得记录正文或凭据。
 
@@ -72,7 +72,7 @@ ReadClipboardHealth(device) -> ClipboardHealth{
 
 - 健康探针记录长度、摘要、队列状态和错误码，不记录剪贴板正文、文件正文或 SyncClipboard 凭据。
 - 配置/数据库/历史备份权限仅属对应普通用户或服务身份；仓库不保存真实 URL 凭据。
-- 只允许 `echova` 的受控私网服务入口；`nix`/客户端内置服务验证无用途后关闭。
+- 只允许 `lerrem` 的受控私网服务入口；`nix`/客户端内置服务验证无用途后关闭。
 - 在线 SyncClipboard 数据库、历史和队列为敏感内容：位于对应服务身份的加密卷/用户加密存储，目录最小权限；备份独立加密。探针使用专用合成标记并立即清理，不读取或导出既有真实正文。
 
 ## 安全负向门

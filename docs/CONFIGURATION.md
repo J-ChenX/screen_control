@@ -9,7 +9,7 @@ chmod 600 .env
 make dev
 ```
 
-本次迁移已为当前工作目录保存原配置为 `.env`，无需覆盖它。迁移前的源码备份在已忽略的 `evidence/env-migration-backup/`。
+已有部署应保留其实际私有配置，不要用示例覆盖。当前常驻服务端为 `lerrem`，已安装服务从下文所列的独立环境文件加载；根目录 `.env` 不一定存在。历史迁移备份仅适用于原迁移环境。
 
 ## 加载与优先级
 
@@ -37,15 +37,15 @@ Vite 的服务端配置使用相同字面值规则读取根目录 `.env` 或显�
 | `SCREEN_CONTROL_ALLOWED_ORIGINS` | 后端精确源站白名单，逗号分隔；不要填 `*` |
 | `SCREEN_CONTROL_DEV_ORIGIN` / `SCREEN_CONTROL_PREVIEW_ORIGIN` | 开发、预览的浏览器入口 |
 | `SCREEN_CONTROL_MESH_HOST` / `SCREEN_CONTROL_MESH_BIND_IP` | MeshCentral DNS 名称、监听 Tailscale IPv4 |
-| `SCREEN_CONTROL_REGISTERED_IPS` | 三台电脑的精确 Tailscale IPv4，逗号分隔；必须包含监听地址，不接受 CIDR、重复项或其他网段 |
+| `SCREEN_CONTROL_REGISTERED_IPS` | 已登记电脑的精确 Tailscale IPv4，逗号分隔；必须包含监听地址，不接受 CIDR、重复项或其他网段 |
 | `SCREEN_CONTROL_MESH_PORTAL_ORIGIN` | MeshCentral 允许嵌入的精确 HTTPS 源站 |
-| `SCREEN_CONTROL_NIX_*` / `SCREEN_CONTROL_ECHOVA_*` / `SCREEN_CONTROL_WINDOWS_*` | 运维节点地址、真实系统主机名、Tailscale DNS_NAME（首段名称）和 SSH 目标，字段见示例 |
+| `SCREEN_CONTROL_NIX_*` / `SCREEN_CONTROL_ECHOVA_*` / `SCREEN_CONTROL_WINDOWS_*` / `SCREEN_CONTROL_LERREM_*` | 运维节点地址、真实系统主机名、Tailscale DNS_NAME（首段名称）和 SSH 目标，字段见示例 |
 | `SCREEN_CONTROL_PHONE_HOSTNAME` / `SCREEN_CONTROL_PHONE_IP` | 手机登记身份的解析与地址核对 |
 | `SCREEN_CONTROL_TAILSCALE_IP` | 开发监听地址；未设置时通过本机 `tailscale ip -4` 获取 |
 | `SCREEN_CONTROL_CLIPBOARD_URL` | 剪贴板迁移目标；缺失时不修改客户端配置 |
 | `SCREEN_CONTROL_PROJECT_ROOT` | 系统级 MeshCentral 服务的项目绝对路径 |
 
-原有 `echova`、`nix`、`jiang-chenx`、`xiaomi-15` 保留为应用协议/登记 ID，第四台电脑使用 `lerrem`，不更换原有 ID。系统主机名与 Tailscale DNS_NAME 分别由环境配置（Windows 两者常不相同），MeshCentral 当前仍通过既有设备名称映射这些电脑 ID；不要仅在环境中修改设备 ID。它们仍可关联个人身份，若希望完全匿名开源，需要单独迁移 ID 和历史记录。
+原有 `echova`、`nix`、`jiang-chenx`、`xiaomi-15` 保留为应用协议/登记 ID，第四台电脑使用 `lerrem`，不更换原有 ID。常驻角色现由 `lerrem` 承担，`SCREEN_CONTROL_ECHOVA_*` 继续定位 `echova`，不能改填 `lerrem` 的值。MeshCentral 地址和监听由 `SCREEN_CONTROL_MESH_*` 配置；在 `lerrem` 运行 Tailscale 配置脚本时需设置 `SCREEN_CONTROL_LERREM_DNS_NAME`，脚本按本机稳定节点 ID 校验身份。系统主机名与 Tailscale DNS_NAME 分别由环境配置（Windows 两者常不相同），MeshCentral 当前仍通过既有设备名称映射这些电脑 ID；不要仅在环境中修改设备 ID。它们仍可关联个人身份，若希望完全匿名开源，需要单独迁移 ID 和历史记录。
 
 ## MeshCentral 与系统服务
 
@@ -95,6 +95,12 @@ $env:SCREEN_CONTROL_REGISTERED_IPS = '100.64.0.10,100.64.0.20,100.64.0.30'
 
 历史重写会改变提交 ID。文档中的旧提交号、旧封存证据和旧签名仅对应原始备份中的版本；更新校验和不代表重新完成实机验证，也不能把旧签名证据作为新版本的验收证明。扫描结论仅适用于本次检查的内容，后续新增文件和提交需要重新检查。
 
+## 直连测试配置
+
+主页直连测试复用 `SCREEN_CONTROL_DEVICE_NODES` 的稳定节点登记，排除手机及其他共享节点。`~/.config/screen-control/network.env`（0600）通过可选的 `EnvironmentFile` 加载：`SCREEN_CONTROL_NETWORK_SSH_TARGETS` 为 `电脑ID=普通用户@SSH目标` 映射，`SCREEN_CONTROL_NETWORK_PROBE_VIA` 为可选的 `电脑ID=已登记Linux运维入口ID` 映射。配置不接受命令、路径、root 账号、重复目标或运维入口循环。运维入口只负责启动目标电脑上的固定探针，实际 ping 仍从目标电脑自身发出；不转发 SSH agent、不复制私钥。
+
+门户本机直接执行只读探测；远端需安装 `screen-control-network-probe` 一次性程序，不创建常驻服务或新监听端口。未安装、主机密钥不可信、受限密钥执行了其他命令或源节点身份不匹配时显示“未验证”。私网与网关共用检测实例和全局限流。配置变更需重启既有门户；安装、健康检查和回滚见[部署说明](../deploy/g0/network/README.md)。
+
 ## 普通用户文件通道
 
 `SCREEN_CONTROL_FILE_SSH_TARGETS` 是逗号分隔的 `设备ID=普通用户@SSH目标` 映射。开发入口从根 `.env` 加载；安装脚本将其持久化到 `~/.config/screen-control/files.env`（0600），用户服务在基础、Tailscale、网关及指标配置之后加载此文件。文件操作只由该账号执行，配置失败不回退到 root/SYSTEM 代理。三机安装、主机密钥核验、固定命令约束和回滚见 [部署说明](../deploy/g0/files/README.md)。
@@ -130,3 +136,12 @@ Linux SyncClipboard 客户端的现有服务覆盖包含 `MALLOC_ARENA_MAX=2`、
 官方服务使用事件通知同步；修复版客户端自动重连，并以 2 秒健康检查兜底，单次异常不会永久停止检查。`SyncService.IntervalTime=1` 用于缩短失败后的重试等待，保留 `History.HistoryRetentionMinutes=2880` 和既有内存配置。lerrem 已加入双向同步，依赖用户图形登录；用户单元 `syncclipboard-client.service` 由桌面自启动项启动。构建、安装、健康检查及回滚见[通知恢复说明](../deploy/g0/suite/syncclipboard-latency/README.md)，实际覆盖范围见[部署记录](performance/SYNCCLIPBOARD_LATENCY_20260928.md)。
 
 图片依赖与历史修复（2026-09-28）：Linux 核心补丁按已安装 `Magick.NET-Q16-AnyCPU` 构建，并在每次替换前验证实际宿主的 PNG 解码和重新编码。三台 Linux 的 `RuntimeConfig.json` 中 `HistoryWindow.SortByLastAccessed=true`，使重复复制的旧内容按最近使用时间排序；清理同样使用最近使用时间，避免刚复制就按首次创建时间再次删除。验证与回滚见[修复记录](performance/SYNCCLIPBOARD_IMAGE_HISTORY_REPAIR_20260928.md)。
+
+
+## 无物理显示器的远控输出（2026-10-11）
+
+`lerrem` 的 Intel/NVIDIA 双显卡默认以 Intel 为主显示，无 DP/HDMI 连接时 Xorg 退至 320×200，登录界面无法正常采集。当前通过 `/etc/X11/xorg.conf.d/20-screen-control-headless.conf` 为 NVIDIA 显式建立虚拟 `DFP-0` 输出，以 `PCI:1:0:0` 选择本机显卡；该总线位置只适用于这台宿主，不可直接复制到其他设备。虚拟输出不读取物理 EDID，采用 2560×1440 模式；GDM 使用 X11。
+
+GDM 的 `/var/lib/gdm3/.config/monitors.xml` 和普通用户的 `~/.config/monitors.xml` 保存该输出的 2560×1440、约 59.95 Hz、100% 缩放配置。安装前须保留已有显示配置；本次两个 monitors.xml 原先均不存在。重启图形服务后已验证分辨率持久化，并通过门户既有桌面会话／WebSocket 中继实际收到 2560×1440 的 Ubuntu 登录界面图像；只读验证没有发送键鼠、登录密码或锁屏指令。用户登录后的桌面配置尚未实机验证，不宣称完成登录／锁屏全面验收。
+
+修改前备份 GDM 配置，设置临时自动回退并确认 SSH 救援；验证后取消回退。当前手动回滚脚本位于宿主既有私有 state 目录的 `screen-control/repairs/headless-20261011/rollback.sh`，以管理员权限执行：移除本次虚拟输出与两个新建 monitors.xml、恢复 GDM 配置，再重启 GDM 和既有控屏代理。不会修改账号或开启自动登录。恢复物理显示器自动检测时应执行该回滚，而不是叠加另一套虚拟配置。

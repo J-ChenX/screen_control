@@ -5,7 +5,23 @@
 审计时间：2026-09-02 18:08–18:27、2026-09-03 路由/代理复测及 `IO-01a` 引导 preflight、2026-09-04 项目同步与构建复验（CST，Asia/Shanghai）
 用途：记录当前事实和复现证据，不作为未来目标定义。权威需求见 [_INDEX.md](_INDEX.md)。
 
-## 1. 三台设备现状
+## 当前常驻服务端（2026-10-19）
+
+用户确认唯一常驻服务端已由 `echova` 调整为 `lerrem`。本次在 `lerrem` 只读核对：门户 `screen-control-suite.service`、SyncClipboard 服务端 `syncclipboard.service` 与客户端 `syncclipboard-client.service`、系统级 MeshCentral 和 MeshAgent 均为运行状态。门户通过现有私有入口返回健康状态 `ok`，本机身份接口返回 `lerrem`；后端配置的 MeshCentral 地址解析到 `lerrem` 的 Tailscale 地址。
+
+已安装的指标配置以 `lerrem` 为本机，SSH 指标目标包含其他三台电脑；普通用户文件目标包含四台电脑，Tailscale 身份映射包含四台电脑与 `xiaomi-15`。实际域名、地址和 SSH 账号继续保存在既有私有配置中，不从下面的旧审计恢复。此次角色调整不迁移 `echova:$HOME/nas` 数据，也不重写历史工件或宣告 G0/G3 正式验收通过。
+
+本次修正前后端设备角色与 Tailscale 配置脚本自检，并以隔离检出核对修改前的二进制、门户首页及其引用资源与线上一致，保留已上线 GPU 修复。相关 Go 包、74 项前端测试、类型检查、构建、3 项隔离身份配置测试及公开 MeshCentral 静态校验通过；环境配置测试 7 项通过、PowerShell 项因运行时未安装跳过。仅更新并重启既有门户后，私有入口健康、`lerrem` 身份、四设备角色和静态资源均通过；系统 Chrome 153.0.8010.52 在 1440×960 与 390×844 视口实测角色显示正确（非锁定 Playwright Chromium 验收）。原二进制、门户资源和可执行回滚脚本保存在宿主私有 state 的 `screen-control/repairs/server-role-*` 目录。MeshCentral 与 SyncClipboard 未随本次更新重启。
+
+主页直连测试于 2026-10-19 部署：`lerrem` 门户本机直接探测，`echova`、`nix` 与 Windows 安装固定的一次性只读探针，Windows 通过 `echova` 的既有 SSH 运维入口启动；实际探测仍在 Windows 上执行。未修改 SSH 授权、防火墙、Tailscale 配置或服务角色，未新增监听和常驻服务。私有映射位于 `network.env`，安装和回滚见[直连测试说明](../../../deploy/g0/network/README.md)。线上浏览器实际启动一轮检测，12 个方向、每方向 5 次均返回已核验的直连响应；先前独立检查曾出现 `nix → Windows` 短暂 DERP，因此结果仅代表检测时的网络状态。
+
+该功能通过隔离线上基线构建发布：Go 全包测试、相关竞态、74 项前端测试、类型检查、环境配置 7 项及 Tailscale 配置 3 项通过；PowerShell 运维测试因本机缺少运行时跳过。系统 Chrome 153.0.8010.52 完成 1440、390、320 像素隔离交互检查，线上 1440 与 390 像素检查及私网健康、来源身份、四设备状态通过；不作为锁定 Playwright Chromium 或 G0/G3 正式验收。只重启既有门户，回滚备份保存在宿主私有 state 的 `screen-control/repairs/network-test-*` 目录。
+
+同日补充实际直连端点的 IPv4/IPv6 字段，门户和三台远端探针均已更新；界面细分局域网 IPv4、局域网 IPv6、公网 IPv4、公网 IPv6，旧探针缺少协议族时明确提示未知。更新前的二进制和门户基线完全匹配，相关 Go 全包／竞态、前端测试、类型检查及四种标签的桌面／手机场景通过；线上重测 12 个方向均取得协议族，本轮为 4 个局域网 IPv4、8 个公网 IPv6。该次结果不承诺后续路径保持不变，备份与按“先探针、后门户”顺序执行的回滚保存在私有 state 的 `screen-control/repairs/network-path-detail-*` 目录。
+
+下列各节保留 2026-09-02 至 2026-09-04 的原始审计范围；其中“主服务器”“常驻主机”、在线状态、部署路径和端口占用均为当时事实。当前部署应先核对此节与已安装服务，再使用私有配置。
+
+## 1. 三台设备现状（历史审计）
 
 | 设备 | 在线 | 桌面/显示 | Tailscale 路径 | 已验证事项 |
 |---|---|---|---|---|

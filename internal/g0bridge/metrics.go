@@ -130,7 +130,9 @@ func (c *meshClient) collectMetrics(ctx context.Context, conn *websocket.Conn, d
 }
 
 // Linux DRM 无需 root 权限即可提供 AMD 忙碌百分比和独立显存指标。
-const linuxGPUQuery = `if command -v nvidia-smi >/dev/null 2>&1; then nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits; fi
+// 保留 NVIDIA 查询失败状态，避免后续 DRM 循环将驱动故障误判为不支持。
+const linuxGPUQuery = `status=0
+if command -v nvidia-smi >/dev/null 2>&1; then nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits || status=$?; fi
 for device in /sys/class/drm/card[0-9]*/device; do
  [ -r "$device/gpu_busy_percent" ] || continue
  busy=$(cat "$device/gpu_busy_percent")
@@ -138,7 +140,8 @@ for device in /sys/class/drm/card[0-9]*/device; do
  if [ -r "$device/mem_info_vram_used" ]; then value=$(cat "$device/mem_info_vram_used"); used=$((value / 1048576)); fi
  if [ -r "$device/mem_info_vram_total" ]; then value=$(cat "$device/mem_info_vram_total"); total=$((value / 1048576)); fi
  printf 'AMD GPU (%s), %s, %s, %s\n' "$device" "$busy" "$used" "$total"
-done`
+done
+exit "$status"`
 
 const gpuQuery = "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits"
 

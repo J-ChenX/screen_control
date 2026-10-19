@@ -83,7 +83,7 @@ CI 可以并行，但同一目标上的桌面控制、网络规则和恢复场�
 
 ## 7. 证据存储与保留
 
-运行产物写入受限的 `evidence/<run-id>/`；仓库只提交脱敏后的索引/复现说明，原始敏感工件存入 `echova` 的加密、0700 运维卷，并备份到独立加密位置。目录固定包含 `index.json`、`manifest.json`、`commands.jsonl`、`results/`、`artifacts/` 和 `cleanup.json`。
+运行产物写入受限的 `evidence/<run-id>/`；仓库只提交脱敏后的索引/复现说明，原始敏感工件存入当前常驻主机 `lerrem` 的加密、0700 运维卷，并备份到独立加密位置。目录固定包含 `index.json`、`manifest.json`、`commands.jsonl`、`results/`、`artifacts/` 和 `cleanup.json`。
 
 `index.json` 至少包含 run/work-package/gate、Git 提交、发布与工具链哈希、环境快照哈希、前置证据哈希、开始/结束 UTC 与单调历时、命令退出码、阈值/实际值、敏感级别、清理结果、操作者/复核者和所有工件 SHA-256。索引完成后签名并追加写；重跑不覆盖旧运行。
 

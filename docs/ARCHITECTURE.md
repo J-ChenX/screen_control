@@ -6,7 +6,7 @@
 
 ## 项目概述
 
-本项目为用户本人提供一个仅限三台登记 Tailscale 设备访问的网页入口，在 `nix`、`echova` 与 `jiang-chenx` 间统一呈现设备状态、无人值守控屏、普通用户权限文件管理和 SyncClipboard 健康状态。`echova` 是唯一常驻入口与控制平面；屏幕和文件正文优先由端点经 Tailscale 直连。权威范围与验收只在 [A01–A14、QG01–QG03](tasks/private-web-remote/_INDEX.md) 维护；本文件是其架构投影。机器事实见 [环境审计](tasks/private-web-remote/ENVIRONMENT_AUDIT.md)，选型证据见 [技术候选评估](tasks/private-web-remote/TECHNOLOGY_EVALUATION.md)，跨模块安全、可靠性与追踪矩阵见 [全局关注点](appendix/global-concerns.md)。
+本项目为用户本人提供一个供四台已登记 Tailscale 电脑及 `xiaomi-15` 手机访问的网页入口，在 `nix`、`echova`、`jiang-chenx` 与 `lerrem` 间统一呈现设备状态、无人值守控屏、普通用户权限文件管理和 SyncClipboard 健康状态。`lerrem` 是唯一常驻入口与控制平面（2026-10-19 用户确认；`echova` 保留为登记电脑）；屏幕和文件正文优先由端点经 Tailscale 直连。权威范围与验收只在 [A01–A14、QG01–QG03](tasks/private-web-remote/_INDEX.md) 维护；本文件是其架构投影。机器事实见 [环境审计](tasks/private-web-remote/ENVIRONMENT_AUDIT.md)，选型证据见 [技术候选评估](tasks/private-web-remote/TECHNOLOGY_EVALUATION.md)，跨模块安全、可靠性与追踪矩阵见 [全局关注点](appendix/global-concerns.md)。
 
 ## 体量与交付分解
 
@@ -104,7 +104,7 @@ flowchart LR
 | 密码/会话 | Argon2id + 服务端不透明令牌摘要 | 参数实机定标并限制并发；7 天绝对到期和持久撤销代次 |
 | 远控 | MeshCentral 服务器 1.2.5 + 各平台 MeshAgent 构建哈希，Node.js 24.20.0 LTS 容器 | 仅为 G0 尖峰候选；代理禁自动升级并金丝雀发布；不得裸 LAN/公网 ICE 或 URL 登录令牌 |
 | 剪贴板 | SyncClipboard 3.2.0 目标基线 | 3.1.5 仅作迁移源；三端一致升级、回滚及 A13 通过后转正 |
-| 部署 | `echova` Docker Engine 29.7.2/Compose + 三机原生 systemd/Windows Service | 镜像摘要固定；网关、协调器、桌面/文件代理可独立重启；分身份、分秘密 |
+| 部署 | `lerrem` Docker Engine 29.7.2/Compose + 三机原生 systemd/Windows Service | 镜像摘要固定；网关、协调器、桌面/文件代理可独立重启；分身份、分秘密 |
 
 候选比较、官方依据和替换触发条件只在 [技术候选评估](tasks/private-web-remote/TECHNOLOGY_EVALUATION.md) 维护。
 

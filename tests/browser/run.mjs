@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 const root = resolve(import.meta.dirname, '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { preview } = await import(pathToFileURL(require.resolve('vite')).href);
-const scenarios = ['files', 'transfer-window', 'directory-performance', 'desktop-files', 'desktop-lock-exit', 'desktop-performance', 'desktop-mobile'];
+const scenarios = ['files', 'transfer-window', 'directory-performance', 'desktop-files', 'desktop-lock-exit', 'desktop-performance', 'desktop-mobile', 'network'];
 const selected = process.argv.slice(2);
 if (selected.some(name => !scenarios.includes(name))) {
   throw new Error(`支持的隔离场景：${scenarios.join(', ')}`);

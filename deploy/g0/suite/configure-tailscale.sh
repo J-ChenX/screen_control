@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${SCREEN_CONTROL_ECHOVA_DNS_NAME:?set server hostname}"
+: "${SCREEN_CONTROL_ECHOVA_DNS_NAME:?set echova hostname}"
 : "${SCREEN_CONTROL_NIX_DNS_NAME:?set workstation hostname}"
 : "${SCREEN_CONTROL_WINDOWS_DNS_NAME:?set Windows hostname}"
 : "${SCREEN_CONTROL_PHONE_HOSTNAME:?set phone hostname}"
@@ -51,13 +51,20 @@ lerrem_registration=""
 if [[ -n "${SCREEN_CONTROL_LERREM_DNS_NAME:-}" ]]; then
   lerrem_registration=",lerrem=$(resolve_stable_node "${SCREEN_CONTROL_LERREM_DNS_NAME}")"
 fi
+registered_nodes="echova=${echova_node},nix=${nix_node},jiang-chenx=${jiang_node},xiaomi-15=${xiaomi_node}${lerrem_registration}"
+# 自检使用本机稳定节点对应的登记 ID，避免把常驻主机写死为某台电脑。
+expected_device="$(jq -er --arg nodes "${registered_nodes}" '
+  .Self.ID as $self
+  | [$nodes | split(",")[] | split("=") | select(.[1] == $self and .[0] != "xiaomi-15") | .[0]]
+  | if length == 1 then .[0] else error("本机必须唯一匹配一台已登记电脑；lerrem 需配置 SCREEN_CONTROL_LERREM_DNS_NAME") end
+' <<<"${tailscale_status}")"
 canonical_origin="${portal_scheme}://${tailnet_name}:8444"
 identity_env="${config_root}/tailscale.env"
 identity_env_next="${identity_env}.next"
 {
   printf 'SCREEN_CONTROL_TAILSCALE_LISTEN=%s:8444\n' "${tail_ip}"
   printf 'SCREEN_CONTROL_TAILSCALE_TLS=%s\n' "${portal_tls}"
-  printf 'SCREEN_CONTROL_DEVICE_NODES=echova=%s,nix=%s,jiang-chenx=%s,xiaomi-15=%s%s\n' "${echova_node}" "${nix_node}" "${jiang_node}" "${xiaomi_node}" "${lerrem_registration}"
+  printf 'SCREEN_CONTROL_DEVICE_NODES=%s\n' "${registered_nodes}"
   printf 'SCREEN_CONTROL_CANONICAL_ORIGIN=%s\n' "${canonical_origin}"
   printf 'SCREEN_CONTROL_ALLOWED_ORIGINS=%s\n' "${canonical_origin}"
 } >"${identity_env_next}"
@@ -91,8 +98,8 @@ fi
 
 curl --retry 10 --retry-connrefused --retry-delay 1 --fail --silent --show-error "${canonical_origin}/api/v1/health" >/dev/null
 identified_device="$(curl --retry 3 --retry-connrefused --retry-delay 1 --fail --silent --show-error "${canonical_origin}/api/v1/identity/device" | jq -r '.data.deviceId')"
-if [[ "${identified_device}" != "echova" ]]; then
-  printf '自动设备身份验证失败：期望 echova，实际 %s。\n' "${identified_device}" >&2
+if [[ "${identified_device}" != "${expected_device}" ]]; then
+  printf '自动设备身份验证失败：期望 %s，实际 %s。\n' "${expected_device}" "${identified_device}" >&2
   exit 1
 fi
 if [[ "${portal_tls}" == "true" ]]; then

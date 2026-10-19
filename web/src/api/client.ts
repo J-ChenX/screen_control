@@ -61,6 +61,30 @@ export async function getDeviceIdentity(): Promise<DeviceIdentity> {
   return request<DeviceIdentity>("/api/v1/identity/device");
 }
 
+export type NetworkPath = "pending" | "lan" | "internet" | "peer-relay" | "derp" | "timeout" | "offline" | "unavailable";
+export interface NetworkResult {
+  source: Device["id"];
+  target: Device["id"];
+  path: NetworkPath;
+  ipVersion?: 4 | 6;
+  rttMs?: number;
+  initialRelay: boolean;
+  responses: number;
+  attempts: number;
+}
+export interface NetworkTest {
+  state: "idle" | "running" | "complete";
+  startedAt?: string;
+  completedAt?: string;
+  results: NetworkResult[];
+}
+export function getNetworkTest(signal?: AbortSignal) {
+  return request<NetworkTest>("/api/v1/network/tests", { signal });
+}
+export function startNetworkTest(signal?: AbortSignal) {
+  return request<NetworkTest>("/api/v1/network/tests", { method: "POST", body: "{}", signal });
+}
+
 export async function createDesktopSession(targetDeviceId: Device["id"]): Promise<DesktopSession> {
   return request<DesktopSession>("/api/v1/desktops", {
     method: "POST",

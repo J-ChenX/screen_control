@@ -8,6 +8,12 @@
 
 这是一个供四台已登记 Tailscale 电脑与 xiaomi-15 手机使用的私人网页远控项目。当前已经提供 G0 实机桥接：门户会从 MeshCentral 读取 `echova`、`nix`、`Jiang_ChenX`、`lerrem` 的权威在线状态，并可在自有桌面视图中建立真实画面、输入与文件通道。
 
+设备工作台中，非本机设备只有在线时才能点击“打开桌面”和“文件”；离线、连接中或异常时，这两个入口置灰并禁用，状态恢复在线后自动启用。
+
+主页的“直连测试”可手动检查四台登记电脑之间的 12 个方向，区分局域网 IPv4、局域网 IPv6、公网 IPv4 和公网 IPv6 直连，并显示私有中继、DERP 中继、超时、离线或未验证，以及最后一次响应的往返延迟。检测在每台源电脑执行，每个方向最多采样 5 次；先中继后直连会保留“曾经中继”提示。协议版本来自实际直连端点，不根据 Tailscale 虚拟地址猜测；旧探针未提供协议版本时明确提示重新测试。结果是当时的 Tailscale 底层路径，不代表网页控屏和文件已端到端直传；超过一分钟提示重新测试。手机也可发起检测，但不作为被测电脑。部署与回滚见[直连测试说明](../deploy/g0/network/README.md)。
+
+当前唯一常驻服务端为 `lerrem`，承载门户、MeshCentral 控制面和 SyncClipboard 服务端；`echova` 保留为已登记电脑。当前主机核对与历史记录的适用范围见[环境审计](tasks/private-web-remote/ENVIRONMENT_AUDIT.md#当前常驻服务端2026-10-19)。
+
 这仍不是生产服务：正式身份模块、统一文件数据面、独立桌面源站、生产级会话/租约与完整 G0/G3 证据门尚未完成。统一套件只绑定回环地址，再由 Tailscale Serve 暴露给 Tailscale 私有网络；不要绑定 `0.0.0.0`，也不要暴露到局域网或公网。
 
 ## 环境要求
@@ -108,7 +114,7 @@ make test-browser
 
 ## MeshCentral G0 尖峰
 
-尖峰配置位于 `deploy/spike/meshcentral/`。当前门户使用该环境完成 G0 实机桥接，但它只允许在 `echova` 的隔离环境中运行，不能视为生产部署。先阅读该目录 README 并执行静态校验：
+尖峰配置位于 `deploy/spike/meshcentral/`。当前门户使用该环境完成 G0 实机桥接，但它只允许在当前常驻主机 `lerrem` 的隔离环境中运行，不能视为生产部署。先阅读该目录 README 并执行静态校验：
 
 ```bash
 mise exec -- python3 deploy/spike/meshcentral/verify.py

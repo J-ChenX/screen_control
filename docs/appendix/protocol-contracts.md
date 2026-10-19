@@ -257,7 +257,7 @@ ID 只定位对象，不授予权限。持久资源 ID 由其服务端所有者�
 }
 ```
 
-`<device-id>/<tailnet-dns>/<transfer-id>` 是响应生成时替换的模板记法，传输协议中必须是设备登记表解析出的精确 HTTPS 源站和实际 ID，不得出现通配符或接受客户端 origin。`path` 只含传输 ID，不含秘密。每个传输恰有一个 `dataPlane`/capability，并由 `Manifest.direction` 判别生成：upload=`browser-push + destination/PUT`，期望对端为 manifest.source；download=`browser-pull + source/GET`，期望对端为 manifest.target；device-copy 固定为 `target-pull + source/GET`，由目标代理通过受保护 agent-control 通道取得能力凭据、主动直连固定源代理并把响应流写入本机暂存区，期望对端为 manifest.target。Portal/echova 不读取或转发 device-copy 正文；其他 mode/role/method 组合失败关闭，能力凭据不能跨绑定使用。控制面生命周期：
+`<device-id>/<tailnet-dns>/<transfer-id>` 是响应生成时替换的模板记法，传输协议中必须是设备登记表解析出的精确 HTTPS 源站和实际 ID，不得出现通配符或接受客户端 origin。`path` 只含传输 ID，不含秘密。每个传输恰有一个 `dataPlane`/capability，并由 `Manifest.direction` 判别生成：upload=`browser-push + destination/PUT`，期望对端为 manifest.source；download=`browser-pull + source/GET`，期望对端为 manifest.target；device-copy 固定为 `target-pull + source/GET`，由目标代理通过受保护 agent-control 通道取得能力凭据、主动直连固定源代理并把响应流写入本机暂存区，期望对端为 manifest.target。Portal/lerrem 不读取或转发 device-copy 正文；其他 mode/role/method 组合失败关闭，能力凭据不能跨绑定使用。控制面生命周期：
 
 | Method/path | request.data | 成功 data |
 |---|---|---|
@@ -277,7 +277,7 @@ ID 只定位对象，不授予权限。持久资源 ID 由其服务端所有者�
 
 目标代理 CORS 只允许精确门户源站、`GET/PUT/OPTIONS` 和 `Authorization,Content-Range,Range,If-Match,Digest,X-Correlation-ID`；它删除外部 `X-Request-ID`，完成 `PeerBindingProof`/capability 校验后自行生成规范请求 ID；`Vary: Origin`，禁 credentials，preflight 失败关闭。每个数据面连接都必须通过 `screen-control-peer-helper` 取得 §3.1 的一次性 `PeerBindingProof`，并确认证明的真实 `remoteDeviceId` 等于能力凭据 `expectedPeerDeviceId`；普通用户代理无 LocalAPI 权限，辅助进程不可用时失败关闭。
 
-`FF-00` 必须在 `FF-03a`/`FF-03b` 正式实现前，于三台锁定版本的目标浏览器上完成独立尖峰：稀疏/生成式 >3 GiB 文件全程流式写盘、暂停/刷新/网络切换后 range 恢复、最终 SHA-256 一致、峰值浏览器额外内存 ≤256 MiB、正文不经过 `echova`，且 URL/Referer/日志/storage 无能力凭据。任一目标浏览器缺少 File System Access/流式能力或未过门，不得静默回退为门户中转，必须回到数据面选型并修订本契约后再实现。
+`FF-00` 必须在 `FF-03a`/`FF-03b` 正式实现前，于三台锁定版本的目标浏览器上完成独立尖峰：稀疏/生成式 >3 GiB 文件全程流式写盘、暂停/刷新/网络切换后 range 恢复、最终 SHA-256 一致、峰值浏览器额外内存 ≤256 MiB、正文不经过常驻门户主机 `lerrem`，且 URL/Referer/日志/storage 无能力凭据。任一目标浏览器缺少 File System Access/流式能力或未过门，不得静默回退为门户中转，必须回到数据面选型并修订本契约后再实现。
 
 ### 9.3 审计意图 + 日志 + 事务发件箱
 
@@ -362,6 +362,8 @@ ID 只定位对象，不授予权限。持久资源 ID 由其服务端所有者�
 
 `control/snapshot` 的设备登记与在线状态仍来自新鲜控制面查询，指标仅作展示：共享后台采样最多每 5 秒启动一次，单轮有 3 秒截止时间；首轮或采样失败时允许缺失指标。缓存按设备及节点标识匹配，超过 15 秒不再返回旧指标，离线不显示在线样本。创建桌面/文件会话只查询设备状态，不等待或触发指标采样。身份、授权和会话归属不使用该展示缓存。
 
+`metrics.gpuStatus`：`live` 表示本轮成功取得 GPU 样本；`offline` 表示设备离线；`unsupported` 表示未配置目标或没有已支持的采集器／样本；`unavailable` 表示已配置的查询执行失败、SSH 失败或超时。Linux NVIDIA 查询失败必须保留非零退出状态，不能被后续 AMD 探测循环覆盖为成功空输出；失败轮次不发布部分 GPU 数据。
+
 
 ### G0 性能扩展：有界文件传输窗口
 
@@ -378,3 +380,13 @@ ID 只定位对象，不授予权限。持久资源 ID 由其服务端所有者�
 ### G0 会话内存配额（2026-09-22）
 
 桌面与文件会话合计最多 16 个，包含正在建连和等待领取的会话；满额时创建接口返回 HTTP 503，错误码 `SESSION_CAPACITY_EXCEEDED`。客户端展示错误，不重放文件写入。失败建连、领取后的 WebSocket 握手失败、正常结束或断线均归还配额；未领取会话仍按原有 90 秒超时清理。中继改为流式复制，WebSocket 消息类型、完整消息边界与既有大小限制保持不变。细节与测量见[内存预算](../performance/MEMORY.md)。
+
+### G0 手动直连测试
+
+`POST /api/v1/network/tests` 仅接受 `{}`（最大 256 字节），需要登记来源身份和可信 Origin；拒绝自定义源、目标、地址及命令。返回 202 与当前检测快照；运行中的重复调用共用一轮，不再启动探针。两轮启动至少间隔 15 秒，过早返回 `429 NETWORK_TEST_RATE_LIMITED` 及 `Retry-After:15`。`GET` 同路径也校验登记身份，返回本次个人部署内共享的最近快照，不触发探测；没有配置返回 `503 NETWORK_TEST_UNAVAILABLE`。沿用 G0 的成功/失败信封，不使用生产异步 Operation 契约。
+
+快照为 `{state:idle|running|complete,startedAt?,completedAt?,results:Result[]}`。结果为 `{source,target,path,ipVersion?,rttMs?,initialRelay,responses,attempts}`：只包含登记电脑 ID，不包含地址、稳定节点 ID、SSH 账号或依赖原文。`path` 为 `pending|lan|internet|peer-relay|derp|timeout|offline|unavailable`。直连结果的 `ipVersion` 为 `4|6`，从本次 `Endpoint` 解析并将 IPv4 映射地址归一化；`lan` 表示私网或链路本地端点，`internet` 表示公网端点。页面组合显示“局域网 IPv4/IPv6 直连”或“公网 IPv4/IPv6 直连”，不根据 Tailscale 虚拟 IP 或浏览器协议猜测。中继及失败结果省略此字段；无效版本拒绝发布。`rttMs` 为最后一次成功响应的非负毫秒数，允许小数；最后一次失败时不发布之前的 RTT、协议族或直连结论。`initialRelay` 表示本轮较早采样中出现过中继，不保证后续网络保持该路径。每方向最多 5 次；每次最长 1.2 秒，间隔 0.5 秒。远端探针 9 秒截止，全轮 15 秒截止；HTTP 取消不取消其他页面共用的有界检测。页面只在可见且当前轮运行时轮询，不自动重新发起 POST。
+
+`ipVersion` 是探针版本 1 的兼容扩展：先升级服务端及门户，再更新各台探针。服务端接受旧探针省略该字段，页面明确显示协议未确认，不自行补全；旧缓存页面仍使用原 `path` 统计直连。兼容用途是允许已有探针滚动更新，所有探针及缓存页面更新后可统一收紧为直连必填。验证覆盖 IPv4、IPv6、IPv4 映射地址、中继优先、失败清除协议族，以及旧探针缺字段的提示。
+
+一次性探针标准流请求为 `{source,nodes:{电脑ID:稳定节点ID}}`，最大 4096 字节；源端先核对本机 Tailscale 稳定节点 ID，再只对登记表中可从本机节点表映射的目标发起 `PingDisco`。响应为 `{version:1,sourceNode,results}`，仅服务端消费并再次校验源节点、完整目标集合、枚举及计数后转换成网页结果。路径依据本次 PingResult 的 PeerRelay、DERPRegionID、Endpoint 判定，不使用状态中的 Relay 区域推断当前流量经过中继。探针不调用外部命令，不修改选路策略、不开放端口、不改变会话和身份有效期。本能力不是 N01–N05 或 G0/G3 正式验收。

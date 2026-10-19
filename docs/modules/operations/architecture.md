@@ -20,7 +20,7 @@
 
 发布顺序固定为：备份/校验 → SQLite/协议兼容扩展 → edge/control → 单台金丝雀代理 → 其余代理 → 门户静态资源 → 观察 → 契约。API/事件显式主版本，代理至少兼容相邻一个发布窗口；更高主版本或缺必填能力时拒绝操作并显示升级要求。
 
-平台代理发布时，最小系统身份 `screen-control-peer-helper` 先于普通用户文件代理；辅助进程只经受 ACL 保护的本机 IPC 返回绑定当前连接、PID/UID 或 SID、nonce、受众和短到期的对端证明，不转发 LocalAPI、不得接受任意 IP/节点查询。SyncClipboard 先发布 echova 的 Tailscale mTLS 网关，再探测原生客户端能力；仅当原生客户端不能完成 mTLS 时才发布普通用户连接器。连接器只能接收本机用户 IPC 并连接清单中唯一网关，不能成为通用 HTTP/SOCKS 代理。
+平台代理发布时，最小系统身份 `screen-control-peer-helper` 先于普通用户文件代理；辅助进程只经受 ACL 保护的本机 IPC 返回绑定当前连接、PID/UID 或 SID、nonce、受众和短到期的对端证明，不转发 LocalAPI、不得接受任意 IP/节点查询。SyncClipboard 先发布 lerrem 的 Tailscale mTLS 网关，再探测原生客户端能力；仅当原生客户端不能完成 mTLS 时才发布普通用户连接器。连接器只能接收本机用户 IPC 并连接清单中唯一网关，不能成为通用 HTTP/SOCKS 代理。
 
 回滚不逆写新格式：先恢复能读取新旧格式的兼容服务，再回滚调用方；破坏性模式定义收缩只有旧版本完全退场且恢复演练通过后执行。
 

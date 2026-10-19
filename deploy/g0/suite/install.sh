@@ -63,6 +63,35 @@ finally:
 PYFILES
 fi
 
+if [[ -v SCREEN_CONTROL_NETWORK_SSH_TARGETS ]]; then
+  python3 - "${config_root}/network.env" <<'PYNETWORK'
+import os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+keys = ["SCREEN_CONTROL_NETWORK_SSH_TARGETS", "SCREEN_CONTROL_NETWORK_PROBE_VIA"]
+fd, name = tempfile.mkstemp(dir=path.parent, prefix=".network.env.")
+try:
+    with os.fdopen(fd, "w") as out:
+        for key in keys:
+            value = os.environ.get(key, "")
+            if any(c in value for c in "\n\r\0"):
+                raise ValueError("网络探针配置不能包含换行或空字符")
+            out.write(key + '="' + value.replace('\\', '\\\\').replace('"', '\\"') + '"\n')
+    os.replace(name, path)
+finally:
+    if os.path.exists(name): os.unlink(name)
+PYNETWORK
+fi
+
+# 网络探针只安装一次性可执行文件；跨设备入口由运维配置，不创建新服务。
+probe_source="$(dirname -- "${binary_source}")/screen-control-network-probe"
+if [[ -x "${probe_source}" ]]; then
+  probe_root="${HOME}/.local/lib/screen-control-network-probe"
+  install -d -m 0755 "${probe_root}/releases/${release_id}"
+  install -m 0755 "${probe_source}" "${probe_root}/releases/${release_id}/screen-control-network-probe"
+  ln -sfn "${probe_root}/releases/${release_id}" "${probe_root}/current.next"
+  mv -Tf "${probe_root}/current.next" "${probe_root}/current"
+fi
+
 "${worker_installer}" "${worker_source}"
 install -d -m 0700 "${HOME}/.local/state/screen-control/favorites"
 install -d -m 0755 "${release_root}/bin" "${release_root}/share/portal" "${unit_root}"

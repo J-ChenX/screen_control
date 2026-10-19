@@ -5,17 +5,17 @@
 该套件将生产门户静态文件和 Go G0 桥接放在同一个 `screen-control` 进程中，并继续把 SyncClipboard 作为受管理的独立侧车进程。门户在 `:8444` 直接接受 Tailscale HTTPS 连接，以便从真实套接字对端自动识别当前设备；Tailscale Serve 继续提供兼容跳转和剪贴板入口：
 
 - `${SCREEN_CONTROL_CANONICAL_ORIGIN}/`：当前直接 Tailscale 门户、API 和 WebSocket，按稳定节点身份自动识别设备；Tailscale 私有网络启用证书后自动改为 HTTPS；
-- `https://${SCREEN_CONTROL_ECHOVA_HOSTNAME}/`：兼容入口，只把浏览器导航重定向到 `:8444`；
+- `https://${SCREEN_CONTROL_LERREM_HOSTNAME}/`：兼容入口，只把浏览器导航重定向到 `:8444`；
 - `${SCREEN_CONTROL_CLIPBOARD_URL}/`：SyncClipboard。
 
-在 echova 上依次运行：
+在当前常驻服务端 `lerrem` 上依次运行（通过 `ops/with-env` 加载私有配置，或先导出所需环境变量）：
 
 ```bash
 ./deploy/g0/suite/install.sh
 ./deploy/g0/suite/configure-tailscale.sh
 ```
 
-安装使用版本化目录和原子 `current` 软链接，不覆盖旧版本；用户服务在 `127.0.0.1:8790` 保留健康检查与兼容入口，并在 echova 的 Tailscale IPv4 `:8444` 直接终止 TLS。配置脚本从本机 Tailscale 状态生成原三台电脑及 xiaomi-15 手机的稳定节点映射；设置 `SCREEN_CONTROL_LERREM_DNS_NAME` 后同时登记第四台电脑 `lerrem`，写入权限为 `0600` 的 `%h/.config/screen-control/tailscale.env`。Tailscale 配置前会备份，任一步失败会自动恢复。
+安装使用版本化目录和原子 `current` 软链接，不覆盖旧版本；用户服务在 `127.0.0.1:8790` 保留健康检查与兼容入口，并在 `lerrem` 的 Tailscale IPv4 `:8444` 直接终止 TLS。配置脚本从本机 Tailscale 状态生成原三台电脑及 xiaomi-15 手机的稳定节点映射；当前主机 `lerrem` 必须设置 `SCREEN_CONTROL_LERREM_DNS_NAME`，以登记第四台电脑并按本机稳定节点 ID 验证自动识别结果，写入权限为 `0600` 的 `%h/.config/screen-control/tailscale.env`。Tailscale 配置前会备份，任一步失败会自动恢复。
 
 若 Tailscale 私有网络尚未启用 HTTPS 证书，直接入口的证书获取会失败；配置脚本会恢复原 Tailscale Serve 配置并保留 HTTP 回退入口。管理员启用 HTTPS 后重新运行脚本，它会同时验证门户健康检查、自动识别结果和剪贴板入口，再关闭 HTTP 回退。
 
@@ -27,14 +27,16 @@
 
 设备工作台保留连接状态和实时指标，不再显示每台设备下方的“连接详情”折叠区域。当前设备隐藏“打开桌面”和“文件”快捷按钮，其他设备保留这两个入口。
 
-设备工作台仅在页面可见时轮询状态。桥接将新鲜设备状态与展示指标分离：会话创建不采集指标，页面快照触发最多每 5 秒一次的共享后台采样，通过 MeshCentral `msg/cpuinfo` 请求 CPU 使用率与可用内存，Linux 内存单位为 KiB、Windows 为字节。显示已用量为总量减去系统可用量。GPU 通过固定的只读采集命令读取：NVIDIA 使用 `nvidia-smi`；Linux AMD 使用 DRM sysfs 的 `gpu_busy_percent` 与专用显存字段。当前不支持的驱动或不可达设备显示缺失状态，不以零值代替。
+设备工作台仅在页面可见时轮询状态。桥接将新鲜设备状态与展示指标分离：会话创建不采集指标，页面快照触发最多每 5 秒一次的共享后台采样，通过 MeshCentral `msg/cpuinfo` 请求 CPU 使用率与可用内存，Linux 内存单位为 KiB、Windows 为字节。显示已用量为总量减去系统可用量。GPU 通过固定的只读采集命令读取：NVIDIA 使用 `nvidia-smi`；Linux AMD 使用 DRM sysfs 的 `gpu_busy_percent` 与专用显存字段。没有已支持的采集器或未配置 SSH 目标时返回 `unsupported`；已安装采集器执行失败（包括 NVIDIA 驱动与 NVML 库版本不匹配）、SSH 校验／登录失败及超时返回 `unavailable`，不以零值代替。
 
 套件读取 `~/.config/screen-control/metrics.env`：
 
 ```ini
-SCREEN_CONTROL_METRICS_LOCAL_DEVICE=echova
-SCREEN_CONTROL_METRICS_SSH_TARGETS=jiang-chenx=${SCREEN_CONTROL_WINDOWS_SSH_TARGET},nix=nix@nix.your-tailnet.ts.net
+SCREEN_CONTROL_METRICS_LOCAL_DEVICE=lerrem
+SCREEN_CONTROL_METRICS_SSH_TARGETS=jiang-chenx=${SCREEN_CONTROL_WINDOWS_SSH_TARGET},nix=operator@workstation.example.ts.net,echova=${SCREEN_CONTROL_ECHOVA_SSH_TARGET}
 ```
+
+首次配置 Windows 采集时，先通过目标本机或已信任连接核对 SSH 主机公钥，再登记门户服务用户的 `known_hosts`。Windows 管理员组账号使用 `%ProgramData%\ssh\administrators_authorized_keys`；采集授权应限制来源地址，并使用 `restrict,command="nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits"` 固定只读查询，不授予终端或转发。修改前备份授权文件并保留 ACL。
 
 SSH 使用已有服务用户密钥、严格主机密钥校验与非交互模式；目标仅由服务端配置决定，HTTP 不接受命令或目标地址。页面隐藏时停止轮询并取消未完成页面请求，恢复可见时立即刷新。已启动的共享采样使用独立 3 秒截止时间，子进程退出管道额外等待最多 250 ms，不因单页退出影响其他页面；不会启动永久采样循环。首次快照可暂缺指标，下次刷新取得采样结果。桥接缓存最多保留 15 秒，且按节点标识匹配；页面在断连或样本超过 15 秒后停止显示旧数值。此功能不再读取硬件型号清单，也不需要额外的 DeviceDetails 权限。
 

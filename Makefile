@@ -44,12 +44,14 @@ build: build-web
 	mkdir -p bin
 	mise exec -- go build -trimpath -o bin/screen-control ./cmd/screen-control
 	mise exec -- go build -trimpath -o bin/screen-control-files ./cmd/screen-control-files
+	mise exec -- go build -trimpath -o bin/screen-control-network-probe ./cmd/screen-control-network-probe
 
 bundle: build
 	rm -rf dist/suite
 	install -d dist/suite/bin dist/suite/share/portal dist/suite/deploy
 	install -m 0755 bin/screen-control dist/suite/bin/screen-control
 	install -m 0755 bin/screen-control-files dist/suite/bin/screen-control-files
+	install -m 0755 bin/screen-control-network-probe dist/suite/bin/screen-control-network-probe
 	cp -a dist/portal/. dist/suite/share/portal/
 	cp -a deploy/g0/suite/. dist/suite/deploy/
 	install -d dist/suite/deploy/files

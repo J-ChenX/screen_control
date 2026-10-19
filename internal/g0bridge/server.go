@@ -23,6 +23,7 @@ import (
 )
 
 type Server struct {
+	network        *NetworkTester
 	favorites      *FavoriteStore
 	fileOpen       fileOpener
 	mesh           MeshClient
@@ -86,6 +87,8 @@ func NewServerWithIdentity(mesh MeshClient, identityResolver appidentity.Resolve
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/network/tests", s.handleNetworkTest)
+	mux.HandleFunc("POST /api/v1/network/tests", s.handleNetworkTest)
 	mux.HandleFunc("GET /api/v1/files/favorites/{deviceID}", s.handleFavorites)
 	mux.HandleFunc("POST /api/v1/files/favorites/{deviceID}", s.handleFavorites)
 	mux.HandleFunc("GET /api/v1/identity/device", s.handleDeviceIdentity)

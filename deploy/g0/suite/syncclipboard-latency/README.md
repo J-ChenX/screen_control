@@ -53,3 +53,13 @@ python3 tests/operations/syncclipboard-runtime/x11-history.py --xvfb "$SCREEN_CO
   --install-dir "$SCREEN_CONTROL_SYNC_INSTALL" --core "$SCREEN_CONTROL_SYNC_DLL" \
   --probe tests/operations/syncclipboard-runtime/bin/Release/net8.0/Clipboard.dll
 ```
+
+## X11 读取来源与端到端延迟
+
+API 响应速度不能替代从源系统剪贴板到目标可粘贴的实测。echova 的 2026-10-11 对照发现默认 Avalonia 读取路径存在数秒等待；在确认已安装 xclip、备份现有配置和回滚脚本后，将 `ClipboardFactory.ProhibitSources` 设置为 `["Avalonia"]`，重启既有客户端，同样文本链路从约 6.7 秒降至约 0.4～0.9 秒。此设置不是通用平台默认值：未安装可用读取工具或 Wayland 场景不能直接套用。账号、历史、通知重连及检测周期不随此设置改变。范围、时钟误差、隔离格式验证及回滚见[实测记录](../../../../docs/performance/SYNCCLIPBOARD_LATENCY_20261011.md)。
+
+## 四设备配置优化
+
+2026-10-11 已将上述 X11 读取优化扩展至三台 Linux，第四台 Windows 使用客户端进程级 `NO_PROXY` 直连既有同步服务，并将失败后的重试间隔设为一秒。Windows 绕过值应仅包含当前配置的同步服务主机；通过原有自启动入口启动包装脚本，为子进程设置环境，不改变全局代理规则。配置修改前备份原配置、自启动项与可执行回滚入口，停止客户端后修改配置，再检查重启后的实际 TCP 目标与系统剪贴板。
+
+四台设备的 12 个有向文本传播组合已完成两个轮次，共 24 次成功到达，约 0.09～1.09 秒。此配置优化没有更新 DLL，也不减少 Linux 一秒本地检测周期；不能据此声称所有内容、大小、断线状态都能毫秒级传播。完整矩阵、保护性停止、测量误差与图片/文件未验收范围见[四设备实测记录](../../../../docs/performance/SYNCCLIPBOARD_LATENCY_20261011.md#同日扩展四台设备全部方向)。

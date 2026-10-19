@@ -11,11 +11,11 @@
 
 | 单元 | 位置 | 生命周期 |
 |---|---|---|
-| `edge-gateway` | echova 宿主或最小网络单元 | 独立重启；访问宿主 tailscaled LocalAPI 与证书 |
-| 组合根 + 门户静态资源 | echova Compose | SQLite 单写；静态资源不可变 |
-| MeshCentral | echova 独立容器/卷 | 仅 G0 通过后转生产；Node 24 镜像摘要固定 |
-| SyncClipboard 服务 | echova 独立服务 | 3.2.0 门控迁移，可回滚 3.1.5 |
-| SyncClipboard mTLS 网关 | echova 独立最小网络单元 | 只接收登记 Tailscale 对端的 mTLS；固定上游 SyncClipboard，不暴露服务端凭据 |
+| `edge-gateway` | lerrem 宿主或最小网络单元 | 独立重启；访问宿主 tailscaled LocalAPI 与证书 |
+| 组合根 + 门户静态资源 | lerrem Compose | SQLite 单写；静态资源不可变 |
+| MeshCentral | lerrem 独立容器/卷 | 仅 G0 通过后转生产；Node 24 镜像摘要固定 |
+| SyncClipboard 服务 | lerrem 独立服务 | 3.2.0 门控迁移，可回滚 3.1.5 |
+| SyncClipboard mTLS 网关 | lerrem 独立最小网络单元 | 只接收登记 Tailscale 对端的 mTLS；固定上游 SyncClipboard，不暴露服务端凭据 |
 | SyncClipboard 连接器（条件部署） | 三台普通用户服务 | 仅原生客户端不能满足 mTLS 时部署；本机用户 IPC → 固定网关，无通用代理能力 |
 | MeshAgent | 三台原生系统服务 | 登录前；二进制哈希固定、禁自动升级 |
 | `screen-control-peer-helper` | 三台最小系统服务 | 只为本机普通用户文件代理签发连接/peer 绑定证明；不可代理 LocalAPI 或任意网络查询 |
@@ -33,7 +33,7 @@
 
 ## 运维规则
 
-- 不修改 `echova` 的 8080 或无关项目；项目端口在部署时登记且冲突即失败。
+- 不修改 `lerrem` 的无关项目；历史 `echova` 的 8080 占用不能当作新宿主的端口事实；项目端口在部署时登记且冲突即失败。
 - 版本、镜像摘要、MeshAgent 三平台哈希、迁移号和配置模式定义进入单一发布清单。
 - 备份未校验、空间不足、版本不兼容或前一门失败时不得继续部署。
 - 秘密按设备/用途分离，轮换和恢复后撤销旧代次；不写仓库、镜像层或日志。

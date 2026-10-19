@@ -27,7 +27,7 @@
 - 对象引用使用不透明 ID + 目标设备 + 卷 + 文件系统身份模块；路径只作展示和重新解析输入。
 - 传输：`prepared → receiving → verifying → committing → completed`；任一阶段可 `paused|failed|aborted|unknown`。只有最终提交后最终文件名可见；权威确认 ranges 只包含日志 fsync 后的块。
 - 已确认块集合与清单哈希持久化；恢复先重新授权并复核父代次、两端设备、目标前置条件和现有块摘要。
-- 跨设备 copy 固定为 `target-pull`：每次传输只签发源端 `GET` 数据面与一项能力凭据，目标代理通过受保护控制通道取得后主动连接固定源代理，把响应流写入本机排他暂存区，在块摘要与日志 fsync 后以绑定目标执行器身份推进已确认 ranges；源端不得代表目标确认落盘。Portal/`echova` 不中转正文，也不存在第二条数据流。禁止重定向和任意 host/port。
+- 跨设备 copy 固定为 `target-pull`：每次传输只签发源端 `GET` 数据面与一项能力凭据，目标代理通过受保护控制通道取得后主动连接固定源代理，把响应流写入本机排他暂存区，在块摘要与日志 fsync 后以绑定目标执行器身份推进已确认 ranges；源端不得代表目标确认落盘。Portal/`lerrem` 不中转正文，也不存在第二条数据流。禁止重定向和任意 host/port。
 - 浏览器下载以网页 Worker + 自定义 Authorization header + `ReadableStream` + File System Access API 直连端点，秘密仅在内存；三台目标浏览器的 >3 GiB、≤256 MiB 额外内存、切网恢复及正文不经门户是 `FF-00` 前置硬门，详见协议契约 §9.2。
 
 ## 预算与容量

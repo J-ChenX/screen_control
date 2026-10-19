@@ -11,7 +11,7 @@
 | TLS/LocalAPI 访问 | 入口端专用宿主权限 | 证书自动更新；权限漂移失败即拒绝 |
 | 网页/代理凭据 | 操作系统凭据存储或 0600 文件，按设备/用途分离 | 轮换增加撤销代次 |
 | 在线 SQLite/配置 | 独立服务 UID、目录 `0700`/文件 `0600` 或等价 ACL，位于主机加密卷；禁止其他容器挂载 | 恢复/宿主密钥变化后撤销旧会话/能力 |
-| SQLite/配置备份 | 应用层加密、echova 专用备份身份，与在线卷密钥分离 | 恢复后增加恢复代次并验证旧对象失效 |
+| SQLite/配置备份 | 应用层加密、lerrem 专用备份身份，与在线卷密钥分离 | 恢复后增加恢复代次并验证旧对象失效 |
 | Mesh 数据卷 | 单独加密备份和访问控制 | 恢复后轮换 Mesh/Agent 关联凭据 |
 | SyncClipboard 数据/逐设备凭据 | 服务数据属专用身份；客户端私钥在各机操作系统凭据存储且不可导出 | 逐设备轮换；替换/丢失立即撤销对应序列号，不轮换成共享密码 |
 | 构建产物 | digest/hash 固定，生成 SBOM | 金丝雀后推广；未知哈希拒绝部署 |
@@ -32,7 +32,7 @@
 
 ## 特权与网络装配
 
-- 只有两个 echova 接入边界可直接读取 LocalAPI，且各用独立操作系统身份/ACL：`edge-gateway` 仅为 Portal/Desktop 浏览器套接字调用 `WhoIsForIP/GetCertificate`；`clipboard-gateway` 仅为它实际接受的 SyncClipboard mTLS 套接字调用 `WhoIsForIP`，不能访问证书、路由或替其他进程查询。端点 `screen-control-agent` 不获 LocalAPI 权限；最小权限 `screen-control-peer-helper` 以独立系统身份只为它自行接受的专用文件连接调用 `WhoIsForIP`。三者服务定义、LocalAPI ACL、监听与可执行哈希均进入发布清单，任一越权方法/任意 IP 查询测试失败即停止服务。
+- 只有两个 lerrem 接入边界可直接读取 LocalAPI，且各用独立操作系统身份/ACL：`edge-gateway` 仅为 Portal/Desktop 浏览器套接字调用 `WhoIsForIP/GetCertificate`；`clipboard-gateway` 仅为它实际接受的 SyncClipboard mTLS 套接字调用 `WhoIsForIP`，不能访问证书、路由或替其他进程查询。端点 `screen-control-agent` 不获 LocalAPI 权限；最小权限 `screen-control-peer-helper` 以独立系统身份只为它自行接受的专用文件连接调用 `WhoIsForIP`。三者服务定义、LocalAPI ACL、监听与可执行哈希均进入发布清单，任一越权方法/任意 IP 查询测试失败即停止服务。
 - 门户与 Mesh 分配不同证书名/Origin；部署检查拒绝共享主机的路径路由。网关到 Mesh 的白名单明确删除 Cookie、Authorization、CSRF、Forwarded/X-Forwarded 和项目身份头，并把 Mesh `Set-Cookie` 视为上游安全故障。响应头、WS 升级和错误路径均做端到端断言。
 - bootstrap/登记工具只安装给受限本地运维操作系统身份，无远程网页或 SSH 批处理入口；秘密输入只走关闭回显的本地 TTY 或专用文件描述符。服务安装完成但引导未完成时，公网、Tailscale 私有网络和本机非运维调用方都不能创建首个身份。
 

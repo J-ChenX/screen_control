@@ -3,16 +3,19 @@ Description=Screen Control 隔离的 MeshCentral G0 控制面
 Requires=docker.service tailscaled.service
 After=docker.service tailscaled.service network-online.target
 Wants=network-online.target
+PartOf=docker.service tailscaled.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 EnvironmentFile=/etc/screen-control/meshcentral.env
+ExecStartPre=/usr/bin/python3 ${SCREEN_CONTROL_PROJECT_ROOT}/deploy/g0/meshcentral/wait-bind.py ${SCREEN_CONTROL_PROJECT_ROOT}/deploy/spike/meshcentral/config.json --timeout 90
 ExecStart=/usr/bin/docker compose --project-directory ${SCREEN_CONTROL_PROJECT_ROOT}/deploy/spike/meshcentral -f ${SCREEN_CONTROL_PROJECT_ROOT}/deploy/spike/meshcentral/compose.yaml up --no-build --remove-orphans
 ExecStop=/usr/bin/docker compose --project-directory ${SCREEN_CONTROL_PROJECT_ROOT}/deploy/spike/meshcentral -f ${SCREEN_CONTROL_PROJECT_ROOT}/deploy/spike/meshcentral/compose.yaml down
-Restart=on-failure
+Restart=always
 RestartSec=5s
 TimeoutStartSec=120s
 TimeoutStopSec=60s
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target docker.service tailscaled.service

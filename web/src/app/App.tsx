@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { startVisiblePolling } from "../network/visiblePolling";
 import { getControlSnapshot, getDeviceIdentity } from "../api/client";
 import { MeshDesktop } from "../features/desktop/MeshDesktop";
+import { DirectTest } from "../features/network/DirectTest";
 import { MeshFiles, type FilePaneSelection, type MeshFilesHandle } from "../features/files/MeshFiles";
 import {
   filterDevices,
@@ -220,7 +221,8 @@ function DeviceMetrics({ device, fresh }: { device: Device; fresh: boolean }) {
 }
 
 function DeviceCard({ device, navigate, isLocal, identityReady, metricsFresh }: { device: Device; navigate: (path: string) => void; isLocal: boolean; identityReady: boolean; metricsFresh: boolean }) {
-  const blocked = !identityReady || isLocal;
+  const blocked = !identityReady || isLocal || device.state !== "online";
+  const blockedReason = !identityReady ? "正在识别当前设备" : device.state !== "online" ? `设备${stateLabels[device.state]}，暂不可用` : undefined;
   return (
     <article className={`device-row${isLocal ? " device-row-local" : ""}`} id={`device-${device.id}`} aria-label={device.name}>
       <div className="device-identity">
@@ -234,8 +236,8 @@ function DeviceCard({ device, navigate, isLocal, identityReady, metricsFresh }: 
         ))}
       </div>
       {!isLocal && <div className="device-actions">
-        <button className="primary-button" onClick={() => navigate(`/devices/${device.id}/desktop`)} disabled={blocked} title={isLocal ? "不能控制当前设备" : "打开远程桌面"}><Icon name="desktop" size={16} />打开桌面</button>
-        <button className="secondary-button" onClick={() => navigate(`/devices/${device.id}/files`)} disabled={!identityReady} title="管理文件"><Icon name="file" size={16} />文件</button>
+        <button className="primary-button" onClick={() => navigate(`/devices/${device.id}/desktop`)} disabled={blocked} title={blockedReason ?? "打开远程桌面"}><Icon name="desktop" size={16} />打开桌面</button>
+        <button className="secondary-button" onClick={() => navigate(`/devices/${device.id}/files`)} disabled={blocked} title={blockedReason ?? "管理文件"}><Icon name="file" size={16} />文件</button>
       </div>}
       <DeviceMetrics device={device} fresh={metricsFresh} />
     </article>
@@ -261,6 +263,7 @@ function Overview({ navigate, devices, localDeviceId, backendState, backendError
         <div><span className="summary-symbol green"><Icon name="activity" /></span><strong>{backendState === "live" ? summary.online : "—"}</strong><span>当前在线</span></div>
         <div><span className="summary-symbol amber"><Icon name="shield" /></span><strong>{backendState === "live" ? summary.attention : "—"}</strong><span>需要注意</span></div>
       </section>
+      <DirectTest localDeviceId={localDeviceId} />
       <section className="device-directory" aria-label="已登记设备">
         <div className="directory-toolbar">
           <div className="filter-group" aria-label="筛选设备">

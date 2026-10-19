@@ -19,7 +19,7 @@
 
 当前 G0 由回环地址 Go 桥接读取 MeshCentral 管理 WebSocket，并通过 `/api/v1/control/snapshot` 向门户返回三台登记设备状态。桌面启动先创建内存中的一次性 `dsk_*` 协议 2 会话；文件管理创建独立 `fil_*` 协议 5 会话；二者均由同源中继转发 WebSocket。上游账号、密码、cookie 与 `rauth` 不进入浏览器响应、URL 或网页 Storage。桌面和文件使用分离账号，写请求只接受明确列出的 loopback/Tailnet 门户源站。
 
-开发装配的唯一规范入口为 `${SCREEN_CONTROL_DEV_ORIGIN}`，三台登记设备全部使用该地址。Vite 只在 `echova` 的 Tailscale 地址提供业务页面；`127.0.0.1:5173` 是兼容监听，导航请求以 `308` 跳转到规范入口。Go 桥接仍只监听回环地址并由 Vite 代理。其他两台登记电脑均已从自身系统发起 HTTP/API 请求并得到成功响应；Windows 的本地代理例外包含 Tailscale 私有网络域名。该入口依赖 Tailscale 私有网络隧道加密，但在 Tailscale Serve 尚未启用前没有浏览器 HTTPS，不能作为生产入口验收。
+开发装配的唯一规范入口为 `${SCREEN_CONTROL_DEV_ORIGIN}`，三台登记设备全部使用该地址。Vite 只在当前常驻主机 `lerrem` 的 Tailscale 地址提供业务页面；`127.0.0.1:5173` 是兼容监听，导航请求以 `308` 跳转到规范入口。Go 桥接仍只监听回环地址并由 Vite 代理。其他两台登记电脑均已从自身系统发起 HTTP/API 请求并得到成功响应；Windows 的本地代理例外包含 Tailscale 私有网络域名。该入口依赖 Tailscale 私有网络隧道加密，但在 Tailscale Serve 尚未启用前没有浏览器 HTTPS，不能作为生产入口验收。
 
 生产目标仍是：初次导航由 Go 组合根校验身份并交付带 CSP nonce 的静态壳；浏览器读取快照后以绑定主体的不透明游标订阅增量。收到 `resync-required`、游标过期、版本跳跃或 10 s 内无法恢复的流错误时丢弃本地派生状态并重新取快照。界面状态只保存展示所需 ID，不把 Cookie、能力凭据、desktop-launch 或文件 Authorization 写入 local/session storage。
 
