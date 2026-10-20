@@ -7,3 +7,5 @@
 *.tar binary
 *.gz binary
 
+# 原生代理补丁须保留上游上下文中的制表符、空行前缀和行尾空白。
+deploy/g0/meshagent/rust-native/*.patch -whitespace

@@ -79,6 +79,47 @@ class CIPlanTests(unittest.TestCase):
             self.assertIsNone(MODULE.changed_paths(root, "push", "0" * 40, base))
             self.assertIsNone(MODULE.changed_paths(root, "pull_request", "f" * 40, base))
 
+    def test_native_patch_whitespace_is_preserved_without_exempting_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+
+            git("init", "-q")
+            git("config", "user.email", "ci@example.invalid")
+            git("config", "user.name", "CI 测试")
+            git("config", "commit.gpgsign", "false")
+            (root / ".gitattributes").write_bytes((ROOT / ".gitattributes").read_bytes())
+            git("add", ".")
+            git("commit", "-qm", "属性夹具")
+            base = git("rev-parse", "HEAD")
+            relative = "deploy/g0/meshagent/rust-native/linux-adaptive-desktop.patch"
+            patch = root / relative
+            patch.parent.mkdir(parents=True)
+            original = (ROOT / relative).read_bytes()
+            patch.write_bytes(original)
+            git("add", ".")
+            git("commit", "-qm", "原生补丁夹具")
+            head = git("rev-parse", "HEAD")
+            for event in ["pull_request", "push"]:
+                self.assertEqual(MODULE.changed_paths(root, event, base, head), [relative])
+            self.assertEqual(patch.read_bytes(), original)
+            self.assertTrue(MODULE.select("pull_request", [relative])["native"])
+
+            # 同目录头文件、普通源码及范围外补丁仍拒绝行尾空白和空格后制表符。
+            for relative in ["deploy/g0/meshagent/rust-native/example.h", "web/source.ts", "other.patch"]:
+                with self.subTest(path=relative):
+                    base = git("rev-parse", "HEAD")
+                    source = root / relative
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source.write_text(" \tvalue; \n", encoding="utf-8")
+                    git("add", ".")
+                    git("commit", "-qm", "空白错误夹具")
+                    with self.assertRaises(subprocess.CalledProcessError) as raised:
+                        MODULE.changed_paths(root, "push", base, git("rev-parse", "HEAD"))
+                    self.assertEqual(raised.exception.returncode, 2)
+
     def test_document_links_handle_deleted_files_and_ignore_examples(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
