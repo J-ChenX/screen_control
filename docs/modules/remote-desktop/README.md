@@ -13,6 +13,8 @@
 
 当前尖峰入口为 `deploy/spike/meshcentral/`：固定依赖、受限容器、三平台代理、桌面专用账号以及 `internal/g0bridge/` 的门户桥接已经能完成真实设备枚举和桌面画面/输入。门户同时提供回环地址与 Tailscale 私有网络开发入口，其他两台登记电脑已反向验证页面/API 可达。浏览器只取得一次性 `dsk_*` 定位符，MeshCentral cookie 留在后端内存。它仍不等于 G0 全部通过；仅限 Tailscale 对抗证据、登录前/安全桌面矩阵、独立源站与启动交换负测仍须按任务清单留证。
 
+当前已升级 Linux 桥接使用最高 1440p 的完整 JPEG 帧，按负载切换 1080p／720p／540p，并按实际展示帧映射输入；优质网络默认 Q90。当前设备与工件见[自适应清单](../../../deploy/g0/meshagent/rust-native/adaptive-runtime-manifest.json)，兼容范围、预算及实测限制见[自适应说明](../../performance/DESKTOP_ADAPTIVE.md)。旧代理及未启用的 desktopmultiplex 不冒充整帧能力，短测不改变上述阶段门。
+
 ## 核心流程
 
 | 场景 | 流程 |

@@ -17,12 +17,25 @@ function setup() {
   const module = { KeyAction: { NONE: 0, DOWN: 1, UP: 2 }, SendMouseMsg: send } as unknown as MeshDesktopModule;
   const cleanup = installTouchInput(canvas, module, () => true, { enabled: () => state.enabled, moving: () => state.moving, zoomBy, pan });
   const pointer = (type: string, id: number, x = 50, y = 60, pointerType = "touch") => {
-    canvas.dispatchEvent(Object.assign(new Event(type, { cancelable: true }), { pointerId: id, pointerType, clientX: x, clientY: y }));
+    canvas.dispatchEvent(Object.assign(new Event(type, { cancelable: true }), { pointerId: id, pointerType, button: 0, clientX: x, clientY: y }));
   };
   return { pointer, cleanup, send, zoomBy, pan, state, browser };
 }
 
 describe("触屏输入与画面手势", () => {
+  it("鼠标在移动模式下拖动画面，取消、失焦与模式切换不产生远端点击", () => {
+    const s = setup(); s.state.moving = true;
+    s.pointer("pointerdown", 1, 50, 60, "mouse");
+    s.pointer("pointermove", 1, 80, 75, "mouse");
+    expect(s.pan).toHaveBeenCalledWith({ x: 30, y: 15 });
+    s.browser.dispatchEvent(new Event("blur"));
+    s.pointer("pointermove", 1, 90, 90, "mouse");
+    expect(s.pan).toHaveBeenCalledTimes(1);
+    s.pointer("pointerdown", 2, 50, 60, "mouse"); s.cleanup();
+    s.state.moving = false;
+    s.pointer("pointerup", 2, 50, 60, "mouse");
+    vi.runAllTimers(); expect(s.send).not.toHaveBeenCalled();
+  });
   it("轻触配对发送右键，忽略鼠标，清理后不再处理输入", () => {
     const s = setup();
     s.pointer("pointerdown", 9, 50, 60, "mouse");

@@ -2,6 +2,8 @@
 
 2026-09-29 的最新 Windows 实机接入、内存对照和可回滚运行范围见[本轮记录](../../performance/RUST_RUNTIME_20260929.md)及[工件清单](../../../deploy/g0/meshagent/rust-native/windows-runtime-manifest.json)。Ubuntu `nix`、`echova`、`lerrem` 同日完成独立构建和实机检查并进入可回滚运行观察，见[Ubuntu 更新记录](../../performance/UBUNTU_RUST_RUNTIME_20260929.md)。下文候选实验与早期构建段落保留各自的原始适用版本；两平台短测均不代表长期验收完成。
 
+2026-10-20 的自适应 Linux 工件增加 Rust 等比尺寸、RGB24 缩小和坐标边界，最高 2560×1440；同尺寸直接逐行复制。C 仍负责平台资源、JPEG 与发送，输入按已展示帧历史逐包映射；确认及刷新不能扩大输入权限。当前工件及实测范围见[自适应清单](../../../deploy/g0/meshagent/rust-native/adaptive-runtime-manifest.json)，历史清单保持原版本。
+
 ## 职责与边界
 
 在固定 MeshAgent 源码中替换网络帧处理的 C 算术、未对齐读写与缓冲管理。Rust 负责安全解析和字节变换；C 适配层只传递明确大小的数据并继续使用既有连接、身份和桌面权限。此组件是替换现有实现的构建组成，不是新增服务或第二套协议。

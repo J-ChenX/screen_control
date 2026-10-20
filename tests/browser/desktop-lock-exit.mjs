@@ -4,7 +4,7 @@ import { launchBrowser, expect, testOrigin, screenshotPath } from '../support/br
 const base = testOrigin();
 const browser = await launchBrowser();
 function protocol() {
- window.CreateAgentRemoteDesktop=()=>({protocol:2,GrabMouseInput(){},GrabKeyInput(){},UnGrabMouseInput(){},UnGrabKeyInput(){}});
+ window.CreateAgentRemoteDesktop=()=>({protocol:2,GrabMouseInput(){},GrabKeyInput(){},UnGrabMouseInput(){},UnGrabKeyInput(){},SendMouseMsg(){},SendKeyMsgKC(){},SendStringUnicode(){},GetDisplayNumbers(){this.onDisplayinfo?.(this,{},0);}});
  window.CreateAgentRedirect=(_,m)=>{const r={m,Start(){setTimeout(()=>r.onStateChanged(r,3),0)},Stop(){}};return r;};
 }
 try {

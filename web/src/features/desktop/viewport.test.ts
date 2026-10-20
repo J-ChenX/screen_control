@@ -18,4 +18,11 @@ it("缩放以触点为中心，移动有边界，旋转后保留倍率，适应�
   view.reset();
   expect(canvas.style).toMatchObject({ width: "711px", height: "400px", left: "44.5px", top: "0px" });
   view.zoomBy(.01); expect(zoom).toHaveBeenLastCalledWith(1);
+  view.setZoom(2.37);
+  expect(zoom).toHaveBeenLastCalledWith(2.37);
+  expect(parseFloat(canvas.style.width)).toBeCloseTo(711 * 2.37);
+  view.zoomBy(1.5); view.setZoom(1.25);
+  expect(parseFloat(canvas.style.width)).toBeCloseTo(711 * 1.25);
+  view.setZoom(1);
+  expect(canvas.style).toMatchObject({ left: "44.5px", top: "0px" });
 });

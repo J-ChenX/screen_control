@@ -1,4 +1,6 @@
 import { manageDesktopMemory } from "./memory";
+import { emptyDesktopDisplays, manageDesktopDisplays } from "./displays";
+import { applyDesktopQuality, desktopQuality, type DesktopResolution } from "./quality";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ConnectionRecovery } from "../../network/recovery";
@@ -25,6 +27,9 @@ export { fitRemoteCanvas } from "./viewport";
 export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: { device: Device; toolbarTarget: HTMLElement | null; inputSuspended?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const memoryCleanupRef = useRef<(() => void) | null>(null);
+  const displaysRef = useRef<ReturnType<typeof manageDesktopDisplays> | null>(null);
+  const selectedDisplayRef = useRef<number | null>(null);
+  const [displays, setDisplays] = useState(emptyDesktopDisplays);
   const viewportRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<ReturnType<typeof createDesktopViewport> | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -40,7 +45,9 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       touchCleanupRef.current?.(); touchCleanupRef.current = null;
       module.UnGrabKeyInput(); module.UnGrabMouseInput();
     } else if (state === "connected" && !endingRef.current) {
-      module.GrabKeyInput(); module.GrabMouseInput(); installMobileInput(module);
+      module.GrabKeyInput();
+      if (!movingRef.current) { module.GrabMouseInput(); installWheelInput(module); }
+      installMobileInput(module);
     }
   }, [inputSuspended]);
   const sessionRef = useRef<string | null>(null);
@@ -50,6 +57,8 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
   const [rightClick, setRightClick] = useState(false);
   const [smooth, setSmooth] = useState(false);
   const smoothRef = useRef(false);
+  const [resolution, setResolution] = useState<DesktopResolution>("auto");
+  const resolutionRef = useRef<DesktopResolution>("auto");
   const [inputText, setInputText] = useState("");
   const mountedRef = useRef(true);
   const autoStartAttemptedRef = useRef(false);
@@ -69,6 +78,18 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     viewRef.current?.fit();
   };
 
+  const setMovingMode = (next: boolean) => {
+    // 切换前释放未完成触控，避免跨模式产生远端点击或遗留按下。
+    touchCleanupRef.current?.(); touchCleanupRef.current = null;
+    movingRef.current = next;
+    setMoving(next);
+    const module = redirectRef.current?.m;
+    if (!module || state !== "connected" || inputSuspendedRef.current || endingRef.current) return;
+    if (next) module.UnGrabMouseInput();
+    else { module.GrabMouseInput(); installWheelInput(module); }
+    installMobileInput(module);
+  };
+
   const installMobileInput = (module: MeshDesktopModule) => {
     touchCleanupRef.current?.();
     touchCleanupRef.current = installTouchInput(canvasRef.current!, module, () => rightClickRef.current, {
@@ -79,6 +100,10 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     });
   };
 
+  useEffect(() => {
+    if (zoom <= 1 && movingRef.current) setMovingMode(false);
+  }, [zoom]);
+
   const installWheelInput = (module: MeshDesktopModule) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -86,6 +111,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
     (canvas as HTMLCanvasElement & { onmousewheel: ((event: Event) => unknown) | null }).onmousewheel = null;
     const handleWheel = (event: WheelEvent) => {
       if (inputSuspendedRef.current || endingRef.current) return;
+      if (movingRef.current) { event.preventDefault(); event.stopPropagation(); return; }
       if (event.deltaY === 0) return;
       event.preventDefault();
       event.stopPropagation();
@@ -122,6 +148,9 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       redirect.m.onScreenSizeChange = null;
       redirect.Stop();
     }
+    displaysRef.current?.dispose();
+    displaysRef.current = null;
+    if (mountedRef.current) setDisplays(emptyDesktopDisplays);
     memoryCleanupRef.current?.();
     memoryCleanupRef.current = null;
     if (mountedRef.current) setState(nextState);
@@ -204,17 +233,22 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       }
       sessionRef.current = session.desktopSessionId;
       const module = window.CreateAgentRemoteDesktop(canvasRef.current);
-      memoryCleanupRef.current = manageDesktopMemory(module, canvasRef.current);
+      memoryCleanupRef.current = manageDesktopMemory(module, canvasRef.current, { platform: device.platform, smooth: smoothRef.current, resolution: resolutionRef.current });
+      if (device.platform === "Windows") displaysRef.current = manageDesktopDisplays(module, selectedDisplayRef.current, next => {
+        if (!mountedRef.current || attempt !== generation.current) return;
+        if (next.selected !== null && next.pending === null && !next.error) selectedDisplayRef.current = next.selected;
+        setDisplays(next);
+      });
       const processCommand = module.ProcessBinaryCommand?.bind(module);
       if (processCommand) module.ProcessBinaryCommand = (command, size, data) => processCommand(command, size, normalizeCursorCommand(command, size, data));
       // Windows 输入法需要字母按键事件来生成预编辑文本和候选项。
       // MeshCentral 默认的 Unicode 数据包会直接插入已完成的文本。
       module.remoteKeyMap = device.platform === "Windows";
-      module.ImageType = 1;
-      module.CompressionLevel = smoothRef.current ? 45 : 60;
-      module.ScalingLevel = smoothRef.current ? 512 : 1024;
-      // 40 毫秒允许每秒最多约 25 次采集；实际更新速度取决于代理和链路。
-      module.FrameRateTimer = 40;
+      const quality = desktopQuality(device.platform, smoothRef.current);
+      module.ImageType = quality.type;
+      module.CompressionLevel = quality.quality;
+      module.ScalingLevel = quality.scaling;
+      module.FrameRateTimer = quality.interval;
       module.onScreenSizeChange = (_desktop, width, height, canvas) => {
         // 重复设置相同尺寸也会清空画布并重置绘图状态。
         if (canvas.width !== width) canvas.width = width;
@@ -233,8 +267,9 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           window.clearTimeout(handshakeTimer.current);
           busy.current = false;
           recovery.current!.connected();
+          displaysRef.current?.start();
           if (!inputSuspendedRef.current) {
-            activeRedirect.m.GrabMouseInput();
+            if (!movingRef.current) activeRedirect.m.GrabMouseInput();
             activeRedirect.m.GrabKeyInput();
           }
           installWheelInput(activeRedirect.m);
@@ -285,6 +320,8 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           height={701}
           tabIndex={0}
           aria-label={`${device.name} 实机远程桌面`}
+          className={moving ? "desktop-canvas-moving" : undefined}
+          style={device.platform === "Windows" && (displays.selected === null || displays.pending !== null || !!displays.error) ? { visibility: "hidden" } : undefined}
           onContextMenu={(event) => {
             // MeshCentral 负责转发鼠标按键事件；这里只屏蔽本地浏览器菜单。
             event.preventDefault();
@@ -300,20 +337,56 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           </div>
         )}
         {active && state !== "connected" && <div className="mesh-connecting"><span /><strong>{labels[state]}</strong></div>}
+        {state === "connected" && device.platform === "Windows" && !displays.error && (displays.selected === null || displays.pending !== null) && <div className="mesh-connecting"><span /><strong>{displays.pending === null ? "正在读取屏幕" : `正在切换屏幕 ${displays.pending || 1}`}</strong></div>}
       </div>
       {toolbarTarget && createPortal(<>
         <div className="desktop-zoom-controls" role="group" aria-label="画面缩放">
           <button aria-label="缩小画面" disabled={zoom <= 1} onClick={() => viewRef.current?.zoomBy(1 / 1.5)}>−</button>
-          <button title="恢复完整画面" onClick={() => { viewRef.current?.reset(); movingRef.current = false; setMoving(false); }}>适应 · {Math.round(zoom * 100)}%</button>
+          <label className="desktop-zoom-slider">
+            <input type="range" aria-label="画面缩放比例" min={100} max={800} step={1} value={Math.round(zoom * 100)} aria-valuetext={`${Math.round(zoom * 100)}%`} onChange={event => viewRef.current?.setZoom(Number(event.target.value) / 100)} />
+            <output className="desktop-zoom-value" aria-hidden="true">{Math.round(zoom * 100)}%</output>
+          </label>
           <button aria-label="放大画面" disabled={zoom >= 8} onClick={() => viewRef.current?.zoomBy(1.5)}>＋</button>
+          <button title="恢复完整画面" onClick={() => { viewRef.current?.reset(); setMovingMode(false); }}>适应</button>
         </div>
+        <button aria-pressed={moving} title="开启后拖动只移动本地画面；关闭后恢复控屏" disabled={zoom <= 1 || state !== "connected"} onClick={() => setMovingMode(!moving)}>移画面{moving ? "：开" : "：关"}</button>
+        {moving && <div className="desktop-pan-controls" role="group" aria-label="移动画面">
+          {[[100, 0, "向左查看", "←"], [-100, 0, "向右查看", "→"], [0, 100, "向上查看", "↑"], [0, -100, "向下查看", "↓"]].map(([x, y, label, arrow]) => <button key={label} aria-label={String(label)} title={String(label)} onClick={() => viewRef.current?.pan({ x: Number(x), y: Number(y) })}>{arrow}</button>)}
+        </div>}
+        {device.platform === "Windows" && <label className="desktop-resolution">屏幕
+          <select aria-label="屏幕" value={displays.pending ?? displays.selected ?? ""} disabled={ending || state !== "connected" || displays.pending !== null || displays.ids.length < 2} onChange={event => {
+            touchCleanupRef.current?.(); touchCleanupRef.current = null;
+            const module = redirectRef.current?.m;
+            module?.UnGrabKeyInput();
+            viewRef.current?.reset(); setMovingMode(false);
+            displaysRef.current?.select(Number(event.target.value));
+            if (!inputSuspendedRef.current && !endingRef.current) module?.GrabKeyInput();
+          }}>
+            {displays.selected === null && displays.pending === null && <option value="">等待屏幕</option>}
+            {displays.ids.map(id => <option key={id} value={id}>屏幕 {id || 1}</option>)}
+          </select>
+        </label>}
+        <label className="desktop-resolution">分辨率
+          <select aria-label="分辨率" value={resolution} disabled={state !== "connected"} onChange={event => {
+            const next = event.target.value === "auto" ? "auto" : Number(event.target.value) as DesktopResolution;
+            resolutionRef.current = next;
+            setResolution(next);
+            redirectRef.current?.m.SetDesktopResolution?.(next);
+          }}>
+            <option value="auto">自动</option>
+            <option value="1440">1440P</option>
+            <option value="1080">1080P</option>
+            <option value="720">720P</option>
+          </select>
+        </label>
         <span className="desktop-session-status" role="status" aria-label={labels[state]} title={labels[state]}>
           <span aria-hidden="true" className={state === "connected" ? "live-dot" : "session-state-dot"} />
           <span className="desktop-session-label">{labels[state]}</span>
         </span>
-        <button aria-pressed={smooth} title="流畅模式降低画质并将传输宽高减半，适合带宽不足时使用" disabled={state !== "connected"} onClick={() => {
+        <button aria-pressed={smooth} title="自动分辨率按负载调整，流畅优先更早降档；固定分辨率时只降低画质" disabled={state !== "connected"} onClick={() => {
           const next = !smoothRef.current;
-          redirectRef.current?.m.SendCompressionLevel(1, next ? 45 : 60, next ? 512 : 1024, 40);
+          const module = redirectRef.current?.m;
+          if (module) applyDesktopQuality(module, device.platform, next);
           smoothRef.current = next;
           setSmooth(next);
         }}>{smooth ? "流畅：开" : "流畅：关"}</button>
@@ -321,10 +394,6 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       </>, toolbarTarget)}
       <div className="mobile-input-toolbar" aria-label="触屏控制" hidden={state !== "connected"}>
         <span>单指点击 / 拖动控屏 · 双指缩放 / 移动画面</span>
-        <button aria-pressed={moving} onClick={() => { movingRef.current = !moving; setMoving(!moving); }}>移画面{moving ? "：开" : "：关"}</button>
-        {moving && <div className="desktop-pan-controls" role="group" aria-label="移动画面">
-          {[[100, 0, "向左查看"], [-100, 0, "向右查看"], [0, 100, "向上查看"], [0, -100, "向下查看"]].map(([x, y, label]) => <button key={label} onClick={() => viewRef.current?.pan({ x: Number(x), y: Number(y) })}>{label}</button>)}
-        </div>}
         <button aria-pressed={rightClick} onClick={() => { rightClickRef.current = !rightClick; setRightClick(!rightClick); }}>右键{rightClick ? "：开" : "：关"}</button>
         {[[-40, "向下滚动"], [40, "向上滚动"]].map(([delta, label]) => <button key={label} onClick={() => {
           const rect = viewportRef.current!.getBoundingClientRect();
@@ -341,6 +410,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
       </div>
       {lockNotice && <div className="mesh-error" role="status">{lockNotice}</div>}
       {error && <div className="mesh-error" role="alert">{error}</div>}
+      {displays.error && <div className="mesh-error" role="alert">{displays.error}<button onClick={() => displaysRef.current?.retry()}>重试屏幕选择</button></div>}
     </div>
   );
 }

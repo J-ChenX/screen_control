@@ -2,6 +2,8 @@
 
 ## 当前运行范围
 
+2026-10-20 桌面自适应更新：优质网络最高 1440p，拥塞降至 1080p／720p／540p；Linux 使用独立整帧 JPEG、展示／丢弃反馈和逐帧输入映射。用户试用固定 1080p 后要求保留 2K，该观察版已撤回。当前工件与适用设备见[自适应清单](adaptive-runtime-manifest.json)，行为、预算及验证入口见[自适应说明](../../../../docs/performance/DESKTOP_ADAPTIVE.md)。下面 2026-09-29 的记录保留其原始版本，不作为新工件运行事实。
+
 2026-09-29，本轮选择默认构建及 Rust 最后分片扩容优化，Windows 工件为 `27a434c9…44cf`，用于已登记设备 `jiang-chenx` 的可回滚运行观察。Ubuntu `nix`、`echova`、`lerrem` 已同步共享 Rust 核心及 Linux 图像处理，并补上 Linux 采集暂停，见[Ubuntu 记录](../../../../docs/performance/UBUNTU_RUST_RUNTIME_20260929.md)与[Linux 工件清单](linux-runtime-manifest.json)。五个可选 C 生命周期补丁未进入此工件：此前包含它们的 `4213e8dd…f7039` 曾通过短测，却在保留后的新会话超时，已撤回。Rust 在两个组合中都实际参与帧、分片和图块处理；不能把排除实验补丁理解为移除了 Rust。[实机记录](../../../../docs/performance/RUST_RUNTIME_20260929.md)与[工件清单](windows-runtime-manifest.json)是当前状态和限制的入口，下方原始候选记录保留各自时间点的事实。
 
 最后分片需要扩容时，Rust 现在只申请完整消息所需容量；中间分片仍按预算内倍增。独立正常输入对照中，10,000 + 3 字节消息的输出容量由 20,000 降至 10,003，完成后连接不保留该容量。该局部分配改善不等于进程常驻、系统峰值或长期泄漏已改善。

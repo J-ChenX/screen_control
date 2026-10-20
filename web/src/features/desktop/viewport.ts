@@ -22,11 +22,11 @@ export function createDesktopViewport(canvas: HTMLCanvasElement, viewport: HTMLE
       top: `${(viewport.clientHeight - height * zoom) / 2 + offset.y}px`,
     });
   };
-  const zoomBy = (factor: number, anchor?: ViewPoint) => {
+  const setZoom = (value: number, anchor?: ViewPoint) => {
     const rect = viewport.getBoundingClientRect();
     const x = anchor ? anchor.x - rect.left : viewport.clientWidth / 2;
     const y = anchor ? anchor.y - rect.top : viewport.clientHeight / 2;
-    const next = Math.max(1, Math.min(8, zoom * factor));
+    const next = Math.max(1, Math.min(8, value));
     const ratio = next / zoom;
     offset = {
       x: (x - viewport.clientWidth / 2) * (1 - ratio) + offset.x * ratio,
@@ -36,6 +36,7 @@ export function createDesktopViewport(canvas: HTMLCanvasElement, viewport: HTMLE
     render();
     onZoom(zoom);
   };
+  const zoomBy = (factor: number, anchor?: ViewPoint) => setZoom(zoom * factor, anchor);
   const pan = (delta: ViewPoint) => { offset.x += delta.x; offset.y += delta.y; render(); };
   return {
     fit() {
@@ -44,6 +45,7 @@ export function createDesktopViewport(canvas: HTMLCanvasElement, viewport: HTMLE
       render();
     },
     zoomBy,
+    setZoom,
     pan,
     reset() { zoom = 1; offset = { x: 0, y: 0 }; render(); onZoom(zoom); },
   };

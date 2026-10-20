@@ -160,3 +160,227 @@ it('重复绘制两千张图块后位图归零且序号重置仍可继续', asyn
   }
   expect(peak).toBe(1);expect(state.drawn).toHaveLength(2000);expect(state.module.SendRefresh).not.toHaveBeenCalled();state.dispose();
 });
+
+// 最小 SOF 头用于模拟有明确尺寸的小图块；实际 JPEG 解码由测试替身完成。
+const smallPicture = new Uint8Array([0, 0, 0, 0, 255, 216, 255, 192, 0, 11, 8, 0, 32, 0, 32, 1, 1, 17, 0]);
+it('同尺寸屏幕切换丢弃旧屏迟到解码，并允许新屏继续绘制', async () => {
+  const resolves: ((value: ImageBitmap) => void)[] = [];
+  vi.stubGlobal('createImageBitmap', vi.fn(() => new Promise(resolve => resolves.push(resolve))));
+  const s = setup();
+  const clear = vi.fn(); s.canvas.getContext = vi.fn(() => ({ clearRect: clear })) as unknown as HTMLCanvasElement['getContext'];
+  s.module.ProcessPictureMsg!(smallPicture, 0, 0); await flush();
+  s.module.ResetDesktopDisplay!(true);
+  const old = bitmap(); resolves[0](old); await flush();
+  expect(old.close).toHaveBeenCalledOnce(); expect(s.drawn).toEqual([]); expect(clear).toHaveBeenCalledOnce();
+  s.module.ProcessPictureMsg!(smallPicture, 0, 0); await flush(); resolves[1](bitmap()); await flush();
+  expect(s.drawn).toHaveLength(1); s.dispose();
+});
+it('切换后按代理实际缩放还原新屏尺寸，固定分辨率不沿用合并桌面宽度', () => {
+  vi.useFakeTimers();
+  const s = setup(); s.dispose(); s.canvas.width = 1920; s.canvas.height = 1080;
+  s.canvas.getContext = vi.fn(() => ({ clearRect() {} })) as unknown as HTMLCanvasElement['getContext'];
+  s.module.ProcessBinaryCommand = vi.fn(); s.module.SendCompressionLevel = vi.fn(); s.module.ScalingLevel = 512;
+  const dispose = manageDesktopMemory(s.module, s.canvas, { platform: 'Windows', smooth: false });
+  s.module.ResetDesktopDisplay!(true);
+  s.module.ProcessBinaryCommand!(7, 8, new Uint8Array([0, 7, 0, 8, 7, 128, 4, 56]));
+  s.module.SetDesktopResolution!(1080);
+  expect(s.module.SendCompressionLevel).toHaveBeenLastCalledWith(1, 85, 512, 40);
+  dispose();
+});
+it('选屏还原尺寸使用已发送的缩放值，不使用尚未下发的下一档配置', () => {
+  vi.useFakeTimers();
+  const s = setup(); s.dispose();
+  s.canvas.getContext = vi.fn(() => ({ clearRect() {} })) as unknown as HTMLCanvasElement['getContext'];
+  s.module.ProcessBinaryCommand = vi.fn(); s.module.SendCompressionLevel = vi.fn(); s.module.send = vi.fn(); s.module.ScalingLevel = 512;
+  const dispose = manageDesktopMemory(s.module, s.canvas, { platform: 'Windows', smooth: false });
+  s.module.ScalingLevel = 341;
+  s.module.ResetDesktopDisplay!(true);
+  s.module.ProcessBinaryCommand!(7, 8, new Uint8Array([0, 7, 0, 8, 3, 192, 2, 28]));
+  s.module.SetDesktopResolution!(1080);
+  expect(s.module.SendCompressionLevel).toHaveBeenLastCalledWith(1, 85, 1024, 40); dispose();
+});
+it('有物理尺寸时切换不从尚在途的旧缩放帧推算新屏尺寸', () => {
+  vi.useFakeTimers();
+  const s = setup(); s.dispose();
+  s.canvas.getContext = vi.fn(() => ({ clearRect() {} })) as unknown as HTMLCanvasElement['getContext'];
+  s.module.ProcessBinaryCommand = vi.fn(); s.module.SendCompressionLevel = vi.fn(); s.module.ScalingLevel = 341;
+  const dispose = manageDesktopMemory(s.module, s.canvas, { platform: 'Windows', smooth: false });
+  s.module.ResetDesktopDisplay!(true, { width: 3840, height: 2160 });
+  s.module.ProcessBinaryCommand!(7, 8, new Uint8Array([0, 7, 0, 8, 3, 192, 2, 28]));
+  expect(s.module.ScalingLevel).toBe(682);
+  s.module.ProcessBinaryCommand!(7, 8, new Uint8Array([0, 7, 0, 8, 15, 0, 8, 112]));
+  s.module.SetDesktopResolution!(1080);
+  expect(s.module.SendCompressionLevel).toHaveBeenLastCalledWith(1, 85, 512, 40); dispose();
+});
+it('实际解码队列严重过期时仍快速降档，不被防抖观察期延迟', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('createImageBitmap', vi.fn(() => new Promise(() => {})));
+  const state = setup(); state.dispose();
+  state.canvas.width = 3840; state.canvas.height = 2160;
+  state.module.ProcessBinaryCommand = vi.fn(); state.module.SendCompressionLevel = vi.fn();
+  const dispose = manageDesktopMemory(state.module, state.canvas, { platform: 'Ubuntu', smooth: false });
+  state.module.ProcessBinaryCommand!(7, 8, new Uint8Array([0, 7, 0, 8, 15, 0, 8, 112]));
+  state.module.ProcessPictureMsg!(smallPicture, 0, 0); await flush();
+  await vi.advanceTimersByTimeAsync(400);
+  expect(state.module.SendCompressionLevel).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(200);
+  expect(state.module.SendCompressionLevel).toHaveBeenCalledWith(1, 75, 256, 40);
+  expect(state.module.SendPause).toHaveBeenCalledOnce();
+  dispose();
+});
+it('四路小图块乱序完成仍按协议顺序绘制并释放', async () => {
+  const resolves: ((value: ImageBitmap) => void)[] = [];
+  vi.stubGlobal('createImageBitmap', vi.fn(() => new Promise(resolve => resolves.push(resolve))));
+  const state = setup();
+  for (let i = 0; i < 4; i++) state.module.ProcessPictureMsg!(smallPicture, i * 32, 0);
+  await flush(); expect(resolves).toHaveLength(4);
+  const images = Array.from({ length: 4 }, bitmap);
+  resolves[2](images[2]); await flush(); expect(state.drawn).toEqual([]);
+  resolves[0](images[0]); await flush(); expect(state.drawn).toEqual([1]);
+  resolves[3](images[3]); await flush(); expect(state.drawn).toEqual([1]);
+  resolves[1](images[1]); await flush(); expect(state.drawn).toEqual([1, 2, 3, 4]);
+  for (const image of images) expect(image.close).toHaveBeenCalledOnce();
+  expect(state.module.SendRefresh).not.toHaveBeenCalled(); state.dispose();
+});
+it('同一浏览器刷新周期批量绘制，尚未绘制的位图也占用并行预算', async () => {
+  const callbacks: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', vi.fn(callback => { callbacks.push(callback); return callbacks.length; }));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.resolve(bitmap())));
+  const state = setup();
+  for (let i = 0; i < 8; i++) state.module.ProcessPictureMsg!(smallPicture, i * 32, 0);
+  await flush(); expect(createImageBitmap).toHaveBeenCalledTimes(4);
+  expect(state.drawn).toEqual([]); expect(callbacks).toHaveLength(1);
+  callbacks[0](0); await flush(); expect(state.drawn).toEqual([1, 2, 3, 4]);
+  expect(createImageBitmap).toHaveBeenCalledTimes(8);
+  callbacks[1](16); await flush(); expect(state.drawn).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  state.dispose();
+});
+it('高压缩率的大画面仍独占像素预算，不能并行扩大解码内存', async () => {
+  const resolves: ((value: ImageBitmap) => void)[] = [];
+  vi.stubGlobal('createImageBitmap', vi.fn(() => new Promise(resolve => resolves.push(resolve))));
+  const state = setup(); const large = smallPicture.slice();
+  large[11] = 16; large[12] = 0; large[13] = 32; large[14] = 0;
+  state.module.ProcessPictureMsg!(large, 0, 0); state.module.ProcessPictureMsg!(smallPicture, 0, 0);
+  await flush(); expect(resolves).toHaveLength(1);
+  const first = bitmap(); resolves[0](first); await flush();
+  expect(first.close).toHaveBeenCalledOnce(); expect(resolves).toHaveLength(2);
+  resolves[1](bitmap()); await flush(); expect(state.drawn).toEqual([1, 2]); state.dispose();
+});
+it('少量小图块等待过久也施加背压，过期后刷新且丢弃迟到结果', async () => {
+  vi.useFakeTimers();
+  const resolves: ((value: ImageBitmap) => void)[] = [];
+  vi.stubGlobal('createImageBitmap', vi.fn(() => new Promise(resolve => resolves.push(resolve))));
+  const state = setup();
+  state.module.ProcessPictureMsg!(smallPicture, 0, 0); state.module.ProcessPictureMsg!(smallPicture, 32, 0);
+  await flush(); await vi.advanceTimersByTimeAsync(150);
+  expect(state.module.SendPause).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(600); const late = [bitmap(), bitmap()];
+  resolves.forEach((resolve, index) => resolve(late[index])); await flush();
+  expect(state.drawn).toEqual([]); late.forEach(image => expect(image.close).toHaveBeenCalledOnce());
+  await vi.advanceTimersByTimeAsync(250);
+  expect(state.module.SendRefresh).toHaveBeenCalledOnce(); expect(state.module.SendUnPause).toHaveBeenCalledOnce();
+  expect(vi.mocked(state.module.SendRefresh!).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(state.module.SendUnPause!).mock.invocationCallOrder[0]);
+  state.dispose();
+});
+it('关闭会话取消等待时间检查和浏览器绘制回调', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 9)); vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.resolve(bitmap())));
+  const state = setup(); state.module.ProcessPictureMsg!(smallPicture, 0, 0); await flush(); state.dispose();
+  await vi.advanceTimersByTimeAsync(2000); expect(cancelAnimationFrame).toHaveBeenCalledWith(9);
+  expect(state.module.SendPause).not.toHaveBeenCalled(); expect(state.drawn).toEqual([]);
+});
+
+function framePicture(width: number,height: number) {
+  const data=smallPicture.slice();data[11]=height>>8;data[12]=height&255;data[13]=width>>8;data[14]=width&255;return data;
+}
+function completeFrame(sequence: number, width: number, height: number, epoch = 2) {
+  const bytes = new Uint8Array(40), view = new DataView(bytes.buffer);
+  for (const [offset,value] of [[0,0x7f00],[2,40],[4,1],[6,3],[16,2560],[18,1440],[20,width],[22,height],[24,height],[26,85]]) view.setUint16(offset,value);
+  view.setUint32(8,epoch); view.setUint32(12,sequence);
+  return bytes;
+}
+it('分辨率选择同时应用于整帧握手和旧代理缩放，销毁后移除入口', () => {
+  vi.useFakeTimers();
+  for (const framed of [true, false]) {
+    const state = setup(); state.dispose();
+    state.module.ProcessBinaryCommand = vi.fn(); state.module.SendCompressionLevel = vi.fn();
+    const dispose = manageDesktopMemory(state.module, state.canvas, { platform: 'Ubuntu', smooth: false, resolution: 720 });
+    if (framed) state.module.ProcessBinaryCommand!(0x7f00, 40, completeFrame(1, 1280, 720));
+    else state.module.ProcessBinaryCommand!(7, 8, new Uint8Array([0, 7, 0, 8, 10, 0, 5, 160]));
+    for (const tier of [720, 1080, 1440] as const) {
+      state.module.SetDesktopResolution!(tier);
+      const scaling = framed ? tier : Math.floor(tier / 1440 * 1024);
+      const quality = tier === 720 ? 80 : tier === 1080 ? 85 : 90;
+      expect(state.module.SendCompressionLevel).toHaveBeenLastCalledWith(framed ? 129 : 1, quality, scaling, 40);
+    }
+    dispose(); expect(state.module.SetDesktopResolution).toBeUndefined();
+  }
+});
+it('完整新尺寸解码前保持旧画面，绘制后才确认并更新输入尺寸', async () => {
+  const resolves: ((value: ImageBitmap) => void)[] = [];
+  vi.stubGlobal('createImageBitmap',vi.fn(()=>new Promise(resolve=>resolves.push(resolve))));
+  const state = setup(); state.dispose();
+  state.module.ProcessBinaryCommand = vi.fn(); const sent = vi.fn(); state.module.send = sent;
+  state.canvas.width=1920;state.canvas.height=1080;
+  const dispose=manageDesktopMemory(state.module,state.canvas);
+  state.module.ProcessBinaryCommand!(0x7f00,40,completeFrame(1,1280,720));
+  state.module.ProcessPictureMsg!(framePicture(1280,720),0,0);await flush();
+  expect(state.canvas.width).toBe(1920);expect(sent).not.toHaveBeenCalled();
+  const image={width:1280,height:720,close:vi.fn()} as unknown as ImageBitmap;
+  resolves[0](image);await flush();
+  expect(state.canvas.width).toBe(1280);expect(state.module.ScreenWidth).toBe(1280);
+  expect(sent).toHaveBeenCalledOnce();expect(image.close).toHaveBeenCalledOnce();dispose();
+});
+it('整帧尺寸不匹配时不展示也不确认，转为完整刷新', async () => {
+  vi.useFakeTimers(); vi.stubGlobal('createImageBitmap',vi.fn(()=>Promise.resolve(bitmap())));
+  const state=setup();state.dispose();state.module.ProcessBinaryCommand=vi.fn();const sent=vi.fn();state.module.send=sent;
+  state.canvas.width=1920;state.canvas.height=1080;
+  const dispose=manageDesktopMemory(state.module,state.canvas);
+  state.module.ProcessBinaryCommand!(0x7f00,40,completeFrame(1,1280,720));state.module.ProcessPictureMsg!(framePicture(1280,720),0,0);await flush();
+  expect(sent.mock.calls.every(([packet])=>packet.charCodeAt(1)===3)).toBe(true);expect(state.canvas.width).toBe(1920);
+  await vi.advanceTimersByTimeAsync(250);expect(state.module.SendRefresh).toHaveBeenCalledOnce();dispose();
+});
+it('旧代理的首次尺寸在编码前限制到2K，后续缩放通知不误当物理尺寸', () => {
+  const state=setup();state.dispose();state.module.ProcessBinaryCommand=vi.fn();state.module.SendCompressionLevel=vi.fn();
+  const dispose=manageDesktopMemory(state.module,state.canvas,{platform:'Windows',smooth:false});
+  const resolution=(w:number,h:number)=>new Uint8Array([0,7,0,8,w>>8,w&255,h>>8,h&255]);
+  state.module.ProcessBinaryCommand!(7,8,resolution(3840,2160));expect(state.module.ScalingLevel).toBe(682);
+  state.module.ProcessBinaryCommand!(7,8,resolution(1920,1080));expect(state.module.ScalingLevel).toBe(682);dispose();
+});
+it('整帧拒绝非零原点和伪造 JPEG 尺寸，解码前释放流控窗口', async () => {
+  vi.useFakeTimers();vi.stubGlobal('createImageBitmap',vi.fn());
+  for (const [data,x] of [[framePicture(1280,720),10],[smallPicture,0]] as const) {
+    const state=setup();state.dispose();state.module.ProcessBinaryCommand=vi.fn();const sent=vi.fn();state.module.send=sent;
+    const dispose=manageDesktopMemory(state.module,state.canvas);
+    state.module.ProcessBinaryCommand!(0x7f00,40,completeFrame(1,1280,720));state.module.ProcessPictureMsg!(data,x,0);
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(sent).toHaveBeenCalledOnce();expect(sent.mock.calls[0][0].charCodeAt(1)).toBe(3);
+    dispose();
+  }
+});
+it('旧代理桌面扩容后重新限制编码上限', () => {
+  const state=setup();state.dispose();state.module.ProcessBinaryCommand=vi.fn();
+  const dispose=manageDesktopMemory(state.module,state.canvas,{platform:'Windows',smooth:false});
+  const resolution=(w:number,h:number)=>new Uint8Array([0,7,0,8,w>>8,w&255,h>>8,h&255]);
+  state.module.ProcessBinaryCommand!(7,8,resolution(3840,2160));expect(state.module.ScalingLevel).toBe(682);
+  state.module.ProcessBinaryCommand!(7,8,resolution(3840,2160));expect(state.module.ScalingLevel).toBeLessThan(682);dispose();
+});
+it('原生子进程重启的新代次不按数值大小判旧，旧解码结果不覆盖新画面', async () => {
+  const resolves: ((value: ImageBitmap)=>void)[]=[];
+  vi.stubGlobal('createImageBitmap',vi.fn(()=>new Promise(resolve=>resolves.push(resolve))));
+  const state=setup();state.dispose();state.module.ProcessBinaryCommand=vi.fn();const sent=vi.fn();state.module.send=sent;
+  state.canvas.width=1920;state.canvas.height=1080;
+  const dispose=manageDesktopMemory(state.module,state.canvas);
+  state.module.ProcessBinaryCommand!(0x7f00,40,completeFrame(40,1920,1080,100));
+  state.module.ProcessPictureMsg!(framePicture(1920,1080),0,0);await flush();
+  state.module.ProcessBinaryCommand!(0x7f00,40,completeFrame(1,1280,720,3));
+  state.module.ProcessPictureMsg!(framePicture(1280,720),0,0);await flush();
+  const old={width:1920,height:1080,close:vi.fn()} as unknown as ImageBitmap;
+  const fresh={width:1280,height:720,close:vi.fn()} as unknown as ImageBitmap;
+  resolves[1](fresh);await flush();resolves[0](old);await flush();
+  expect(state.canvas.width).toBe(1280);expect(old.close).toHaveBeenCalledOnce();expect(fresh.close).toHaveBeenCalledOnce();
+  const acks=sent.mock.calls.map(([packet])=>[...packet].map(c=>(c as string).charCodeAt(0))).filter(packet=>packet[0]===127&&packet[1]===1);
+  expect(acks).toHaveLength(1);expect(acks[0].slice(4,8)).toEqual([0,0,0,3]);dispose();
+});

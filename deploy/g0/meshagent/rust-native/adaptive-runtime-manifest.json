@@ -1,0 +1,273 @@
+{
+  "schemaVersion": "screen-control.adaptive-runtime/v1",
+  "status": "retained-for-observation",
+  "recordedUtc": "2026-10-19T20:38:02.237893+00:00",
+  "maximumEncoding": {
+    "width": 2560,
+    "height": 1440,
+    "quality": 90
+  },
+  "tiers": [
+    1440,
+    1080,
+    720,
+    540
+  ],
+  "formalAcceptance": false,
+  "build": {
+    "status": "built-not-deployed",
+    "baselineCommit": "62b206e0b485b296e8a73a6547cef02bbf5a2d62",
+    "archiveSha256": "90931268906e6dd174a048949fa2e28200cca56f909d99aa4be843bfa918e602",
+    "backportSha256": "43718a55230bdba8f7e0cfdced8a7ec23bc4a7eeae8e594d212be4257aa95adf",
+    "rustPatchSha256": "3d1773f9c16c71a24a867202398750fa89e7135d1d063153b5797bb9df8a7344",
+    "metadataPatchSha256": "8225e2f2ef28a60529e97484bf49303f6cce34f07d3f4c9aaf2d59c5932b734b",
+    "tilePatchSha256": "68343646412d74a312f061b12410579c37f8708a938151a39936c3b46cb842a3",
+    "ximagePatchSha256": "75c8e5d38678ee70b5acf085add974cda5e0da99a8cd9a5b7b64ffe7d0e442ab",
+    "windowsTilePatchSha256": "1cb4be11be6b9c95e49c86a83d1cf5c1783360f35b3541e335f7e1af5496c8a6",
+    "jpegPatchSha256": "27e07788a5c485b9b81334acb76cf84cf1a97903d3a87c600ab9a51e21d5a612",
+    "checksumPatchSha256": "e71e17a0dcd60ab10286ac4bf038e8aea4fd53bd892df37e536b7d44c1679983",
+    "readablePipePatchSha256": "4ceb59d47bfef5a59bd5d90d18d8ea66b0ff15d1b134772612e17ed87b400aad",
+    "readablePipeStashPatchSha256": "00f4429576507a14413f1eba17f82085c875598a210466c1edca59c0d1de77b8",
+    "timerPatchSha256": "9eab1930e045a9979523f6c771cebc0c817ef338c11fd43d8bd0da3380ed4b97",
+    "adaptivePatchSha256": "7a72d36902ccc78eb1574f8bbaf041d72c8433e12621ca14234f4beb9572cf44",
+    "adaptiveHeaderSha256": "2fbf2511a6a1d1d7319e393d65b97f1b41538fffa2655315b90817609fbdbce2",
+    "headerSha256": "54df08599aacc847e6694d1b31e5177510aad443cfddca3699f2dc7f2b36a796",
+    "jpegConfigSha256": "9b1d54be18cf09997fd066850a7499479b847e9c4f55520580f84e67ae9fe657",
+    "binarySha256": "ca00b635f254c4a56577909bdbe18d7469ae16dd4d3f407c1c09fde0e9b9465d",
+    "librarySha256": "24a47059c34e8a3c0faf7bd3f0d34762ee52346fb5ae9a32da5ec255b05bc86e",
+    "captureHarness": "passed-with-real-linux-tile-and-ximage-c-callsites",
+    "jpegPipelineHarness": "32-512-2048-passed-with-vendored-headers-and-static-jpeg",
+    "adaptiveDesktopHarness": "passed-four-tiers-atomic-jpeg-and-presented-coordinate-mapping",
+    "adaptiveInputHarness": "passed-fragmented-and-unaligned-real-input-parser",
+    "receiveDestructorHarness": "passed-as-an-isolated-C-harness",
+    "scriptNetworkHarness": "passed-on-loopback-without-agent-identity",
+    "readablePipeHarness": "two-sequential-unpipe-cases-passed-on-loopback",
+    "timerHarness": "nested-discarded-timeout-handles-passed-in-full-process"
+  },
+  "sourceSha256": {
+    "native/protocol-core/src/desktop.rs": "9cc3375b957629784da44e113c83c931af4a81bf8f404ecba398beb625e3c172",
+    "native/protocol-ffi/src/lib.rs": "555fb93f7e2a9371cedd8b9d9ee53e6dbb509b7b579e5e8cc87c41ea1e61ff85",
+    "native/protocol-ffi/include/screen_control_protocol.h": "54df08599aacc847e6694d1b31e5177510aad443cfddca3699f2dc7f2b36a796",
+    "deploy/g0/meshagent/rust-native/linux-adaptive-desktop.h": "2fbf2511a6a1d1d7319e393d65b97f1b41538fffa2655315b90817609fbdbce2",
+    "deploy/g0/meshagent/rust-native/linux-adaptive-desktop.patch": "7a72d36902ccc78eb1574f8bbaf041d72c8433e12621ca14234f4beb9572cf44",
+    "web/src/features/desktop/memory.ts": "e08bca6c93833c5b3eb7b38d3b79e661a0e1b48e687836655336d38d39e78cd6",
+    "web/src/features/desktop/frame.ts": "80b5b2aecf754a5dd252de3f273c71d48e372c0a709107a599d2e7489c72b651",
+    "web/src/features/desktop/quality.ts": "c5dcec28b8231b534e309eac6e69bdb3eb05b872773c6eaa44d0149300e11ce6",
+    "web/src/features/desktop/MeshDesktop.tsx": "574f58d56e673472f37d6223ffdba1405f51ae9e93aea6522f9c51832c646ac8"
+  },
+  "devices": [
+    {
+      "id": "lerrem",
+      "status": "retained-for-observation",
+      "binarySha256": "ca00b635f254c4a56577909bdbe18d7469ae16dd4d3f407c1c09fde0e9b9465d",
+      "sameMainPidAcrossObservation": true,
+      "realWindowsCheck": {
+        "source": "jiang-chenx",
+        "target": "lerrem",
+        "browser": "Edg/155.0.4283.62",
+        "initial": {
+          "draws": 1,
+          "settings": [
+            129,
+            90,
+            1440,
+            40
+          ],
+          "width": 2560,
+          "height": 1440
+        },
+        "draws": 338,
+        "refresh": 16,
+        "peakBitmaps": 4,
+        "state": 3,
+        "motionFrames": 332,
+        "mixedMotionFrames": 0,
+        "sessions": 1,
+        "width": 2560,
+        "height": 1440,
+        "qualitySwitches": 2,
+        "adaptation": {
+          "tiers": [
+            1440,
+            1080,
+            540,
+            720
+          ],
+          "maxWidth": 2560,
+          "maxHeight": 1440,
+          "observedFrames": 348
+        },
+        "movingFixture": {
+          "differingChannels": 0,
+          "meanChannelError": 0.005555555555555556,
+          "width": 320,
+          "height": 192
+        },
+        "decodeFailureRecovered": true,
+        "ordinaryEnd": true,
+        "remoteInputSent": true,
+        "pointerMoves": 4,
+        "clicksSent": 0,
+        "keysSent": 0,
+        "imagePersisted": false
+      },
+      "pointerCheck": {
+        "expected": 4,
+        "matched": 4,
+        "allMatched": true
+      }
+    },
+    {
+      "id": "echova",
+      "status": "retained-for-observation",
+      "binarySha256": "ca00b635f254c4a56577909bdbe18d7469ae16dd4d3f407c1c09fde0e9b9465d",
+      "sameMainPidAcrossObservation": true,
+      "realWindowsCheck": {
+        "source": "jiang-chenx",
+        "target": "echova",
+        "browser": "Edg/155.0.4283.62",
+        "initial": {
+          "draws": 1,
+          "settings": [
+            129,
+            90,
+            1440,
+            40
+          ],
+          "width": 2560,
+          "height": 1440
+        },
+        "draws": 5,
+        "refresh": 5,
+        "peakBitmaps": 1,
+        "state": 3,
+        "motionFrames": 0,
+        "mixedMotionFrames": 0,
+        "sessions": 1,
+        "width": 2560,
+        "height": 1440,
+        "qualitySwitches": 2,
+        "decodeFailureRecovered": true,
+        "ordinaryEnd": true,
+        "remoteInputSent": false,
+        "pointerMoves": 0,
+        "clicksSent": 0,
+        "keysSent": 0,
+        "imagePersisted": false
+      }
+    },
+    {
+      "id": "nix",
+      "status": "retained-for-observation",
+      "previousStatus": "not-updated-offline",
+      "deployedUtc": "2026-10-20T03:35:18.582101+00:00",
+      "binarySha256": "ca00b635f254c4a56577909bdbe18d7469ae16dd4d3f407c1c09fde0e9b9465d",
+      "sameMainPidAcrossObservation": true,
+      "realDesktopCheck": {
+        "target": "nix",
+        "browser": "153.0.8010.52",
+        "initial": {
+          "frame": {
+            "sourceWidth": 2880,
+            "sourceHeight": 1800,
+            "width": 2304,
+            "height": 1440,
+            "tier": 1440
+          },
+          "width": 2304,
+          "height": 1440
+        },
+        "tiers": [
+          {
+            "value": "1080",
+            "sourceWidth": 2880,
+            "sourceHeight": 1800,
+            "width": 1728,
+            "height": 1080,
+            "tier": 1080
+          },
+          {
+            "value": "720",
+            "sourceWidth": 2880,
+            "sourceHeight": 1800,
+            "width": 1152,
+            "height": 720,
+            "tier": 720
+          },
+          {
+            "value": "1440",
+            "sourceWidth": 2880,
+            "sourceHeight": 1800,
+            "width": 2304,
+            "height": 1440,
+            "tier": 1440
+          },
+          {
+            "value": "auto",
+            "sourceWidth": 2880,
+            "sourceHeight": 1800,
+            "width": 2304,
+            "height": 1440,
+            "tier": 1440
+          }
+        ],
+        "draws": 26,
+        "peakBitmaps": 1,
+        "state": 3,
+        "frames": 54,
+        "pauseResume": "passed",
+        "ordinaryEnd": "passed",
+        "remoteInputs": 0,
+        "imagePersisted": false,
+        "errors": []
+      },
+      "browserResourceCheck": {
+        "sessions": 6,
+        "viewports": [
+          390,
+          1440
+        ],
+        "allBitmapsReleased": true
+      },
+      "identityUnchanged": true,
+      "limitsUnchanged": true,
+      "networkGuard": "passed",
+      "rollbackAvailable": true
+    },
+    {
+      "id": "jiang-chenx",
+      "status": "native-provider-not-updated",
+      "browserControllerVerified": true,
+      "legacyProviderCompatibility": "client-applies-existing-scaling-without-atomic-frame-guarantee"
+    }
+  ],
+  "verification": {
+    "rustTests": 26,
+    "frontendTests": 93,
+    "frontendTypecheck": "passed",
+    "browserScenarios": [
+      "desktop-performance",
+      "desktop-mobile",
+      "desktop-files",
+      "desktop-lock-exit"
+    ],
+    "nativeReleaseBuild": "passed",
+    "nativeAsanUbsanBuild": "passed",
+    "cAbiAndActualInputParser": "passed",
+    "nativeFramesThroughLockedChromium": "all-four-sizes-zero-channel-difference",
+    "makeVerify": "passed-static-and-bootstrap-dry-run",
+    "linuxCanaryOperationsTests": 9,
+    "rustOperationsTests": 6,
+    "independentReview": "two-read-only-reviewers; identified-input-and-feedback-issues-fixed-and-reverified",
+    "healthAndStaticAssets": "passed"
+  },
+  "limitations": [
+    "实机受限解码/展示确认模拟拥塞，不等同实际低带宽网络验收",
+    "运动一致性是合成窗口抽样检查，不覆盖所有GPU与真实应用的采集异常",
+    "desktopmultiplex未适配且当前未启用",
+    "旧Windows被控代理未更新；nix于2026-10-20补充更新，范围见该设备记录",
+    "共享KVM流使用共享源档位，并非每查看者独立编码",
+    "未进行长期稳定性、正式G0/G3或全平台验收"
+  ],
+  "lastDeploymentUtc": "2026-10-20T03:35:18.582101+00:00"
+}

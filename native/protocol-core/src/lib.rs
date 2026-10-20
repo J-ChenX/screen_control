@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
+pub mod desktop;
 pub mod fragments;
 pub mod tile;
 pub mod windows_tile;

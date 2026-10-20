@@ -54,6 +54,16 @@ typedef struct {
 uint32_t sc_cursor_overlay_rgb24(uint8_t *destination, uint64_t destination_len,
                                  const uint8_t *cursor, uint64_t cursor_len, ScCursorMeta meta);
 
+typedef struct { uint32_t width, height; } ScDesktopSize;
+/* 档位只允许 1440/1080/720/540；无效尺寸返回零，不改变物理显示模式。 */
+ScDesktopSize sc_desktop_size(uint32_t width, uint32_t height, uint32_t tier);
+uint32_t sc_desktop_input(uint32_t value, uint32_t encoded, uint32_t source);
+/* 两个区域有效且不重叠；输出为连续 RGB24，输入可带行填充。 */
+uint32_t sc_desktop_resize(uint8_t *destination, uint64_t destination_len,
+                            const uint8_t *source, uint64_t source_len,
+                            uint32_t stride, uint32_t width, uint32_t height,
+                            uint32_t target_width, uint32_t target_height);
+
 /* 所有连接方法在所属事件线程调用；禁止持有 Rust 借用进入 C 回调。 */
 typedef struct ScWsDecoder ScWsDecoder;
 typedef struct ScWsLease ScWsLease;

@@ -65,15 +65,18 @@ def main():
     pipe_patch = Path(__file__).with_name("readable-stream-pipe.patch")
     pipe_stash_patch = Path(__file__).with_name("readable-stream-stash.patch")
     timer_patch = Path(__file__).with_name("timer-lifetime.patch")
+    adaptive_patch = Path(__file__).with_name("linux-adaptive-desktop.patch")
+    adaptive_header = Path(__file__).with_name("linux-adaptive-desktop.h")
     patches = [backport, rust_patch, metadata_patch, tile_patch, ximage_patch, jpeg_patch, checksum_patch,
                windows_tile_patch,
-               pipe_patch, pipe_stash_patch, timer_patch]
+               pipe_patch, pipe_stash_patch, timer_patch, adaptive_patch]
     if args.lifetime_candidate:
         patches.extend(Path(__file__).with_name(name) for name in LIFETIME_PATCHES)
     for patch in patches:
         subprocess.run(["patch", "--batch", "--fuzz=0", "-p1", "-i", str(patch)], cwd=source, check=True)
     header = ROOT / "native/protocol-ffi/include/screen_control_protocol.h"
     shutil.copyfile(header, source / "microstack/screen_control_protocol.h")
+    shutil.copyfile(adaptive_header, source / "meshcore/KVM/Linux/sc_adaptive_desktop.h")
     # 压缩包没有 Git 元数据，禁止 make 误用父目录本项目的提交号。
     environment = dict(os.environ, GIT_CEILING_DIRECTORIES=str(work))
     jpeg_headers = source / "lib-jpeg-turbo/includes"
@@ -91,6 +94,7 @@ def main():
                 "readablePipePatchSha256": digest(pipe_patch),
                 "readablePipeStashPatchSha256": digest(pipe_stash_patch),
                 "timerPatchSha256": digest(timer_patch),
+                "adaptivePatchSha256": digest(adaptive_patch), "adaptiveHeaderSha256": digest(adaptive_header),
                 "headerSha256": digest(header), "jpegConfigSha256": digest(jpeg_headers / "jconfig.h")}
     if args.lifetime_candidate:
         metadata["lifetimePatchSha256"] = {
@@ -139,6 +143,15 @@ def main():
         for mode in ((), ("--large",), ("--huge",)):
             subprocess.run([str(jpeg_binary), *mode], cwd=work, env=environment, check=True)
         metadata["jpegPipelineHarness"] = "32-512-2048-passed-with-vendored-headers-and-static-jpeg"
+        adaptive_binary = work / "desktop-adaptive"
+        subprocess.run(["cc", "-std=gnu99", "-D_POSIX", "-DJPEGMAXBUF=0", *sanitizer_flags.split(),
+                        "-no-pie", "-Wl,--gc-sections", "-I.", str(ROOT / "tests/native/desktop_adaptive.c"),
+                        str(jpeg_object), str(library), str(jpeg_library), "-ldl", "-lpthread", "-lm", "-o", str(adaptive_binary)],
+                       cwd=source, env=environment, check=True)
+        subprocess.run([str(adaptive_binary)], cwd=work, env=environment, check=True)
+        metadata["adaptiveDesktopHarness"] = "passed-four-tiers-atomic-jpeg-and-presented-coordinate-mapping"
+        subprocess.run(["python3", str(ROOT / "tests/native/run_desktop_input.py"), "--source", str(source)], cwd=ROOT, env=environment, check=True)
+        metadata["adaptiveInputHarness"] = "passed-fragmented-and-unaligned-real-input-parser"
         subprocess.run(["python3", str(ROOT / "tests/native/check_integration.py"), "--source", str(source)], cwd=ROOT, check=True)
         network = ["python3", str(ROOT / "tests/native/script_ws_network.py"), "--binary", str(binary)]
         if args.sanitizers:

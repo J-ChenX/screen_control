@@ -43,7 +43,7 @@ export function installTouchInput(canvas: HTMLCanvasElement, module: MeshDesktop
     return { center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, distance: Math.hypot(a.x - b.x, a.y - b.y) };
   };
   const down = (event: PointerEvent) => {
-    if (event.pointerType === "mouse" || !view.enabled()) return;
+    if ((event.pointerType === "mouse" && (!view.moving() || event.button !== 0)) || !view.enabled()) return;
     event.preventDefault();
     const point = { x: event.clientX, y: event.clientY };
     pointers.set(event.pointerId, point);

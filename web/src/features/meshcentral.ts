@@ -1,3 +1,5 @@
+import type { DesktopResolution } from './desktop/quality';
+
 export interface MeshCentralModule {
   protocol: number;
   parent?: AgentRedirect;
@@ -8,6 +10,17 @@ export interface MeshCentralModule {
 
 export interface MeshDesktopModule extends MeshCentralModule {
   State?: number;
+  ScreenWidth?: number;
+  ScreenHeight?: number;
+  width?: number;
+  height?: number;
+  send?(packet: string): void;
+  SetDesktopPriority?(smooth: boolean): void;
+  SetDesktopResolution?(resolution: DesktopResolution): void;
+  ResetDesktopDisplay?(sourceChanged?: boolean, sourceSize?: { width: number; height: number }): void;
+  GetDisplayNumbers?(): void;
+  SetDisplay?(number: number): void;
+  onDisplayinfo?: ((module: MeshDesktopModule, displays: Record<string, string>, selected: number) => void) | null;
   accumulator?: unknown;
   PendingOperations?: unknown[][];
   tilesReceived?: number;

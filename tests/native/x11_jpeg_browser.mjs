@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { launchBrowser } from "../support/browser.mjs";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
+import { desktopMemoryScript } from "../support/desktop-script.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const binary = process.argv[2];
@@ -26,9 +26,7 @@ if (width !== 32 || height !== 32 || rgbLength !== 32 * 32 * 3 ||
 }
 const jpeg = Array.from(data.subarray(28, 28 + jpegLength));
 const expected = Array.from(data.subarray(28 + jpegLength));
-const memorySource = readFileSync(resolve(root, "web/src/features/desktop/memory.ts"), "utf8");
-const memoryScript = stripTypeScriptTypes(memorySource).replace("export function manageDesktopMemory", "function manageDesktopMemory") +
-  "\nwindow.__manageDesktopMemory = manageDesktopMemory;\n";
+const memoryScript = await desktopMemoryScript();
 const browser = await launchBrowser({ args: ["--force-color-profile=srgb"] });
 let result;
 try {

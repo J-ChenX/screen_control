@@ -1,0 +1,225 @@
+--- a/meshcore/KVM/Linux/linux_kvm.c
++++ b/meshcore/KVM/Linux/linux_kvm.c
+@@ -123,6 +123,9 @@
+ Display *eventdisplay = NULL;
+ int g_remotepause = 0;
+ int g_pause = 0;
++
++void kvm_send_resolution(void);
++#include "sc_adaptive_desktop.h"
+ int g_restartcount = 0;
+ int g_totalRestartCount = 0;
+ int g_shutdown = 0;
+@@ -413,8 +416,8 @@
+ 	char buffer[8];
+ 	((unsigned short*)buffer)[0] = (unsigned short)htons((unsigned short)MNG_KVM_SCREEN);	// Write the type
+ 	((unsigned short*)buffer)[1] = (unsigned short)htons((unsigned short)8);				// Write the size
+-	((unsigned short*)buffer)[2] = (unsigned short)htons((unsigned short)SCREEN_WIDTH);		// X position
+-	((unsigned short*)buffer)[3] = (unsigned short)htons((unsigned short)SCREEN_HEIGHT);	// Y position
++	((unsigned short*)buffer)[2] = (unsigned short)htons((unsigned short)sc_current_size().width);		// X position
++	((unsigned short*)buffer)[3] = (unsigned short)htons((unsigned short)sc_current_size().height);	// Y position
+ 
+ 	ignore_result(write(slave2master[1], buffer, sizeof(buffer)));
+ }
+@@ -681,8 +684,9 @@
+ 
+ 	// Decode the block header
+ 	if (blocklen < 4) return 0;
+-	type = ntohs(((unsigned short*)(block))[0]);
+-	size = ntohs(((unsigned short*)(block))[1]);
++	type = sc_read_u16((const unsigned char *)block + 0);
++	size = sc_read_u16((const unsigned char *)block + 2);
++	if (size < 4) { g_shutdown = 1; return blocklen; }
+ 	if (size > blocklen) return 0;
+ 
+ 	switch (type)
+@@ -708,11 +712,36 @@
+ 		{
+ 			int x, y;
+ 			short w = 0;
++        if (size == 20 && block[4] == 0)
++        {
++            const unsigned char *packet = (const unsigned char *)block;
++            unsigned int epoch = sc_read_u32(packet + 12), sequence = sc_read_u32(packet + 16);
++            int x = sc_frame_input_axis(epoch, sequence, (unsigned int)sc_read_u16((const unsigned char *)block + 6), 0);
++            int y = sc_frame_input_axis(epoch, sequence, (unsigned int)sc_read_u16((const unsigned char *)block + 8), 1);
++            unsigned int button = packet[5];
++            if (button != 0 && button != 2 && button != 4 && button != 8 && button != 16 && button != 32 && button != 64 && button != 136) break;
++            if (g_enableEvents)
++            {
++                if (x >= 0 && y >= 0)
++                {
++                    remoteMouseX = x; remoteMouseY = y;
++                    MouseAction(x, y, button, (short)sc_read_u16((const unsigned char *)block + 10), eventdisplay);
++                }
++                else
++                {
++                    sc_refresh_frame();
++                    // 无法再验证的旧画面不能产生新点击；只允许释放已按下的鼠标键。
++                    if (button == 4 || button == 16 || button == 64) MouseAction(remoteMouseX, remoteMouseY, button, 0, eventdisplay);
++                }
++            }
++            break;
++        }
+ 			if (size == 10 || size == 12)
+ 			{
+-				x = ((int)ntohs(((unsigned short*)(block))[3]));
+-				y = ((int)ntohs(((unsigned short*)(block))[4]));
+-				if (size == 12) w = ((short)ntohs(((short*)(block))[5]));
++				x = sc_input_axis((unsigned int)sc_read_u16((const unsigned char *)block + 6), 0);
++				y = sc_input_axis((unsigned int)sc_read_u16((const unsigned char *)block + 8), 1);
++				if (x < 0 || y < 0) break;
++				if (size == 12) w = ((short)sc_read_u16((const unsigned char *)block + 10));
+ 				if (logFile) { fprintf(logFile, "RemoteMouseMove: (%d, %d)\n", x, y); }
+ 				// printf("x:%d, y:%d, b:%d, w:%d\n", x, y, block[5], w);
+ 				if (g_enableEvents)
+@@ -723,16 +752,32 @@
+ 			}
+ 			break;
+ 		}
++	case SC_FRAME_ACK:
++		sc_accept_ack((const unsigned char *)block, size, 0);
++		break;
++    case SC_FRAME_DISCARD:
++        sc_accept_ack((const unsigned char *)block, size, 1);
++        break;
+ 	case MNG_KVM_COMPRESSION: // Compression
+ 		{
+-			if (size >= 10) { int fr = ((int)ntohs(((unsigned short*)(block + 8))[0])); if (fr >= 20 && fr <= 5000) FRAME_RATE_TIMER = fr; }
+-			if (size >= 8) { int ns = ((int)ntohs(((unsigned short*)(block + 6))[0])); if (ns >= 64 && ns <= 4096) SCALING_FACTOR_NEW = ns; }
+-			if (size >= 6) { set_tile_compression((int)block[4], (int)block[5]); }
++			if (size >= 10) { int fr = ((int)sc_read_u16((const unsigned char *)block + 8)); if (fr >= 20 && fr <= 5000) FRAME_RATE_TIMER = fr; }
++			if (size >= 8) { int ns = ((int)sc_read_u16((const unsigned char *)block + 6)); if (ns >= 64 && ns <= 4096) SCALING_FACTOR_NEW = ns; }
++			if (size >= 8 && (unsigned char)block[4] == SC_ADAPTIVE_JPEG)
++            {
++                unsigned int tier = (unsigned int)sc_read_u16((const unsigned char *)block + 6);
++                if (tier != 1440 && tier != 1080 && tier != 720 && tier != 540) break;
++                sc_tier = tier;
++                if (!sc_feedback) { sc_feedback = 1; sc_feedback_at = sc_now_ms(); }
++            }
++            else { sc_feedback = 0; }
++            sc_refresh_frame();
++            if (size >= 6) { set_tile_compression(1, (int)(unsigned char)block[5]); }
+ 			COMPRESSION_RATIO = 100;
+ 			break;
+ 		}
+ 	case MNG_KVM_REFRESH: // Refresh
+ 		{
++            sc_refresh_frame();
+ 			kvm_send_resolution();
+ 
+ 			int row, col;
+@@ -759,7 +804,7 @@
+ 		}
+ 	case MNG_KVM_FRAME_RATE_TIMER:
+ 		{
+-			int fr = ((int)ntohs(((unsigned short*)(block))[2]));
++			int fr = ((int)sc_read_u16((const unsigned char *)block + 4));
+ 			if (fr >= 20 && fr <= 5000) FRAME_RATE_TIMER = fr;
+ 			break;
+ 		}
+@@ -770,8 +815,8 @@
+ 		}
+ 	case MNG_KVM_SET_DISPLAY:
+ 		{
+-			if (ntohs(((unsigned short*)(block))[2]) == CURRENT_DISPLAY_ID) { break; } // Don't do anything
+-			CURRENT_DISPLAY_ID = ntohs(((unsigned short*)(block))[2]);
++			if (sc_read_u16((const unsigned char *)block + 4) == CURRENT_DISPLAY_ID) { break; } // Don't do anything
++			CURRENT_DISPLAY_ID = sc_read_u16((const unsigned char *)block + 4);
+ 			change_display = 1;
+ 			break;
+ 		}
+@@ -1023,6 +1068,7 @@
+ 
+ 	while (!g_shutdown) 
+ 	{
++        uint64_t sc_started = sc_now_ms();
+ 		for (r = 0; r < TILE_HEIGHT_COUNT; r++) 
+ 		{
+ 			for (c = 0; c < TILE_WIDTH_COUNT; c++) 
+@@ -1079,8 +1125,10 @@
+ 			}
+ 			len += cbBytesRead;
+ 			ptr2 = 0;
+-			while ((ptr2 = kvm_server_inputdata((char*)pchRequest2 + ptr, cbBytesRead - ptr)) != 0) { ptr += ptr2; }
+-			if (ptr == len) { len = 0; ptr = 0; }
++            ptr = 0;
++            while (ptr < len && (ptr2 = kvm_server_inputdata((char*)pchRequest2 + ptr, len - ptr)) > 0) ptr += ptr2;
++            if (ptr > 0) { memmove(pchRequest2, pchRequest2 + ptr, (size_t)(len - ptr)); len -= ptr; }
++            ptr = 0;
+ 		}
+ 
+ 		// 暂停时仍处理控制管道，恢复或退出不会被采集等待阻塞。
+@@ -1091,6 +1139,12 @@
+ 			usleep(50000);
+ 			continue;
+ 		}
++
++        if (sc_waiting_for_feedback())
++        {
++            x11_exports->XCloseDisplay(imagedisplay); imagedisplay = NULL;
++            usleep(5000); continue;
++        }
+ 
+ 		if (cursordisplay == NULL)
+ 		{
+@@ -1337,37 +1391,11 @@
+ 				fsync(slave2master[1]);
+ 				sentHideCursor = 0;
+ 			}
+-			for (y = 0; y < TILE_HEIGHT_COUNT; y++) {
+-				for (x = 0; x < TILE_WIDTH_COUNT; x++) {
+-					height = TILE_HEIGHT * y;
+-					width = TILE_WIDTH * x;
+-
+-					if (g_shutdown) { x = TILE_WIDTH_COUNT; y = TILE_HEIGHT_COUNT; break; }
+-
+-					if (g_tileInfo[y][x].flag == TILE_SENT || g_tileInfo[y][x].flag == TILE_DONT_SEND) {
+-						continue;
+-					}
+-
+-					if (getTileAt(width, height, &buf, &tilesize, desktop, desktopsize, y, x) < 0)
+-					{
+-						g_shutdown = 1;
+-						break;
+-					}
+-
+-					if (buf && !g_shutdown)
+-					{
+-						// Write the reply to the pipe.
+-						//fprintf(logFile, "Writing to master in kvm_server_mainloop\n");
+-						written = write(slave2master[1], buf, tilesize);
+-						fsync(slave2master[1]);
+-						//fprintf(logFile, "Wrote %d bytes to master in kvm_server_mainloop\n", written);
+-						free(buf);
+-						if (written == -1) { /*ILIBMESSAGE("KVMBREAK-K2\r\n");*/ g_shutdown = 1; height = SCREEN_HEIGHT; width = SCREEN_WIDTH; break; }
+-					}
+-				}
+-			} }
+-		}
+-		
++            if (!g_shutdown && !sc_send_desktop((const unsigned char *)desktop, (uint64_t)desktopsize, sc_started)) g_shutdown = 1;
++            }
++        }
++        
++
+ 		x11ext_exports->XShmDetach(imagedisplay, &shminfo);
+ 		XDestroyImage(image); image = NULL;
+ 		shmdt(shminfo.shmaddr);
+@@ -1380,7 +1408,7 @@
+ 		}
+ 
+ 		// We can't go full speed here, we need to slow this down.
+-		height = FRAME_RATE_TIMER;
++		height = FRAME_RATE_TIMER - (int)(sc_now_ms() - sc_started);
+ 		while (!g_shutdown && height > 0)
+ 		{
+ 			if (height > 50)
+@@ -1398,6 +1426,7 @@
+ 		}
+ 	}
+ 
++	sc_release_desktop();
+ 	if (desktop != NULL) { free(desktop); desktop = NULL; }
+ 	close(slave2master[1]);
+ 	close(master2slave[0]);

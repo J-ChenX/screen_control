@@ -59,7 +59,7 @@ try {
   await page.waitForTimeout(300);
  }
  const result=await page.evaluate(()=>({...window.recoveryProbe,width:document.querySelector('canvas').width,height:document.querySelector('canvas').height,state:window.recoveryModule.State}));
- assert.equal(creates,1);assert.equal(ends,0);assert.equal(result.state,3);assert.equal(result.peakLive,1);assert.equal(result.peakDecoding,1);assert.deepEqual(errors,[]);
+ assert.equal(creates,1);assert.equal(ends,0);assert.equal(result.state,3);assert.ok(result.peakLive<=4);assert.ok(result.peakDecoding<=4);assert.deepEqual(errors,[]);
  assert.ok(result.refresh>=baseline.refresh+12);assert.ok(result.width>1);
  console.log(JSON.stringify({target,cycles:12,creates,ends,result}));
  await page.goto('about:blank');

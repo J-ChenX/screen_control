@@ -949,8 +949,20 @@ footer span:first-child { color: #6b777f; font-weight: 800; }
 
 /* 控屏缩放使用实际画布尺寸；全屏工具浮在画面上，不占画面高度。 */
 .desktop-commandbar .desktop-session-slot { flex-wrap: wrap; }
-.desktop-zoom-controls { display: flex; gap: 4px; align-items: center; }
+.desktop-zoom-controls { display: flex; flex-wrap: wrap; width: 300px; max-width: 100%; min-width: 0; gap: 4px; align-items: center; }
 .desktop-commandbar .desktop-zoom-controls button { min-width: 36px; justify-content: center; }
+.desktop-zoom-slider { display: flex; flex: 1; min-width: 110px; align-items: center; gap: 6px; }
+.desktop-zoom-slider input { width: 90px; min-width: 48px; min-height: 36px; flex: 1; margin: 0; accent-color: #62c7ad; color-scheme: dark; cursor: pointer; touch-action: none; }
+.desktop-zoom-slider input:focus-visible { outline: 2px solid #62c7ad; outline-offset: 2px; border-radius: 4px; }
+.desktop-zoom-value { min-width: 4ch; color: #c5d4d3; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.desktop-resolution { display: inline-flex; align-items: center; gap: 6px; color: #c5d4d3; font-size: 12px; }
+.desktop-resolution select { min-height: 36px; min-width: 88px; border: 1px solid #315058; border-radius: 8px; padding: 0 8px; color: #c5d4d3; background: #142d34; font: inherit; color-scheme: dark; }
+.desktop-resolution select:disabled { opacity: .45; }
+.desktop-resolution select:focus-visible { outline: 2px solid #62c7ad; outline-offset: 2px; }
+.desktop-commandbar button[aria-pressed="true"] { border-color: #62c7ad; background: #215047; }
+.desktop-commandbar .desktop-pan-controls button { min-width: 36px; justify-content: center; }
+.mesh-canvas-wrap .desktop-canvas-moving { cursor: grab !important; }
+.mesh-canvas-wrap .desktop-canvas-moving:active { cursor: grabbing !important; }
 .desktop-commandbar button:disabled { opacity: .45; cursor: default; }
 .desktop-commandbar button:hover:not(:disabled), .desktop-tools-toggle:hover { background: #24464c; border-color: #62c7ad; }
 .desktop-commandbar button:focus-visible, .desktop-tools-toggle:focus-visible, .mobile-input-toolbar :is(button, input):focus-visible { outline: 2px solid #62c7ad; outline-offset: 2px; }
@@ -963,6 +975,8 @@ footer span:first-child { color: #6b777f; font-weight: 800; }
 @media (pointer: coarse) {
   .desktop-commandbar :is(button, .desktop-file-transfer) { min-height: 44px; font-size: 12px; }
   .desktop-commandbar .desktop-zoom-controls button { min-width: 44px; }
+  .desktop-zoom-slider input { min-height: 44px; }
+  .desktop-resolution select, .desktop-commandbar .desktop-pan-controls button { min-height: 44px; min-width: 44px; }
   .mobile-input-toolbar button[aria-pressed="true"] { border-color: #62c7ad; background: #215047; }
   .mobile-input-toolbar button:hover { background: #24464c; }
 }
