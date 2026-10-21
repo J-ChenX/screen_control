@@ -114,3 +114,72 @@ pub fn resize_rgb24(
     }
     true
 }
+
+/// Windows 底向上 BGR 位图直接缩放到 RGB24；先检查填充、跨度和容量。
+#[allow(clippy::too_many_arguments)]
+pub fn resize_windows(
+    destination: &mut [u8],
+    source: &[u8],
+    stride_bytes: usize,
+    bitmap_height: usize,
+    pixel_bytes: usize,
+    width: usize,
+    height: usize,
+    target_width: usize,
+    target_height: usize,
+) -> bool {
+    if !matches!(pixel_bytes, 3 | 4)
+        || width == 0
+        || height == 0
+        || width > 65535
+        || height > 65535
+        || bitmap_height < height
+        || bitmap_height > 65568
+        || target_width == 0
+        || target_height == 0
+        || target_width > width
+        || target_height > height
+        || target_width > 2560
+        || target_height > 1440
+        || width
+            .checked_mul(pixel_bytes)
+            .is_none_or(|n| n > stride_bytes)
+        || stride_bytes
+            .checked_mul(bitmap_height)
+            .is_none_or(|n| n > source.len())
+        || target_width
+            .checked_mul(target_height)
+            .and_then(|n| n.checked_mul(3))
+            .is_none_or(|n| n > destination.len())
+    {
+        return false;
+    }
+    let columns: Vec<_> = (0..target_width)
+        .map(|x| sample(x, width, target_width))
+        .collect();
+    for y in 0..target_height {
+        let (top, bottom, fy) = sample(y, height, target_height);
+        for (x, &(left, right, fx)) in columns.iter().enumerate() {
+            for channel in 0..3 {
+                let read = |row: usize, col: usize| {
+                    u32::from(
+                        source[(bitmap_height - 1 - row) * stride_bytes + col * pixel_bytes + 2
+                            - channel],
+                    )
+                };
+                let (a, b, c, d) = (
+                    read(top, left),
+                    read(top, right),
+                    read(bottom, left),
+                    read(bottom, right),
+                );
+                destination[(y * target_width + x) * 3 + channel] =
+                    (((a * (256 - fx) + b * fx) * (256 - fy)
+                        + (c * (256 - fx) + d * fx) * fy
+                        + 32768)
+                        >> 16) as u8;
+            }
+        }
+    }
+    true
+}

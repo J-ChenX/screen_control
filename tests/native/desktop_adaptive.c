@@ -23,12 +23,15 @@ static ssize_t test_write(int fd,const void *bytes,size_t n){
 #undef write
 static unsigned int read16(const unsigned char *p){return p[0]*256u+p[1];}
 static void verify_frame(unsigned int width,unsigned int height){
-    assert(wire_length>56&&read16(wire)==SC_FRAME_METADATA&&read16(wire+2)==40);
-    assert(read16(wire+20)==width&&read16(wire+22)==height);
-    const unsigned char *packet=wire+40;size_t offset=read16(packet)==MNG_JUMBO?16:8;
+    assert(wire_length>64&&read16(wire)==SC_FRAME_CAPABILITY&&read16(wire+2)==8);
+    assert(read16(wire+4)==2&&read16(wire+6)==1);
+    const unsigned char *metadata=wire+8;
+    assert(read16(metadata)==SC_FRAME_METADATA&&read16(metadata+2)==40);
+    assert(read16(metadata+20)==width&&read16(metadata+22)==height);
+    const unsigned char *packet=metadata+40;size_t offset=read16(packet)==MNG_JUMBO?16:8;
     assert(read16(packet+(offset==16?8:0))==MNG_KVM_PICTURE);
     struct jpeg_decompress_struct d={0};struct jpeg_error_mgr e;d.err=jpeg_std_error(&e);jpeg_create_decompress(&d);
-    jpeg_mem_src(&d,packet+offset,(unsigned long)(wire_length-40-offset));assert(jpeg_read_header(&d,1)==JPEG_HEADER_OK);
+    jpeg_mem_src(&d,packet+offset,(unsigned long)(wire_length-48-offset));assert(jpeg_read_header(&d,1)==JPEG_HEADER_OK);
     assert(d.image_width==width&&d.image_height==height);jpeg_start_decompress(&d);unsigned char *row=malloc(width*3);assert(row);
     unsigned long long error=0,channels=0;
     while(d.output_scanline<height){unsigned y=d.output_scanline;JSAMPROW rows[1]={row};assert(jpeg_read_scanlines(&d,rows,1)==1);
@@ -58,5 +61,14 @@ int main(int argc,char **argv){
     assert(sc_frame_input_axis(sc_epoch,sc_sequence,480,0)==1280);
     unsigned int credit=sc_acknowledged;sc_refresh_frame();assert(sc_acknowledged==credit);
     wire_length=0;assert(!sc_send_desktop(source,length-1,sc_now_ms()));assert(wire_length==0);
+    /* 静止后新突发须获得自身完整的两秒反馈机会，真实超时仍固定回退。 */
+    uint64_t now=sc_now_ms();sc_feedback=sc_delta=1;sc_delta_blocked=0;
+    sc_sequence=sc_acknowledged=98;sc_feedback_at=now-2100;
+    assert(!sc_waiting_for_feedback(1)&&sc_delta==1);
+    sc_sequence=100;sc_sent[99%SC_FRAME_HISTORY]=(ScSentFrame){.sequence=99,.sent_at=now};
+    sc_sent[100%SC_FRAME_HISTORY]=(ScSentFrame){.sequence=100,.sent_at=now};
+    assert(sc_waiting_for_feedback(1)&&sc_delta==1&&!sc_delta_blocked);
+    sc_sent[99%SC_FRAME_HISTORY].sent_at=now-2100;
+    assert(!sc_waiting_for_feedback(1)&&!sc_delta&&sc_delta_blocked);
     free(source);free(wire);sc_release_desktop();release_JPEG_buffer();fprintf(emit_wire?stderr:stdout,"整帧、四档编码、展示确认坐标与短写恢复通过。\n");return 0;
 }

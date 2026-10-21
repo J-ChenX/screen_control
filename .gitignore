@@ -56,5 +56,6 @@ __pycache__/
 /web/test-results/
 /web/*.tsbuildinfo
 /.tools/
+/.longtask/
 .DS_Store
 Thumbs.db

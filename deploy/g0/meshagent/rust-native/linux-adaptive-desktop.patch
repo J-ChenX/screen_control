@@ -73,10 +73,13 @@
  				if (logFile) { fprintf(logFile, "RemoteMouseMove: (%d, %d)\n", x, y); }
  				// printf("x:%d, y:%d, b:%d, w:%d\n", x, y, block[5], w);
  				if (g_enableEvents)
-@@ -723,16 +752,32 @@
+@@ -723,16 +752,37 @@
  			}
  			break;
  		}
++	case SC_FRAME_RESET:
++        if (size == 4) sc_refresh_frame();
++        break;
 +	case SC_FRAME_ACK:
 +		sc_accept_ack((const unsigned char *)block, size, 0);
 +		break;
@@ -90,14 +93,16 @@
 -			if (size >= 6) { set_tile_compression((int)block[4], (int)block[5]); }
 +			if (size >= 10) { int fr = ((int)sc_read_u16((const unsigned char *)block + 8)); if (fr >= 20 && fr <= 5000) FRAME_RATE_TIMER = fr; }
 +			if (size >= 8) { int ns = ((int)sc_read_u16((const unsigned char *)block + 6)); if (ns >= 64 && ns <= 4096) SCALING_FACTOR_NEW = ns; }
-+			if (size >= 8 && (unsigned char)block[4] == SC_ADAPTIVE_JPEG)
++			if (size >= 8 && ((unsigned char)block[4] == SC_ADAPTIVE_JPEG || (unsigned char)block[4] == SC_ADAPTIVE_DELTA))
 +            {
 +                unsigned int tier = (unsigned int)sc_read_u16((const unsigned char *)block + 6);
 +                if (tier != 1440 && tier != 1080 && tier != 720 && tier != 540) break;
++                if ((unsigned char)block[4] == SC_ADAPTIVE_JPEG) sc_legacy_refresh();
++                sc_delta = (unsigned char)block[4] == SC_ADAPTIVE_DELTA && !sc_delta_blocked;
 +                sc_tier = tier;
 +                if (!sc_feedback) { sc_feedback = 1; sc_feedback_at = sc_now_ms(); }
 +            }
-+            else { sc_feedback = 0; }
++            else { sc_feedback = 0; sc_legacy_refresh(); }
 +            sc_refresh_frame();
 +            if (size >= 6) { set_tile_compression(1, (int)(unsigned char)block[5]); }
  			COMPRESSION_RATIO = 100;
@@ -105,11 +110,11 @@
  		}
  	case MNG_KVM_REFRESH: // Refresh
  		{
-+            sc_refresh_frame();
++            sc_legacy_refresh();
  			kvm_send_resolution();
  
  			int row, col;
-@@ -759,7 +804,7 @@
+@@ -759,7 +809,7 @@
  		}
  	case MNG_KVM_FRAME_RATE_TIMER:
  		{
@@ -118,7 +123,7 @@
  			if (fr >= 20 && fr <= 5000) FRAME_RATE_TIMER = fr;
  			break;
  		}
-@@ -770,8 +815,8 @@
+@@ -770,8 +820,10 @@
  		}
  	case MNG_KVM_SET_DISPLAY:
  		{
@@ -126,10 +131,30 @@
 -			CURRENT_DISPLAY_ID = ntohs(((unsigned short*)(block))[2]);
 +			if (sc_read_u16((const unsigned char *)block + 4) == CURRENT_DISPLAY_ID) { break; } // Don't do anything
 +			CURRENT_DISPLAY_ID = sc_read_u16((const unsigned char *)block + 4);
++            sc_next_epoch(); sc_previous_size = 0; sc_refresh_frame();
++            sc_display_generation++;
  			change_display = 1;
  			break;
  		}
-@@ -1023,6 +1068,7 @@
+@@ -952,7 +1004,7 @@
+ }
+ void* kvm_server_mainloop(void* parm)
+ {
+-	int maxsleep;
++
+ 	Window rr, cr;
+ 	int rx, ry, wx, wy, rs;
+ 	unsigned int mr;
+@@ -971,6 +1023,8 @@
+ 	int kbevent_base = 0;
+ 	ssize_t written;
+ 	XShmSegmentInfo shminfo;
++    unsigned int sc_capture_display = UINT32_MAX;
++    uint64_t sc_next_capture = 0;
+ 	default_JPEG_error_handler = kvm_server_jpegerror;
+ 
+ 	struct timeval tv;
+@@ -1023,6 +1077,7 @@
  
  	while (!g_shutdown) 
  	{
@@ -137,7 +162,51 @@
  		for (r = 0; r < TILE_HEIGHT_COUNT; r++) 
  		{
  			for (c = 0; c < TILE_WIDTH_COUNT; c++) 
-@@ -1079,8 +1125,10 @@
+@@ -1033,38 +1088,17 @@
+ #endif
+ 			}
+ 		}
+-		//fprintf(logFile, "Before CheckDesktopSwitch.\n"); fflush(logFile);
+-		CheckDesktopSwitch(1);
+-		//fprintf(logFile, "After CheckDesktopSwitch.\n"); fflush(logFile);
+-
+-		imagedisplay = x11_exports->XOpenDisplay(CURRENT_XDISPLAY);
+-		if (imagedisplay == NULL) { g_shutdown = 1; break; }
+-
+-		if (DisplayWidth(imagedisplay, CURRENT_DISPLAY_ID) != SCREEN_WIDTH ||
+-			DisplayHeight(imagedisplay, CURRENT_DISPLAY_ID) != SCREEN_HEIGHT ||
+-			DefaultDepth(eventdisplay, CURRENT_DISPLAY_ID) != SCREEN_DEPTH)
+-		{
+-			int old = TILE_HEIGHT_COUNT;
+-			SCREEN_HEIGHT = DisplayHeight(imagedisplay, CURRENT_DISPLAY_ID);
+-			SCREEN_WIDTH = DisplayWidth(imagedisplay, CURRENT_DISPLAY_ID);
+-			SCREEN_DEPTH = DefaultDepth(imagedisplay, CURRENT_DISPLAY_ID);
+-			if (logFile) { fprintf(logFile, "SLAVE/KVM Resolution Changed: %d x %d x %d bpp\n", SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_DEPTH); fflush(logFile); }
+-
+-			TILE_HEIGHT_COUNT = SCREEN_HEIGHT / TILE_HEIGHT;
+-			TILE_WIDTH_COUNT = SCREEN_WIDTH / TILE_WIDTH;
+-			if (SCREEN_WIDTH % TILE_WIDTH) { TILE_WIDTH_COUNT++; }
+-			if (SCREEN_HEIGHT % TILE_HEIGHT) { TILE_HEIGHT_COUNT++; }
+-
+-			kvm_send_resolution();
+-			reset_tile_info(old);
+-		}
+ 
+ 
+ 		FD_ZERO(&readset);
+ 		FD_ZERO(&errorset);
+ 		FD_ZERO(&writeset);
+ 		tv.tv_sec = 0;
+-		tv.tv_usec = 0;
++        uint64_t sc_wait_now = sc_now_ms();
++        uint64_t sc_remaining = sc_next_capture > sc_wait_now ? sc_next_capture - sc_wait_now : 0;
++        if (g_remotepause || g_pause) sc_remaining = 50;
++        else if (sc_waiting_for_feedback(0)) sc_remaining = 5;
++        tv.tv_usec = (suseconds_t)(sc_remaining > 50 ? 50000 : sc_remaining * 1000);
+ 		FD_SET(master2slave[0], &readset);
+ 		if (select(FD_SETSIZE, &readset, &writeset, &errorset, &tv) > 0 && FD_ISSET(master2slave[0], &readset))
+ 		{
+@@ -1079,17 +1113,56 @@
  			}
  			len += cbBytesRead;
  			ptr2 = 0;
@@ -150,20 +219,78 @@
  		}
  
  		// 暂停时仍处理控制管道，恢复或退出不会被采集等待阻塞。
-@@ -1091,6 +1139,12 @@
- 			usleep(50000);
+ 		if (g_remotepause || g_pause)
+ 		{
+-			x11_exports->XCloseDisplay(imagedisplay);
+-			imagedisplay = NULL;
+-			usleep(50000);
  			continue;
- 		}
++		}
 +
-+        if (sc_waiting_for_feedback())
++        if (sc_waiting_for_feedback(1))
 +        {
-+            x11_exports->XCloseDisplay(imagedisplay); imagedisplay = NULL;
-+            usleep(5000); continue;
++            continue;
 +        }
++
++        if (sc_now_ms() < sc_next_capture) continue;
++        sc_started = sc_now_ms();
++		//fprintf(logFile, "Before CheckDesktopSwitch.\n"); fflush(logFile);
++		CheckDesktopSwitch(1);
++		//fprintf(logFile, "After CheckDesktopSwitch.\n"); fflush(logFile);
++
++		if (imagedisplay == NULL) imagedisplay = x11_exports->XOpenDisplay(CURRENT_XDISPLAY);
++		if (imagedisplay == NULL) { g_shutdown = 1; break; }
++
++        XWindowAttributes sc_attributes;
++        if (!x11_exports->XGetWindowAttributes(imagedisplay,
++            RootWindowOfScreen(ScreenOfDisplay(imagedisplay, CURRENT_DISPLAY_ID)), &sc_attributes)) { g_shutdown = 1; break; }
++        if (image && (image->width != sc_attributes.width || image->height != sc_attributes.height ||
++            image->depth != sc_attributes.depth || sc_capture_display != CURRENT_DISPLAY_ID))
++        {
++            x11ext_exports->XShmDetach(imagedisplay, &shminfo);
++            XDestroyImage(image); image = NULL;
++            shmdt(shminfo.shmaddr); shmctl(shminfo.shmid, IPC_RMID, 0);
++            sc_previous_size = 0; sc_refresh_frame();
++        }
++        if (sc_attributes.width != SCREEN_WIDTH || sc_attributes.height != SCREEN_HEIGHT || sc_attributes.depth != SCREEN_DEPTH)
++        {
++            int old = TILE_HEIGHT_COUNT;
++            SCREEN_HEIGHT = sc_attributes.height; SCREEN_WIDTH = sc_attributes.width; SCREEN_DEPTH = sc_attributes.depth;
++			if (logFile) { fprintf(logFile, "SLAVE/KVM Resolution Changed: %d x %d x %d bpp\n", SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_DEPTH); fflush(logFile); }
++
++			TILE_HEIGHT_COUNT = SCREEN_HEIGHT / TILE_HEIGHT;
++			TILE_WIDTH_COUNT = SCREEN_WIDTH / TILE_WIDTH;
++			if (SCREEN_WIDTH % TILE_WIDTH) { TILE_WIDTH_COUNT++; }
++			if (SCREEN_HEIGHT % TILE_HEIGHT) { TILE_HEIGHT_COUNT++; }
++
++			kvm_send_resolution();
++			reset_tile_info(old);
+ 		}
  
  		if (cursordisplay == NULL)
- 		{
-@@ -1337,37 +1391,11 @@
+@@ -1203,6 +1276,8 @@
+ 			}
+ 		}
+ 
++        if (image == NULL)
++        {
+ 		image = x11ext_exports->XShmCreateImage(imagedisplay,
+ 			DefaultVisual(imagedisplay, SCREEN_NUM),
+ 			SCREEN_DEPTH, ZPixmap, NULL, &shminfo, SCREEN_WIDTH, SCREEN_HEIGHT);
+@@ -1236,6 +1311,12 @@
+ 			shmdt(shminfo.shmaddr); shmctl(shminfo.shmid, IPC_RMID, 0);
+ 			x11_exports->XCloseDisplay(imagedisplay); imagedisplay = NULL; break;
+ 		}
++            /* 服务端确认附着后立刻标记删除，子进程异常退出也不会遗留共享段。 */
++            x11_exports->XSync(imagedisplay, 0);
++            if (shmctl(shminfo.shmid, IPC_RMID, 0) != 0) { g_shutdown = 1; break; }
++            sc_capture_display = CURRENT_DISPLAY_ID;
++        }
++
+ 		if (!x11ext_exports->XShmGetImage(imagedisplay,
+ 			RootWindowOfScreen(ScreenOfDisplay(imagedisplay, CURRENT_DISPLAY_ID)),
+ 			image, 0, 0, AllPlanes)) g_shutdown = 1;
+@@ -1337,67 +1418,23 @@
  				fsync(slave2master[1]);
  				sentHideCursor = 0;
  			}
@@ -198,28 +325,62 @@
 -			} }
 -		}
 -		
+-		x11ext_exports->XShmDetach(imagedisplay, &shminfo);
+-		XDestroyImage(image); image = NULL;
+-		shmdt(shminfo.shmaddr);
+-		shmctl(shminfo.shmid, IPC_RMID, 0);
+-		
+-		if (imagedisplay != NULL) 
+-		{
+-			x11_exports->XCloseDisplay(imagedisplay);
+-			imagedisplay = NULL;
+-		}
+-
+-		// We can't go full speed here, we need to slow this down.
+-		height = FRAME_RATE_TIMER;
+-		while (!g_shutdown && height > 0)
+-		{
+-			if (height > 50)
+-			{
+-				height -= 50;
+-				maxsleep = 50000;
+-			}
+-			else 
+-			{
+-				maxsleep = height * 1000;
+-				height = 0;
+-			}
+-
+-			usleep(maxsleep);
+-		}
+-	}
+-
 +            if (!g_shutdown && !sc_send_desktop((const unsigned char *)desktop, (uint64_t)desktopsize, sc_started)) g_shutdown = 1;
 +            }
 +        }
 +        
 +
- 		x11ext_exports->XShmDetach(imagedisplay, &shminfo);
- 		XDestroyImage(image); image = NULL;
- 		shmdt(shminfo.shmaddr);
-@@ -1380,7 +1408,7 @@
- 		}
- 
- 		// We can't go full speed here, we need to slow this down.
--		height = FRAME_RATE_TIMER;
-+		height = FRAME_RATE_TIMER - (int)(sc_now_ms() - sc_started);
- 		while (!g_shutdown && height > 0)
- 		{
- 			if (height > 50)
-@@ -1398,6 +1426,7 @@
- 		}
- 	}
- 
++        sc_next_capture = sc_started + (unsigned int)FRAME_RATE_TIMER;
++    }
++
++    if (image != NULL)
++    {
++        x11ext_exports->XShmDetach(imagedisplay, &shminfo);
++        XDestroyImage(image); image = NULL;
++        shmdt(shminfo.shmaddr); shmctl(shminfo.shmid, IPC_RMID, 0);
++    }
++    if (imagedisplay != NULL) { x11_exports->XCloseDisplay(imagedisplay); imagedisplay = NULL; }
++
 +	sc_release_desktop();
  	if (desktop != NULL) { free(desktop); desktop = NULL; }
  	close(slave2master[1]);
  	close(master2slave[0]);
+@@ -1585,7 +1622,7 @@
+ void kvm_relay_reset()
+ {
+ 	char buffer[4];
+-	((unsigned short*)buffer)[0] = (unsigned short)htons((unsigned short)MNG_KVM_REFRESH);	// Write the type
++	((unsigned short*)buffer)[0] = (unsigned short)htons((unsigned short)SC_FRAME_RESET);	// Write the type
+ 	((unsigned short*)buffer)[1] = (unsigned short)htons((unsigned short)4);				// Write the size
+ 	kvm_relay_feeddata(buffer, 4);
+ }

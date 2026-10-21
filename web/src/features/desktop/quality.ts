@@ -24,8 +24,20 @@ export class DesktopAdaptation {
   private lastUpgrade = -Infinity;
   private recoveryDelay = 8000;
   private lastSample = -Infinity;
+  private sampleLifetime = 1000;
   private load: DesktopLoad = { queueMs: 0, decodeMs: 0, processingMs: 0, ackMs: 0 };
   private pressure = 0;
+  private networkPressure = 0;
+  private networkSamples = 0;
+  private cadenceSamples = 0;
+  private qualityStep = 0;
+  private cadenceStep = 0;
+  private refined = false;
+  private tuningDirty = false;
+  private tuningSince: number | null = null;
+  private tuningHealthySince: number | null = null;
+  private lastQualityChange = -Infinity;
+  private lastCadenceChange = -Infinity;
   private processing = 0;
   private congestedSamples = 0;
   private severeSamples = 0;
@@ -34,19 +46,23 @@ export class DesktopAdaptation {
   private activitySince = 0;
   private lastMotionSample = -Infinity;
   private activePolicy: DesktopActivity = 'unknown';
-  constructor(private readonly change: (tier: DesktopTier) => void, private smooth = false, private resolution: DesktopResolution = 'auto') {
+  constructor(private readonly change: (tier: DesktopTier) => void, private smooth = false, private resolution: DesktopResolution = 'auto', private readonly retune?: () => void) {
     this.tier = resolution === 'auto' ? 1440 : resolution;
   }
   private resetLoad() {
     this.congestedSince = this.healthySince = this.severeSince = null;
     this.lastSample = -Infinity;
+    this.sampleLifetime = 1000;
     this.pressure = this.processing = this.congestedSamples = this.severeSamples = 0;
+    this.networkPressure = this.networkSamples = this.cadenceSamples = 0;
+    this.tuningSince = this.tuningHealthySince = null;
     this.activity = this.activityCandidate = this.activePolicy = 'unknown';
     this.lastMotionSample = -Infinity;
   }
-  priority(smooth: boolean) { this.smooth = smooth; this.resetLoad(); this.change(this.tier); }
+  priority(smooth: boolean) { this.smooth = smooth; this.resetTuning(); this.resetLoad(); this.change(this.tier); }
   setResolution(resolution: DesktopResolution) {
     this.resolution = resolution;
+    this.resetTuning();
     this.tier = resolution === 'auto' ? 1440 : resolution;
     this.resetLoad();
     this.lastChange = this.lastUpgrade = -Infinity;
@@ -75,16 +91,65 @@ export class DesktopAdaptation {
     }
     const { threshold, moving } = this.policy(now);
     const sample = Math.max(load.queueMs, load.decodeMs, load.ackMs);
-    const recent = now - this.lastSample < 1000;
+    const interval = now - this.lastSample;
+    // 慢链路的一帧可能传输数秒；保留连续反馈，但不串联长时间断开的旧样本。
+    const recent = interval < 15000;
+    this.sampleLifetime = Math.min(15000, Math.max(1000, load.ackMs * 2, recent ? interval * 2 : 0));
     this.pressure = recent ? this.pressure * .8 + sample * .2 : sample;
+    this.networkPressure = recent ? this.networkPressure * .8 + load.ackMs * .2 : load.ackMs;
+    this.networkSamples = load.ackMs >= 160 ? (recent ? this.networkSamples : 0) + 1 : 0;
+    this.cadenceSamples = sample >= 160 || load.processingMs > 40 ? (recent ? this.cadenceSamples : 0) + 1 : 0;
+    if (this.refined && ((load.motionRatio ?? 0) >= .12 || this.networkSamples >= 3)) {
+      this.refined = false; this.tuningDirty = true;
+    }
     this.processing = recent ? this.processing * .8 + load.processingMs * .2 : load.processingMs;
     this.congestedSamples = sample >= threshold || (this.smooth && load.processingMs > 60) || (moving && load.processingMs >= threshold) ? (recent ? this.congestedSamples : 0) + 1 : 0;
     this.severeSamples = sample >= 500 ? (recent ? this.severeSamples : 0) + 1 : 0;
     this.load = load; this.lastSample = now;
   }
-  tick(now: number, queueMs: number) {
+  private resetTuning() {
+    this.qualityStep = this.cadenceStep = 0;
+    this.refined = this.tuningDirty = false;
+    this.lastQualityChange = this.lastCadenceChange = -Infinity;
+  }
+  private tune(now: number, queueMs: number, recent: boolean, allowRefine: boolean) {
+    const before = `${this.quality(false)}:${this.quality(true)}:${this.interval()}`;
+    const pressure = Math.max(queueMs, recent ? this.pressure : 0);
+    const processing = recent ? this.processing : 0;
+    const busy = pressure >= 160 || processing > 40;
+    if (busy) { this.tuningSince ??= now; this.tuningHealthySince = null; }
+    else { this.tuningSince = null; this.tuningHealthySince ??= now; }
+    // 传输反馈决定 JPEG 质量；采集、解码和传输共同决定更新频率。
+    // 至少三个真实样本，且每次调整间隔两秒；单个迟到 ACK 不改变配置。
+    if (this.tuningSince !== null && now - this.tuningSince >= 600) {
+      if (recent && this.networkSamples >= 3 && this.networkPressure >= 160 && now - this.lastQualityChange >= 2000) {
+        this.qualityStep = Math.min(3, this.qualityStep + 1); this.lastQualityChange = now;
+      }
+      if ((queueMs >= 160 || (recent && this.cadenceSamples >= 3)) && this.interval() < Math.max(processing * 1.1, pressure / 2) && now - this.lastCadenceChange >= 2000) {
+        this.cadenceStep = Math.min(3, this.cadenceStep + 1); this.lastCadenceChange = now;
+      }
+    }
+    const healthy = recent && pressure < 80 && processing < 32;
+    if (!healthy) this.tuningHealthySince = null;
+    if (healthy && this.tuningHealthySince !== null && now - this.tuningHealthySince >= 4000) {
+      if (now - this.lastQualityChange >= 4000) { this.qualityStep = Math.max(0, this.qualityStep - 1); this.lastQualityChange = now; }
+      if (now - this.lastCadenceChange >= 4000) { this.cadenceStep = Math.max(0, this.cadenceStep - 1); this.lastCadenceChange = now; }
+    }
+    // 静止时没有新帧；等超过慢链路的反馈观察期，空队列只补一次高清基准。
+    if (allowRefine && Number.isFinite(this.lastSample) && queueMs === 0 && now - this.lastSample >= Math.max(1500, this.sampleLifetime * 2)) {
+      if (!this.refined) {
+        // 补帧回执是一条新观察，不能复用静止前的连续拥塞计数形成刷新循环。
+        this.networkSamples = this.cadenceSamples = 0;
+      }
+      this.refined = true; this.qualityStep = 0;
+    }
+    if (this.tuningDirty || before !== `${this.quality(false)}:${this.quality(true)}:${this.interval()}`) this.retune?.();
+    this.tuningDirty = false;
+  }
+  tick(now: number, queueMs: number, allowRefine = true) {
+    const recent = now - this.lastSample < this.sampleLifetime;
+    this.tune(now, queueMs, recent, allowRefine);
     if (this.resolution !== 'auto') return;
-    const recent = now - this.lastSample < 1000;
     const pressure = Math.max(queueMs, recent ? this.pressure : 0);
     const processing = recent ? this.processing : 0;
     const { threshold, duration, cooldown, moving } = this.policy(now);
@@ -110,5 +175,10 @@ export class DesktopAdaptation {
     }
     this.tier = next; this.lastChange = now; this.resetLoad(); this.change(next);
   }
-  quality(smooth: boolean) { return this.tier === 1440 ? (smooth ? 85 : 90) : this.tier === 1080 ? (smooth ? 80 : 85) : this.tier === 720 ? (smooth ? 75 : 80) : (smooth ? 70 : 75); }
+  interval() { return [40, 60, 80, 120][this.cadenceStep]; }
+  quality(smooth: boolean) {
+    if (this.refined) return 90;
+    const base = this.tier === 1440 ? 90 : this.tier === 1080 ? 85 : this.tier === 720 ? 80 : 75;
+    return Math.max(60, base - (smooth ? 5 : 0) - this.qualityStep * 5);
+  }
 }

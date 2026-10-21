@@ -140,6 +140,29 @@ it('单次迟到反馈不会触发最低档，持续严重反馈仍在短时间�
   expect(adaptation.tier).toBe(540);
 });
 
+it.each([1250, 3750, 6000])('每 %i 毫秒才展示一帧时，持续数秒反馈仍能自动降档', interval => {
+  const adaptation = new DesktopAdaptation(vi.fn());
+  for (let now = 0; now <= interval * 3; now += 50) {
+    if (now % interval === 0) adaptation.observe({ ...load(2500), motionRatio: .2 }, now);
+    if (now % 200 === 0) adaptation.tick(now, 0);
+  }
+  expect(adaptation.tier).toBe(540);
+  sampleRange(adaptation, interval * 3 + 200, interval * 3 + 30000);
+  expect(adaptation.tier).toBe(1440);
+});
+
+it('间隔很长的孤立迟到帧不会被拼成持续拥塞，固定档位仍保持不变', () => {
+  const automatic = new DesktopAdaptation(vi.fn()), fixed = new DesktopAdaptation(vi.fn(), false, 1440);
+  for (let now = 0; now <= 60000; now += 200) {
+    if (now % 20000 === 0) {
+      automatic.observe(load(2500), now);
+      fixed.observe(load(2500), now);
+    }
+    automatic.tick(now, 0); fixed.tick(now, 0);
+  }
+  expect(automatic.tier).toBe(1440); expect(fixed.tier).toBe(1440);
+});
+
 it('升档试探失败后延长恢复观察，避免在相邻分辨率间来回切换', () => {
   const changed: number[] = [], adaptation = new DesktopAdaptation(tier => changed.push(tier));
   sampleRange(adaptation, 0, 3000, load(260)); expect(adaptation.tier).toBe(1080);
@@ -192,4 +215,74 @@ it('重连以保留的固定档位启动', () => {
   expect(adaptation.tier).toBe(720);
   adaptation.tick(0, 300);
   expect(adaptation.tier).toBe(720);
+});
+
+it('先适度降低 JPEG 质量及采集频率，持续过载后才降低分辨率', () => {
+  const retune = vi.fn(), change = vi.fn();
+  const adaptation = new DesktopAdaptation(change, false, 'auto', retune);
+  sampleRange(adaptation, 0, 600, load(260));
+  expect(adaptation.tier).toBe(1440); expect(adaptation.quality(false)).toBe(85); expect(adaptation.interval()).toBe(60);
+  expect(change).not.toHaveBeenCalled(); expect(retune).toHaveBeenCalledOnce();
+  sampleRange(adaptation, 800, 3000, load(260));
+  expect(adaptation.tier).toBe(1080); expect(adaptation.quality(false)).toBe(75); expect(adaptation.interval()).toBe(80);
+});
+
+it('纯处理压力只调整采集间隔，不无故降低 JPEG 质量或分辨率', () => {
+  const adaptation = new DesktopAdaptation(vi.fn());
+  sampleRange(adaptation, 0, 20000, load(20, 50));
+  expect(adaptation.tier).toBe(1440); expect(adaptation.quality(false)).toBe(90); expect(adaptation.interval()).toBe(60);
+});
+
+it('固定分辨率仍独立调整压缩和频率，并严格限制质量与采集周期', () => {
+  const adaptation = new DesktopAdaptation(vi.fn(), true, 720);
+  sampleRange(adaptation, 0, 60000, load(1000, 200));
+  expect(adaptation.tier).toBe(720); expect(adaptation.quality(true)).toBe(60); expect(adaptation.interval()).toBe(120);
+  sampleRange(adaptation, 60200, 90000);
+  expect(adaptation.tier).toBe(720); expect(adaptation.quality(true)).toBe(75); expect(adaptation.interval()).toBe(40);
+});
+
+it('单次迟到反馈和反复短尖峰不改变压缩及采集频率', () => {
+  const retune = vi.fn(), adaptation = new DesktopAdaptation(vi.fn(), false, 'auto', retune);
+  for (let now = 0; now <= 60000; now += 200) {
+    adaptation.observe(load(now % 6000 < 400 ? 700 : 20), now); adaptation.tick(now, 0);
+  }
+  expect(adaptation.quality(false)).toBe(90); expect(adaptation.interval()).toBe(40); expect(retune).not.toHaveBeenCalled();
+});
+
+it('静止窗口补一次 Q90，慢反馈未过期或仍有待绘制图片时不补帧', () => {
+  const retune = vi.fn(), adaptation = new DesktopAdaptation(vi.fn(), true, 1080, retune);
+  adaptation.observe(load(2500), 0);
+  adaptation.tick(4000, 0); expect(retune).not.toHaveBeenCalled();
+  adaptation.tick(10000, 0, false); expect(retune).not.toHaveBeenCalled();
+  adaptation.tick(10200, 0); expect(adaptation.quality(true)).toBe(90); expect(retune).toHaveBeenCalledOnce();
+  for (let now = 10400; now <= 60000; now += 200) adaptation.tick(now, 0);
+  expect(retune).toHaveBeenCalledOnce();
+  adaptation.observe({ ...load(), motionRatio: .5 }, 60200); adaptation.tick(60200, 0);
+  expect(adaptation.quality(true)).toBe(80); expect(retune).toHaveBeenCalledTimes(2);
+});
+
+it('健康样本持续四秒才逐级恢复采集及压缩，切换手动配置立即重置', () => {
+  const adaptation = new DesktopAdaptation(vi.fn(), false, 1440);
+  sampleRange(adaptation, 0, 5000, load(260));
+  expect(adaptation.quality(false)).toBe(75); expect(adaptation.interval()).toBe(120);
+  sampleRange(adaptation, 5200, 8000);
+  expect(adaptation.quality(false)).toBe(75);
+  sampleRange(adaptation, 8200, 16000);
+  expect(adaptation.quality(false)).toBeGreaterThan(75); expect(adaptation.interval()).toBeLessThan(120);
+  adaptation.priority(true); expect(adaptation.quality(true)).toBe(85); expect(adaptation.interval()).toBe(40);
+});
+
+it.each([undefined, 0])('静止补帧回执重新进入策略后不循环请求完整帧，活动量为 %s', motionRatio => {
+  let now = 0;
+  const replies: number[] = [], settings: number[] = [];
+  const adaptation = new DesktopAdaptation(vi.fn(), false, 1080, () => {
+    settings.push(adaptation.quality(false)); replies.push(now + 400);
+  });
+  for (; now <= 60000; now += 200) {
+    if (now <= 400 || replies.includes(now)) adaptation.observe({ ...load(260), motionRatio }, now);
+    adaptation.tick(now, 0);
+  }
+  expect(settings.filter(quality => quality === 90)).toHaveLength(1);
+  expect(settings.at(-1)).toBe(90); expect(adaptation.quality(false)).toBe(90);
+  expect(settings.length).toBeLessThanOrEqual(5);
 });

@@ -1,5 +1,5 @@
 import type { MeshDesktopModule } from '../meshcentral';
-import { DESKTOP_FRAME, desktopFrameAck, desktopMouse, parseDesktopFrame, type DesktopFrame } from './frame';
+import { DESKTOP_CAPABILITY, DESKTOP_FRAME, DESKTOP_RESET, desktopFrameAck, desktopMouse, parseDesktopCapability, parseDesktopFrame, type DesktopFrame } from './frame';
 import { DesktopAdaptation, type DesktopResolution } from './quality';
 import { DesktopMotion } from './motion';
 
@@ -19,7 +19,7 @@ function picturePixels(data: Uint8Array, fallback: number, expected?: DesktopFra
     if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker) && length >= 8) {
       const height = data[offset + 3] * 256 + data[offset + 4];
       const width = data[offset + 5] * 256 + data[offset + 6];
-      return width && height && (!expected || (width === expected.width && height === expected.height)) ? width * height : invalid;
+      return width && height && (!expected || (width === expected.patchWidth && height === expected.patchHeight)) ? width * height : invalid;
     }
     offset += length;
   }
@@ -56,6 +56,10 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
   const processCommand = module.ProcessBinaryCommand?.bind(module);
   let nextDescriptor: DesktopFrame | null = null;
   let framed = false;
+  let capability: boolean | null = null;
+  let protocolReady = false;
+  let profilePending = false;
+  let negotiatedDelta = false;
   let invalidDescriptor = false;
   let sourceWidth = 0, sourceHeight = 0;
   let displaySourceChanged = false;
@@ -63,19 +67,29 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
   let displaySourceSize: { width: number; height: number } | undefined;
   let presentedEpoch = 0, presentedSequence = 0, receivingEpoch = 0;
   let presentedDescriptor: DesktopFrame | null = null;
+  // 恢复期间仅供鼠标释放使用；不能作为绘制、新点击、移动或滚轮的基准。
+  let releaseDescriptor: DesktopFrame | null = null;
   let lastHandshake = -Infinity;
   const originalSend = module.send?.bind(module);
+  const requestRefresh = () => {
+    if (capability !== null) module.send?.(String.fromCharCode(DESKTOP_RESET >> 8, DESKTOP_RESET & 255, 0, 4));
+    else module.SendRefresh?.();
+  };
   let smooth = options?.smooth ?? false;
   let adaptationTimer: ReturnType<typeof setInterval> | undefined;
   const profile = (tier: 1440 | 1080 | 720 | 540) => {
     if (disposed || !options) return;
+    if (!protocolReady && originalSend) { profilePending = true; return; }
+    profilePending = false;
     const scaling = framed ? tier : sourceWidth && sourceHeight
       ? Math.max(64, Math.floor(Math.min(1, tier * 16 / 9 / sourceWidth, tier / sourceHeight) * 1024)) : 1024;
     if (framed) lastHandshake = performance.now();
-    module.SendCompressionLevel(framed ? 129 : 1, adaptation.quality(smooth), scaling, 40);
-    module.SendRefresh?.();
+    const type = framed ? capability === true ? 130 : 129 : 1;
+    negotiatedDelta = type === 130;
+    module.SendCompressionLevel(type, adaptation.quality(smooth), scaling, adaptation.interval());
+    if (type !== 130) requestRefresh();
   };
-  const adaptation = new DesktopAdaptation(profile, smooth, options?.resolution);
+  const adaptation = new DesktopAdaptation(profile, smooth, options?.resolution, () => profile(adaptation.tier));
   const motion = new DesktopMotion();
   const age = () => pending.size ? performance.now() - pending.values().next().value!.receivedAt : 0;
   const release = (id: number) => {
@@ -127,13 +141,16 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
       refreshing = false;
       lastRefresh = performance.now();
       // 先刷新再恢复，避免继续发送已作废基线上的增量。
-      module.SendRefresh?.();
+      requestRefresh();
       resume();
     }, Math.max(250, lastRefresh + 2000 - performance.now()));
   };
   const recover = () => {
     if (disposed || refreshing) return;
     refreshing = true;
+    presentedDescriptor = null;
+    nextDescriptor = null;
+    invalidDescriptor = false;
     generation++;
     pause();
     queue.length = 0;
@@ -155,6 +172,9 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
   // 同尺寸显示器切换也要作废旧解码，不能只依赖尺寸消息清空画面。
   module.ResetDesktopDisplay = (sourceChanged = false, sourceSize) => {
     generation++;
+    presentedDescriptor = null;
+    nextDescriptor = null;
+    invalidDescriptor = false;
     queue.length = 0;
     module.PendingOperations = [];
     module.TilesDrawn = module.tilesReceived;
@@ -164,13 +184,17 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
   };
   if (processCommand) module.ProcessBinaryCommand = (command, size, data) => {
     if (disposed) return;
+    if (command === DESKTOP_CAPABILITY) {
+      const value = size === data.byteLength ? parseDesktopCapability(data) : null;
+      if (value !== null) capability = value;
+      return;
+    }
     if (command === DESKTOP_FRAME) {
-      const descriptor = parseDesktopFrame(data);
+      const descriptor = size === data.byteLength ? parseDesktopFrame(data) : null;
       invalidDescriptor = !descriptor; nextDescriptor = descriptor;
       if (descriptor) {
-        const first = !framed;
         framed = true; receivingEpoch = descriptor.epoch; sourceWidth = descriptor.sourceWidth; sourceHeight = descriptor.sourceHeight;
-        if (first || (!descriptor.feedback && performance.now() - lastHandshake >= 2000)) profile(adaptation.tier);
+        // 能力与完整基准均确认后才协商；元数据本身不代表已成功展示。
       }
       return;
     }
@@ -200,12 +224,19 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
     processCommand(command, size, data);
   };
   if (originalSend) module.send = packet => {
+    const command = packet.length >= 4 ? packet.charCodeAt(0) * 256 + packet.charCodeAt(1) : -1;
+    // 新查看者启动时组件会先发旧式参数；等首张图片识别协议后用当前配置协商。
+    // 不排队重放旧参数，避免共享流被无意固定回退到 v1。
+    if (!protocolReady && (command === 5 || command === 6)) { profilePending = true; return; }
+    if (command === 6 && capability !== null) { requestRefresh(); return; }
     if (packet.length >= 10 && packet.charCodeAt(0) === 0 && packet.charCodeAt(1) === 5 && packet.charCodeAt(4) === 1) {
       captureScaling = packet.charCodeAt(6) * 256 + packet.charCodeAt(7);
     }
     if (framed && packet.charCodeAt(0) === 0 && packet.charCodeAt(1) === 2) {
-      if (!presentedDescriptor) return;
-      const tagged = desktopMouse(packet, presentedDescriptor);
+      const releasing = [4, 16, 64].includes(packet.charCodeAt(5));
+      const descriptor = presentedDescriptor ?? (releasing ? releaseDescriptor : null);
+      if (!descriptor) return;
+      const tagged = desktopMouse(packet, descriptor);
       if (tagged) originalSend(tagged);
       return;
     }
@@ -214,7 +245,7 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
   if (options) {
     module.SetDesktopPriority = value => { smooth = value; adaptation.priority(value); };
     module.SetDesktopResolution = value => adaptation.setResolution(value);
-    adaptationTimer = setInterval(() => adaptation.tick(performance.now(), age()), 200);
+    adaptationTimer = setInterval(() => adaptation.tick(performance.now(), age(), pending.size === 0 && !refreshing && (framed ? presentedDescriptor !== null : protocolReady)), 200);
   }
   if (module.ProcessPictureMsg && drain) {
     module.DoPendingOperations = () => {
@@ -223,7 +254,12 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
       const descriptor = current?.descriptor;
       if (descriptor && operation?.[1] === 2) {
         if (descriptor.epoch !== receivingEpoch || (descriptor.epoch === presentedEpoch && descriptor.sequence <= presentedSequence)) operation[1] = 0;
-        else if (current!.bitmap!.width !== descriptor.width || current!.bitmap!.height !== descriptor.height) { recover(); return false; }
+        else if (current!.bitmap!.width !== descriptor.patchWidth || current!.bitmap!.height !== descriptor.patchHeight) { recover(); return false; }
+        else if (!descriptor.full && (!presentedDescriptor ||
+          descriptor.baseEpoch !== presentedDescriptor.epoch || descriptor.baseSequence !== presentedDescriptor.sequence ||
+          descriptor.sourceWidth !== presentedDescriptor.sourceWidth || descriptor.sourceHeight !== presentedDescriptor.sourceHeight ||
+          descriptor.width !== presentedDescriptor.width || descriptor.height !== presentedDescriptor.height ||
+          canvas.width !== descriptor.width || canvas.height !== descriptor.height)) { recover(); return false; }
         else {
           // 完整 JPEG 已解码才改变尺寸；清空和绘制在同一刷新周期内完成。
           const resized = canvas.width !== descriptor.width || canvas.height !== descriptor.height;
@@ -239,8 +275,12 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
         adaptation.observe({ queueMs: now - current.receivedAt, decodeMs: now - current.startedAt!, processingMs: descriptor?.processingMs ?? 0, ackMs: descriptor?.ackMs ?? 0, motionRatio: options ? motion.sample(canvas, now) : undefined }, now);
         if (descriptor) {
           presentedEpoch = descriptor.epoch; presentedSequence = descriptor.sequence;
-          presentedDescriptor = descriptor; current.consumed = true;
+          presentedDescriptor = releaseDescriptor = descriptor; current.consumed = true;
           module.send?.(desktopFrameAck(descriptor));
+          const first = !protocolReady;
+          protocolReady = true;
+          if (first || profilePending || (capability === true && !negotiatedDelta) ||
+            (capability === false && negotiatedDelta) || (!descriptor.feedback && now - lastHandshake >= 2000)) profile(adaptation.tier);
         }
       }
       for (const [id, entry] of pending) {
@@ -309,12 +349,13 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
       }
       if (invalidDescriptor || (framed && !nextDescriptor)) { invalidDescriptor = false; nextDescriptor = null; recover(); return; }
       const descriptor = nextDescriptor; nextDescriptor = null;
+      if (!descriptor && !protocolReady) { protocolReady = true; if (profilePending) profile(adaptation.tier); }
       const pixels = picturePixels(data, Math.max(1, canvas.width * canvas.height), descriptor ?? undefined);
-      if (descriptor && (x !== 0 || y !== 0 || pixels === 0)) {
+      if (descriptor && (x !== descriptor.x || y !== descriptor.y || pixels === 0)) {
         module.send?.(desktopFrameAck(descriptor, true)); recover(); return;
       }
       // 独立整帧允许跳过尚未开始的旧采样；增量图块继续严格保留。
-      if (descriptor) {
+      if (descriptor?.full) {
         for (let index = queue.length - 1; index >= 0; index--) {
           const previous = queue[index];
           if (!previous.descriptor) continue;
@@ -324,6 +365,7 @@ export function manageDesktopMemory(module: MeshDesktopModule, canvas: HTMLCanva
       const bytes = data.byteLength - 4;
       if (bytes <= 0 || bytes > 64 * 1024 * 1024 || pending.size >= 128 ||
           (pending.size > 0 && encodedBytes + bytes > maxBytes)) {
+        if (descriptor) module.send?.(desktopFrameAck(descriptor, true));
         recover();
         return;
       }

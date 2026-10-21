@@ -1,0 +1,662 @@
+--- a/meshcore/KVM/Windows/kvm.c
++++ b/meshcore/KVM/Windows/kvm.c
+@@ -128,6 +128,11 @@
+ HANDLE hStdOut = INVALID_HANDLE_VALUE;
+ HANDLE hStdIn = INVALID_HANDLE_VALUE;
+ int ThreadRunning = 0;
++int kvm_server_inputdata(char *, int, ILibKVM_WriteHandler, void *);
++#include "sc_windows_adaptive_desktop.h"
++int sc_windows_reset_capture(void);
++static int sc_last_mouse_x = 0, sc_last_mouse_y = 0;
++
+ int kvmConsoleMode = 0;
+ 
+ ILibQueue gPendingPackets = NULL;
+@@ -321,7 +326,7 @@
+ 	}
+ }
+ 
+-void kvm_server_SetResolution();
++void kvm_server_SetResolution(ILibKVM_WriteHandler writeHandler, void *reserved);
+ int kvm_server_currentDesktopname = 0;
+ void CheckDesktopSwitch(int checkres, ILibKVM_WriteHandler writeHandler, void *reserved)
+ {
+@@ -386,7 +391,7 @@
+ 				// Force screen refresh after desktop switch
+ 				if (checkres != 0)
+ 				{
+-					kvm_server_SetResolution();
++					kvm_server_SetResolution(writeHandler, reserved);
+ 				}
+ 			}
+ 		}
+@@ -482,10 +487,11 @@
+ 
+ 	ILibRemoteLogging_printf(gKVMRemoteLogging, ILibRemoteLogging_Modules_Agent_KVM, ILibRemoteLogging_Flags_VerbosityLevel_2, "KVM [SLAVE]: Handle Input [Len = %d]", blocklen);
+ 	// KVMDEBUG("kvm_server_inputdata", blocklen);
+-	CheckDesktopSwitch(0, writeHandler, reserved);
+-
+-	type = ntohs(((unsigned short *)(block))[0]);
+-	size = ntohs(((unsigned short *)(block))[1]);
++	CheckDesktopSwitch(1, writeHandler, reserved);
++
++	type = (unsigned short)sc_read_u16((const unsigned char *)block);
++	size = (unsigned short)sc_read_u16((const unsigned char *)block + 2);
++	if (size < 4) { g_shutdown = 1; return blocklen; }
+ 
+ 	ILibRemoteLogging_printf(gKVMRemoteLogging, ILibRemoteLogging_Modules_Agent_KVM, ILibRemoteLogging_Flags_VerbosityLevel_2, "KVM [SLAVE]: Handle Input [Len = %d, type = %u, size = %u]", blocklen, type, size);
+ 
+@@ -546,93 +552,86 @@
+ 	}
+ 	case MNG_KVM_MOUSE: // Mouse
+ 	{
+-		double x, y;
+-		short w = 0;
+-		KVM_MouseCursors curcursor = KVM_MouseCursor_NOCHANGE;
+-
+-		if (size == 10 || size == 12)
+-		{
+-			gRemoteMouseMoved = 1;
+-
+-			// Get positions and scale correctly
+-			x = (double)ntohs(((short *)(block))[3]) * 1024 / SCALING_FACTOR;
+-			y = (double)ntohs(((short *)(block))[4]) * 1024 / SCALING_FACTOR;
+-
+-			// Add relative display position
+-			x += fabs((double)(SCREEN_X - VSCREEN_X));
+-			y += fabs((double)(SCREEN_Y - VSCREEN_Y));
+-
+-			// Scale back to the virtual screen
+-			x = (x * ((double)SCREEN_WIDTH / (double)VSCREEN_WIDTH)) * (double)65535;
+-			y = (y * ((double)SCREEN_HEIGHT / (double)VSCREEN_HEIGHT)) * (double)65535;
+-
+-			// Perform the mouse movement
+-			if (size == 12)
+-				w = ((short)ntohs(((short *)(block))[5]));
+-			MouseAction((((double)x / (double)SCREEN_WIDTH)), (((double)y / (double)SCREEN_HEIGHT)), (int)(unsigned char)(block[5]), w);
+-		}
+-		break;
+-	}
++
++        unsigned int button;
++        int x, y;
++        short wheel = 0;
++        if ((size != 10 && size != 12 && size != 20) || block[4] != 0) break;
++        button = (unsigned char)block[5];
++        if (button != 0 && button != 2 && button != 4 && button != 8 && button != 16 && button != 32 && button != 64 && button != 136) break;
++        if (size == 20)
++        {
++            unsigned int epoch = sc_read_u32((const unsigned char *)block + 12);
++            unsigned int sequence = sc_read_u32((const unsigned char *)block + 16);
++            x = sc_frame_input_axis(epoch, sequence, sc_read_u16((const unsigned char *)block + 6), 0);
++            y = sc_frame_input_axis(epoch, sequence, sc_read_u16((const unsigned char *)block + 8), 1);
++        }
++        else
++        {
++            x = sc_input_axis(sc_read_u16((const unsigned char *)block + 6), 0);
++            y = sc_input_axis(sc_read_u16((const unsigned char *)block + 8), 1);
++        }
++        if (size >= 12) wheel = (short)sc_read_u16((const unsigned char *)block + 10);
++        if (x < 0 || y < 0 || SCREEN_SEL != SCREEN_SEL_TARGET)
++        {
++            sc_refresh_frame();
++            // 旧画面仅允许在最后有效绝对位置释放，不能产生新输入。
++            if (button == 4 || button == 16 || button == 64) MouseAction(sc_last_mouse_x, sc_last_mouse_y, button, 0);
++            break;
++        }
++        if (VSCREEN_WIDTH <= 0 || VSCREEN_HEIGHT <= 0) break;
++        double absolute_x = ((double)x + SCREEN_X - VSCREEN_X) * 65535.0 / VSCREEN_WIDTH;
++        double absolute_y = ((double)y + SCREEN_Y - VSCREEN_Y) * 65535.0 / VSCREEN_HEIGHT;
++        if (absolute_x < 0 || absolute_x > 65535 || absolute_y < 0 || absolute_y > 65535) break;
++        sc_last_mouse_x = (int)absolute_x; sc_last_mouse_y = (int)absolute_y;
++        gRemoteMouseMoved = 1;
++        MouseAction(sc_last_mouse_x, sc_last_mouse_y, button, wheel);
++        break;
++    }
++    case SC_FRAME_RESET:
++        if (size == 4) sc_refresh_frame();
++        break;
++    case SC_FRAME_ACK:
++        sc_accept_ack((const unsigned char *)block, size, 0);
++        break;
++    case SC_FRAME_DISCARD:
++        sc_accept_ack((const unsigned char *)block, size, 1);
++        break;
+ 	case MNG_KVM_COMPRESSION: // Compression
+ 	{
+-		if (size >= 10)
+-		{
+-			int fr = ((int)ntohs(((unsigned short *)(block + 8))[0]));
+-			if (fr >= 20 && fr <= 5000)
+-				FRAME_RATE_TIMER = fr;
+-		}
+-		if (size >= 8)
+-		{
+-			int ns = ((int)ntohs(((unsigned short *)(block + 6))[0]));
+-			if (ns >= 64 && ns <= 4096)
+-				SCALING_FACTOR_NEW = ns;
+-		}
+-		if (size >= 6)
+-		{
+-			set_tile_compression((int)block[4], (int)block[5]);
+-		}
+-		COMPRESSION_RATIO = 100;
+-		break;
+-	}
++
++        if (size < 6) break;
++        unsigned int type = (unsigned char)block[4];
++        if (type == SC_ADAPTIVE_JPEG || type == SC_ADAPTIVE_DELTA)
++        {
++            if (size < 8) break;
++            unsigned int tier = sc_read_u16((const unsigned char *)block + 6);
++            if (tier != 1440 && tier != 1080 && tier != 720 && tier != 540) break;
++            if (type == SC_ADAPTIVE_JPEG) sc_legacy_refresh();
++            sc_delta = type == SC_ADAPTIVE_DELTA && !sc_delta_blocked;
++            sc_tier = tier;
++            if (!sc_feedback) { sc_feedback = 1; sc_feedback_at = sc_now_ms(); }
++        }
++        else { sc_feedback = 0; sc_legacy_refresh(); }
++        if (size >= 10)
++        {
++            int interval = (int)sc_read_u16((const unsigned char *)block + 8);
++            if (interval >= 20 && interval <= 5000) FRAME_RATE_TIMER = interval;
++        }
++        COMPRESSION_QUALITY = (unsigned char)block[5];
++        if (COMPRESSION_QUALITY < 1) COMPRESSION_QUALITY = 1;
++        if (COMPRESSION_QUALITY > 100) COMPRESSION_QUALITY = 100;
++        sc_refresh_frame();
++        break;
++    }
+ 	case MNG_KVM_REFRESH: // Refresh
+ 	{
+-		int row, col;
+-		char buffer[8];
+-		if (size != 4)
+-			break;
+-
+-		((unsigned short *)buffer)[0] = (unsigned short)htons((unsigned short)MNG_KVM_SCREEN); // Write the type
+-		((unsigned short *)buffer)[1] = (unsigned short)htons((unsigned short)8);			   // Write the size
+-		((unsigned short *)buffer)[2] = (unsigned short)htons((unsigned short)SCALED_WIDTH);   // X position
+-		((unsigned short *)buffer)[3] = (unsigned short)htons((unsigned short)SCALED_HEIGHT);  // Y position
+-
+-		writeHandler((char *)buffer, 8, reserved);
+-
+-		// Send the list of available displays
+-		kvm_send_display_list(writeHandler, reserved);
+-
+-		// Reset all tile information
+-		if (tileInfo == NULL)
+-		{
+-			if ((tileInfo = (struct tileInfo_t **)malloc(TILE_HEIGHT_COUNT * sizeof(struct tileInfo_t *))) == NULL)
+-				ILIBCRITICALEXIT(254);
+-			for (row = 0; row < TILE_HEIGHT_COUNT; row++)
+-			{
+-				if ((tileInfo[row] = (struct tileInfo_t *)malloc(TILE_WIDTH_COUNT * sizeof(struct tileInfo_t))) == NULL)
+-					ILIBCRITICALEXIT(254);
+-			}
+-		}
+-		for (row = 0; row < TILE_HEIGHT_COUNT; row++)
+-		{
+-			for (col = 0; col < TILE_WIDTH_COUNT; col++)
+-			{
+-				tileInfo[row][col].crc = 0xFF;
+-				tileInfo[row][col].flags = 0;
+-			}
+-		}
+-
+-		break;
+-	}
++
++        if (size != 4) break;
++        sc_legacy_refresh(); sc_platform_resolution();
++        kvm_send_display_list(writeHandler, reserved);
++        break;
++    }
+ 	case MNG_KVM_PAUSE: // Pause
+ 	{
+ 		if (size != 5)
+@@ -642,7 +641,8 @@
+ 	}
+ 	case MNG_KVM_FRAME_RATE_TIMER:
+ 	{
+-		int fr = ((int)ntohs(((unsigned short *)(block))[2]));
++		if (size != 6) break;
++		int fr = (int)sc_read_u16((const unsigned char *)block + 4);
+ 		if (fr >= 20 && fr <= 5000)
+ 			FRAME_RATE_TIMER = fr;
+ 		break;
+@@ -663,7 +663,8 @@
+ 	{
+ 		int r = 0;
+ 
+-		if (block[4] == 1) // Version 1 touch structure (Very simple)
++		if (size < 5) break;
++		if (block[4] == 1 && size >= 14) // Version 1 touch structure (Very simple)
+ 		{
+ 			unsigned int flags = (unsigned int)ntohl(((unsigned int *)(block + 6))[0]);
+ 
+@@ -708,7 +709,8 @@
+ 		int x = 0;
+ 		if (size < 6)
+ 			break;
+-		x = (unsigned short)ntohs(((unsigned short *)(block + 4))[0]);
++		x = (int)sc_read_u16((const unsigned char *)block + 4);
++        if ((x == 65535 ? 0 : x) != SCREEN_SEL_TARGET) { sc_display_generation++; sc_next_epoch(); sc_previous_size = 0; sc_refresh_frame(); }
+ 		if (x == 65535)
+ 			SCREEN_SEL_TARGET = 0;
+ 		else
+@@ -745,14 +747,7 @@
+ 	}
+ 	else
+ 	{
+-		int len2 = 0;
+-		int ptr = 0;
+-		// while ((len2 = kvm_server_inputdata(buf + ptr, len - ptr, kvm_relay_feeddata_ex, (void*[]) {writeHandler, reserved})) != 0) { ptr += len2; }
+-		while ((len2 = kvm_server_inputdata(buf + ptr, len - ptr, writeHandler, reserved)) != 0)
+-		{
+-			ptr += len2;
+-		}
+-		return ptr;
++        return sc_queue_input(buf, len);
+ 	}
+ }
+ 
+@@ -785,6 +780,7 @@
+ 	int row, col;
+ 
+ 	KVMDEBUG("kvm_server_SetResolution", 0);
++    if (!sc_windows_reset_capture()) { g_shutdown = 1; return; }
+ 
+ 	// Free the tileInfo before you manipulate the TILE_HEIGHT_COUNT
+ 	if (tileInfo != NULL)
+@@ -798,7 +794,8 @@
+ 	}
+ 
+ 	// Setup scaling
+-	SCALING_FACTOR = SCALING_FACTOR_NEW;
++	SCALING_FACTOR = SCALING_FACTOR_NEW = 1024;
++    sc_display_generation++; sc_next_epoch(); sc_previous_size = 0; sc_refresh_frame();
+ 	SCALED_WIDTH = (SCREEN_WIDTH * SCALING_FACTOR) / 1024;
+ 	SCALED_HEIGHT = (SCREEN_HEIGHT * SCALING_FACTOR) / 1024;
+ 
+@@ -812,8 +809,8 @@
+ 
+ 	((unsigned short *)buffer)[0] = (unsigned short)htons((unsigned short)MNG_KVM_SCREEN); // Write the type
+ 	((unsigned short *)buffer)[1] = (unsigned short)htons((unsigned short)8);			   // Write the size
+-	((unsigned short *)buffer)[2] = (unsigned short)htons((unsigned short)SCALED_WIDTH);   // X position
+-	((unsigned short *)buffer)[3] = (unsigned short)htons((unsigned short)SCALED_HEIGHT);  // Y position
++	((unsigned short *)buffer)[2] = (unsigned short)htons((unsigned short)sc_current_size().width);   // X position
++	((unsigned short *)buffer)[3] = (unsigned short)htons((unsigned short)sc_current_size().height);  // Y position
+ 
+ 	writeHandler((char *)buffer, 8, reserved);
+ 
+@@ -861,22 +858,10 @@
+ 			g_shutdown = 1;
+ 			break;
+ 		}
+-		len += cbBytesRead;
+-		ptr2 = 0;
+-		while ((ptr2 = kvm_server_inputdata((char *)pchRequest2 + ptr, len - ptr, writeHandler, reserved)) != 0)
+-		{
+-			ptr += ptr2;
+-		}
+-		if (ptr == len)
+-		{
+-			len = 0;
+-			ptr = 0;
+-		}
+-		// TODO: else move the reminder.
++        if (!sc_queue_input(pchRequest2, (int)cbBytesRead)) break;
+ 	}
+ 	ILibRemoteLogging_printf(gKVMRemoteLogging, ILibRemoteLogging_Modules_Agent_KVM, ILibRemoteLogging_Flags_VerbosityLevel_1, "KVM [SLAVE]: (mainloopinput) Exiting...");
+-	ILibRemoteLogging_Destroy(gKVMRemoteLogging);
+-	gKVMRemoteLogging = NULL;
++	// 日志对象由采集线程退出路径释放，输入线程不销毁共享对象。
+ 
+ 	KVMDEBUG("kvm_mainloopinput / end", (int)GetCurrentThreadId());
+ 
+@@ -946,6 +931,7 @@
+ 		return 0;
+ 	ThreadRunning = 1;
+ 	g_shutdown = 0;
++    sc_writer = writeHandler; sc_writer_reserved = reserved; sc_reset_session();
+ 
+ 	g_pause = 0;
+ 	g_remotepause = ((int *)&(((void **)parm)[2]))[0];
+@@ -1005,29 +991,22 @@
+ 	Sleep(100); // Pausing here seems to fix connection issues, especially with WebRTC. TODO: Investigate why.
+ 	KVMDEBUG("kvm_server_mainloop / start3", (int)GetCurrentThreadId());
+ 
+-	// Loop and send only when a tile changes.
++    uint64_t sc_next_capture = 0;
++	// 每次采集只发送一张完整或增量 JPEG。
+ 	while (!g_shutdown)
+ 	{
+ 		KVMDEBUG("kvm_server_mainloop / loop1", (int)GetCurrentThreadId());
+ 
+-		// Reset all the flags to TILE_TODO
+-		for (row = 0; row < TILE_HEIGHT_COUNT; row++)
+-		{
+-			for (col = 0; col < TILE_WIDTH_COUNT; col++)
+-			{
+-				tileInfo[row][col].flags = (char)TILE_TODO;
+-#ifdef KVM_ALL_TILES
+-				tileInfo[row][col].crc = 0xFF;
+-#endif
+-			}
+-		}
+-		CheckDesktopSwitch(1, writeHandler, reserved);
+-		if (g_shutdown)
+-			break;
+-
+-		// Enter Alertable State, so we can dispatch any packets if necessary.
+-		// We are doing it here, in case we need to merge any data with the bitmaps
+-		SleepEx(0, TRUE);
++        SleepEx(0, TRUE);
++        if (!sc_drain_input()) { SleepEx(1, TRUE); continue; }
++        CheckDesktopSwitch(1, writeHandler, reserved);
++        if (g_shutdown) break;
++        // 先消费排队反馈，再允许执行超时；暂停仍持续处理控制消息。
++        if (g_pause || g_remotepause) { SleepEx(5, TRUE); continue; }
++        if (sc_waiting_for_feedback(1)) { SleepEx(5, TRUE); continue; }
++        uint64_t sc_started = sc_now_ms();
++        if (sc_started < sc_next_capture) { SleepEx((DWORD)(sc_next_capture - sc_started > 50 ? 50 : sc_next_capture - sc_started), TRUE); continue; }
++
+ 		mouseMove[0] = 0;
+ 		while ((tmoBuffer = ILibQueue_DeQueue(gPendingPackets)) != NULL)
+ 		{
+@@ -1116,58 +1095,7 @@
+ 		}
+ 		else
+ 		{
+-			bmpInfo = get_bmp_info(TILE_WIDTH, TILE_HEIGHT);
+-			for (row = 0; row < TILE_HEIGHT_COUNT; row++)
+-			{
+-				for (col = 0; col < TILE_WIDTH_COUNT; col++)
+-				{
+-					height = TILE_HEIGHT * row;
+-					width = TILE_WIDTH * col;
+-
+-					while (!g_shutdown && (g_pause))
+-					{
+-						Sleep(50); /*printf(".");*/
+-					} // If the socket is in pause state, wait here. //ToDo: YLIAN!!!!
+-
+-					if (g_shutdown || SCALING_FACTOR != SCALING_FACTOR_NEW)
+-					{
+-						height = SCALED_HEIGHT;
+-						width = SCALED_WIDTH;
+-						break;
+-					}
+-
+-					// Skip the tile if it has already been sent or if the CRC is same as before
+-					if (tileInfo[row][col].flags == (char)TILE_SENT || tileInfo[row][col].flags == (char)TILE_DONT_SEND)
+-					{
+-						continue;
+-					}
+-
+-					if (get_tile_at(width, height, &buf, &tilesize, desktop, desktopsize, row, col) == 1)
+-					{
+-						// GetTileAt failed, lets not send the tile
+-						continue;
+-					}
+-					if (buf && !g_shutdown)
+-					{
+-						KVMDEBUG2("Writing JPEG: %llu bytes", tilesize);
+-						switch (writeHandler((char *)buf, (int)tilesize, reserved))
+-						{
+-						case ILibTransport_DoneState_INCOMPLETE:
+-							g_pause = 1;
+-							ILibRemoteLogging_printf(ILibChainGetLogger(gILibChain), ILibRemoteLogging_Modules_Agent_KVM, ILibRemoteLogging_Flags_VerbosityLevel_2, "Agent KVM: KVM PAUSE");
+-							KVMDEBUG2("JPEG WRITE resulted in PAUSE");
+-							break;
+-						case ILibTransport_DoneState_ERROR:
+-							g_shutdown = 1;
+-							height = SCALED_HEIGHT;
+-							width = SCALED_WIDTH;
+-							KVMDEBUG2("JPEG WRITE resulted in ERROR");
+-							break;
+-						}
+-						free(buf);
+-					}
+-				}
+-			}
++            if (!sc_send_desktop((const unsigned char *)desktop, (uint64_t)desktopsize, sc_started)) g_shutdown = 1;
+ 
+ 			KVMDEBUG("kvm_server_mainloop / loop2", (int)GetCurrentThreadId());
+ 
+@@ -1179,22 +1107,7 @@
+ 
+ 		KVMDEBUG("kvm_server_mainloop / loop3", (int)GetCurrentThreadId());
+ 
+-		// We can't go full speed here, we need to slow this down.
+-		height = FRAME_RATE_TIMER;
+-		while (!g_shutdown && height > 0)
+-		{
+-			if (height > 50)
+-			{
+-				height -= 50;
+-				Sleep(50);
+-			}
+-			else
+-			{
+-				Sleep(height);
+-				height = 0;
+-			}
+-			SleepEx(0, TRUE);
+-		}
++        sc_next_capture = sc_started + (unsigned int)FRAME_RATE_TIMER;
+ 	}
+ 
+ 	KVMDEBUG("kvm_server_mainloop / end3", (int)GetCurrentThreadId());
+@@ -1208,6 +1121,7 @@
+ 		tileInfo = NULL;
+ 	}
+ 	KVMDEBUG("kvm_server_mainloop / end1", (int)GetCurrentThreadId());
++    sc_release_desktop(); sc_platform_finish();
+ 	teardown_gdiplus();
+ 
+ 	KVMDEBUG("kvm_server_mainloop / end", (int)GetCurrentThreadId());
+@@ -1446,7 +1360,7 @@
+ {
+ 	char buffer[4];
+ 	KVMDEBUG("kvm_relay_reset", 0);
+-	((unsigned short *)buffer)[0] = (unsigned short)htons((unsigned short)MNG_KVM_REFRESH); // Write the type
++	((unsigned short *)buffer)[0] = (unsigned short)htons((unsigned short)SC_FRAME_RESET); // Write the type
+ 	((unsigned short *)buffer)[1] = (unsigned short)htons((unsigned short)4);				// Write the size
+ 	kvm_relay_feeddata(buffer, 4, writeHandler, reserved);
+ }
+--- a/meshcore/KVM/Windows/tile.cpp
++++ b/meshcore/KVM/Windows/tile.cpp
+@@ -69,12 +69,67 @@
+ HDC hDesktopDC;
+ HDC hCaptureDC;
+ HBITMAP hCapturedBitmap;
++HGDIOBJ hCaptureOriginal = NULL;
+ //HDC hdc;
+ CLSID encoderClsid;
+ ULONG encCompression = 50; // Image compression
+ EncoderParameters encParam;
+ LPVOID tilebuffer = NULL;
+ unsigned int tilebuffersize = 0;
++
++/* 显示身份或格式改变时重建 GDI 对象，兼容位图不跨桌面/设备复用。 */
++extern "C" int sc_windows_reset_capture(void)
++{
++    if (hCaptureDC && hCaptureOriginal) SelectObject(hCaptureDC, hCaptureOriginal);
++    if (hCapturedBitmap) DeleteObject(hCapturedBitmap);
++    if (hCaptureDC) DeleteDC(hCaptureDC);
++    if (hDesktopDC) ReleaseDC(NULL, hDesktopDC);
++    hCapturedBitmap = NULL; hCaptureDC = NULL; hCaptureOriginal = NULL;
++    hDesktopDC = GetDC(NULL);
++    if (!hDesktopDC) return 0;
++    hCaptureDC = CreateCompatibleDC(hDesktopDC);
++    if (!hCaptureDC) return 0;
++    hCaptureOriginal = GetCurrentObject(hCaptureDC, OBJ_BITMAP);
++    return hCaptureOriginal != NULL;
++}
++
++/* 连续顶向下 RGB24 仅经既有 GDI+ JPEG 编码，失败不发布半帧。 */
++extern "C" int sc_windows_encode(const unsigned char *rgb, unsigned int width, unsigned int height,
++    int quality, unsigned char **output, size_t *length)
++{
++    *output = NULL; *length = 0;
++    if (!rgb || width == 0 || height == 0 || width > 2560 || height > 1440 || quality < 1 || quality > 100) return 0;
++    size_t stride = ((size_t)width * 3 + 3) & ~(size_t)3;
++    unsigned char *bgr = (unsigned char *)calloc(height, stride);
++    if (!bgr) return 0;
++    for (unsigned int y = 0; y < height; y++) for (unsigned int x = 0; x < width; x++)
++        for (unsigned int c = 0; c < 3; c++) bgr[(size_t)y * stride + x * 3 + c] = rgb[((size_t)y * width + x) * 3 + 2 - c];
++    IStream *stream = NULL;
++    unsigned char *encoded = NULL;
++    int success = 0;
++    {
++        Bitmap bitmap(width, height, (INT)stride, PixelFormat24bppRGB, bgr);
++        ULONG q = (ULONG)quality;
++        EncoderParameters parameters = {};
++        parameters.Count = 1; parameters.Parameter[0].Guid = EncoderQuality;
++        parameters.Parameter[0].Type = EncoderParameterValueTypeLong;
++        parameters.Parameter[0].NumberOfValues = 1; parameters.Parameter[0].Value = &q;
++        if (bitmap.GetLastStatus() == Ok && CreateStreamOnHGlobal(NULL, TRUE, &stream) == S_OK &&
++            bitmap.Save(stream, &encoderClsid, &parameters) == Ok)
++        {
++            STATSTG info = {}; LARGE_INTEGER zero = {}; ULONG read = 0;
++            if (stream->Stat(&info, STATFLAG_NONAME) == S_OK && info.cbSize.QuadPart > 0 && info.cbSize.QuadPart <= 16 * 1024 * 1024 &&
++                stream->Seek(zero, STREAM_SEEK_SET, NULL) == S_OK)
++            {
++                encoded = (unsigned char *)malloc((size_t)info.cbSize.QuadPart);
++                if (encoded && stream->Read(encoded, (ULONG)info.cbSize.QuadPart, &read) == S_OK && read == info.cbSize.QuadPart)
++                { *output = encoded; *length = read; encoded = NULL; success = 1; }
++            }
++        }
++    }
++    if (stream) stream->Release();
++    free(encoded); free(bgr); return success;
++}
+ 
+ // Used to obtain the GUID for the image encoder.
+ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
+@@ -495,14 +550,22 @@
+ 
+ 	if (hDesktopDC) ReleaseDC(NULL, hDesktopDC);
+ 	if ((hDesktopDC = GetDC(NULL)) == NULL) { KVMDEBUG("GetDC(NULL) returned NULL", 0); return 1; } // We need to do this incase the current desktop changes.
+-	if (hCapturedBitmap) DeleteObject(hCapturedBitmap);	
+-	if ((hCapturedBitmap = CreateCompatibleBitmap(hDesktopDC, adjust_screen_size(SCALED_WIDTH), adjust_screen_size(SCALED_HEIGHT))) == NULL)
+-	{
+-		KVMDEBUG("CreateCompatibleBitmap() returned NULL", 0);
+-		return 1;
+-	}
+-	
+-	if (SelectObject(hCaptureDC, hCapturedBitmap) == NULL) { KVMDEBUG("SelectObject() failed", 0); return(1); }
++
++    int capture_width = adjust_screen_size(SCALED_WIDTH), capture_height = adjust_screen_size(SCALED_HEIGHT);
++    BITMAP current = {};
++    if (hCapturedBitmap && GetObject(hCapturedBitmap, sizeof(current), &current) == sizeof(current) &&
++        current.bmBitsPixel * current.bmPlanes != GetDeviceCaps(hDesktopDC, BITSPIXEL) * GetDeviceCaps(hDesktopDC, PLANES))
++    {
++        if (!sc_windows_reset_capture()) return 1;
++    }
++    if (!hCapturedBitmap || GetObject(hCapturedBitmap, sizeof(current), &current) != sizeof(current) || current.bmWidth != capture_width || current.bmHeight != capture_height)
++    {
++        SelectObject(hCaptureDC, hCaptureOriginal);
++        if (hCapturedBitmap) DeleteObject(hCapturedBitmap);
++        hCapturedBitmap = CreateCompatibleBitmap(hDesktopDC, capture_width, capture_height);
++        if (!hCapturedBitmap || !SelectObject(hCaptureDC, hCapturedBitmap)) return 1;
++    }
++
+ 	if (SCALING_FACTOR == 1024)
+ 	{
+ 		if (BitBlt(hCaptureDC, 0, 0, adjust_screen_size(SCREEN_WIDTH), adjust_screen_size(SCREEN_HEIGHT), hDesktopDC, SCREEN_X, SCREEN_Y, SRCCOPY) == FALSE)
+@@ -514,7 +577,7 @@
+ 		{
+ 			CURSORINFO info = { 0 };
+ 			BITMAP bm;
+-			ICONINFO ii;
++			ICONINFO ii = {};
+ 			info.cbSize = sizeof(info);
+ 			GetCursorInfo(&info);
+ 			GetIconInfo(info.hCursor, &ii);
+@@ -535,11 +598,14 @@
+ 						SelectObject(hdcMem, hbmold);
+ 					}
+ 					if (hbmCanvas != NULL) { DeleteObject(hbmCanvas); }
+-					if (hdcMem != NULL) { ReleaseDC(NULL, hdcMem); }
++					if (hdcMem != NULL) { DeleteDC(hdcMem); }
+ 					if (hdcScreen != NULL) { ReleaseDC(NULL, hdcScreen); }
+ 				}
+ 			}
+-		}
++        if (ii.hbmColor) DeleteObject(ii.hbmColor);
++        if (ii.hbmMask) DeleteObject(ii.hbmMask);
++		}
++
+ 	}
+ 	else
+ 	{
+@@ -550,6 +616,13 @@
+ 			return 1; // If the copy fails, error out.
+ 		}
+ 	}
++
++    // GetDIBits 要求位图未选入 DC；所有退出路径都恢复采集对象。
++    struct RestoreSelection {
++        HDC dc; HGDIOBJ bitmap;
++        ~RestoreSelection() { SelectObject(dc, bitmap); }
++    } restore = {hCaptureDC, hCapturedBitmap};
++    if (!SelectObject(hCaptureDC, hCaptureOriginal)) return 1;
+ 
+ 	ZeroMemory(&bmpInfo, sizeof(BITMAPINFO));
+ 	bmpInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+@@ -572,7 +645,7 @@
+ 	if ((*buffer = malloc((size_t)*bufferSize)) == NULL) { KVMDEBUG("malloc() failed", 0); return 1; }
+ 	
+ 	bmpInfo.bmiHeader.biCompression = BI_RGB;
+-	if (GetDIBits(hDesktopDC, hCapturedBitmap, 0, bmpInfo.bmiHeader.biHeight, *buffer, &bmpInfo, DIB_RGB_COLORS) == 0) { KVMDEBUG("GetDIBits() failed", 0); free(*buffer); return(1); }
++	if (GetDIBits(hDesktopDC, hCapturedBitmap, 0, bmpInfo.bmiHeader.biHeight, *buffer, &bmpInfo, DIB_RGB_COLORS) != bmpInfo.bmiHeader.biHeight) { KVMDEBUG("GetDIBits() failed", 0); free(*buffer); *buffer = NULL; *bufferSize = 0; return(1); }
+ 
+ 	return 0;
+ }
+@@ -611,7 +684,8 @@
+ 	if ((hDesktopDC = GetDC(NULL)) == NULL) { KVMDEBUG("GetDC() failed", 0); return 0; }
+ 	if ((hCaptureDC = CreateCompatibleDC(hDesktopDC)) == NULL) { KVMDEBUG("CreateCompatibleDC() failed", 0); return 0; }
+ 	if ((hCapturedBitmap = CreateCompatibleBitmap(hDesktopDC, SCALED_WIDTH, SCALED_HEIGHT)) == NULL) { KVMDEBUG("CreateCompatibleBitmap() failed", 0); return 0; }
+-	if (SelectObject(hCaptureDC, hCapturedBitmap) == NULL) { KVMDEBUG("SelectObject() failed", 0); }
++	hCaptureOriginal = SelectObject(hCaptureDC, hCapturedBitmap);
++    if (!hCaptureOriginal) return 0;
+ 	
+ 	// Find encoder and setup encoder parameters
+ 	GetEncoderClsid(L"image/jpeg", &encoderClsid);
+@@ -630,8 +704,10 @@
+ 	tilebuffersize = 0;
+ 	tilebuffer = NULL;
+ 	GdiplusShutdown(gdiplusToken);
++	SelectObject(hCaptureDC, hCaptureOriginal);
+ 	DeleteDC(hCaptureDC);
+ 	DeleteObject(hCapturedBitmap);
++    hCapturedBitmap = NULL; hCaptureDC = NULL; hCaptureOriginal = NULL;
+ 	if (hDesktopDC) ReleaseDC(NULL, hDesktopDC);
+ 	hDesktopDC = NULL;
+ }
+--- a/meshservice/ServiceMain.c
++++ b/meshservice/ServiceMain.c
+@@ -394,9 +394,16 @@
+ 
+ ILibTransport_DoneState kvm_serviceWriteSink(char *buffer, int bufferLen, void *reserved)
+ {
+-	DWORD len;
+-	WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, bufferLen, &len, NULL);
+-	return ILibTransport_DoneState_COMPLETE;
++
++    if (!buffer || bufferLen < 0) return ILibTransport_DoneState_ERROR;
++    while (bufferLen > 0)
++    {
++        DWORD written = 0;
++        if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, (DWORD)bufferLen, &written, NULL) || !written || written > (DWORD)bufferLen)
++            return ILibTransport_DoneState_ERROR;
++        buffer += written; bufferLen -= (int)written;
++    }
++    return ILibTransport_DoneState_COMPLETE;
+ }
+ BOOL CtrlHandler(DWORD fdwCtrlType)
+ {

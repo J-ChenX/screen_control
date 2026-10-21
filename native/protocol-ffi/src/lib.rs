@@ -610,3 +610,61 @@ pub unsafe extern "C" fn sc_desktop_resize(
         target_height as usize,
     ))
 }
+
+/// Windows 底向上位图缩放边界；失败时目标不变。
+///
+/// # Safety
+/// 调用者保证源和目标的实际分配长度、独占性与同步生命周期。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sc_desktop_resize_windows(
+    destination: *mut u8,
+    destination_len: u64,
+    source: *const u8,
+    source_len: u64,
+    stride_bytes: u32,
+    bitmap_height: u32,
+    pixel_bytes: u32,
+    width: u32,
+    height: u32,
+    target_width: u32,
+    target_height: u32,
+) -> u32 {
+    let (Ok(destination_len), Ok(source_len)) = (
+        usize::try_from(destination_len),
+        usize::try_from(source_len),
+    ) else {
+        return 0;
+    };
+    if destination.is_null()
+        || source.is_null()
+        || destination_len == 0
+        || source_len == 0
+        || destination_len > isize::MAX as usize
+        || source_len > isize::MAX as usize
+    {
+        return 0;
+    }
+    let (Some(destination_end), Some(source_end)) = (
+        (destination as usize).checked_add(destination_len),
+        (source as usize).checked_add(source_len),
+    ) else {
+        return 0;
+    };
+    if (destination as usize) < source_end && (source as usize) < destination_end {
+        return 0;
+    }
+    // 安全依据：长度、别名和空指针已拒绝；C 适配层保证实际区域有效。
+    let output = unsafe { core::slice::from_raw_parts_mut(destination, destination_len) };
+    let input = unsafe { core::slice::from_raw_parts(source, source_len) };
+    u32::from(screen_control_protocol::desktop::resize_windows(
+        output,
+        input,
+        stride_bytes as usize,
+        bitmap_height as usize,
+        pixel_bytes as usize,
+        width as usize,
+        height as usize,
+        target_width as usize,
+        target_height as usize,
+    ))
+}

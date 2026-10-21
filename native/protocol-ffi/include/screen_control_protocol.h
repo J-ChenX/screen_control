@@ -63,6 +63,12 @@ uint32_t sc_desktop_resize(uint8_t *destination, uint64_t destination_len,
                             const uint8_t *source, uint64_t source_len,
                             uint32_t stride, uint32_t width, uint32_t height,
                             uint32_t target_width, uint32_t target_height);
+/* Windows 底向上 BGR24/BGR32；显式字节跨度及填充高度，失败不写入目标。 */
+uint32_t sc_desktop_resize_windows(uint8_t *destination, uint64_t destination_len,
+                            const uint8_t *source, uint64_t source_len,
+                            uint32_t stride_bytes, uint32_t bitmap_height, uint32_t pixel_bytes,
+                            uint32_t width, uint32_t height,
+                            uint32_t target_width, uint32_t target_height);
 
 /* 所有连接方法在所属事件线程调用；禁止持有 Rust 借用进入 C 回调。 */
 typedef struct ScWsDecoder ScWsDecoder;

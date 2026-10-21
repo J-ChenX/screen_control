@@ -15,7 +15,10 @@ if ((Get-Sha256 (Join-Path $source "screen_control_protocol_ffi.lib")) -ne $mani
 }
 foreach ($entry in $manifest.windowsMsvcFilesSha256.PSObject.Properties) {
     if ($entry.Name -notin @("meshservice/MeshService-2022.vcxproj", "meshconsole/MeshConsole-2022.vcxproj",
-        "meshservice/MeshService.rc", "microscript/ILibduktape_EventEmitter.c")) { throw "未知的 MSVC 源码校验路径" }
+        "meshservice/MeshService.rc", "microscript/ILibduktape_EventEmitter.c",
+        "meshservice/ServiceMain.c", "meshcore/KVM/Windows/kvm.c", "meshcore/KVM/Windows/tile.cpp",
+        "meshcore/KVM/Windows/sc_windows_adaptive_desktop.h", "meshcore/KVM/Windows/sc_adaptive_desktop_core.h",
+        "microstack/screen_control_protocol.h")) { throw "未知的 MSVC 源码校验路径" }
     if ((Get-Sha256 (Join-Path $source $entry.Name)) -ne $entry.Value) { throw "MSVC 源码摘要不符" }
 }
 $locator = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"

@@ -11,7 +11,7 @@ if(!binary||!directory)throw new Error('需要 C 整帧检查程序和公开协�
 const capture=spawnSync(binary,['--wire'],{maxBuffer:16*1024*1024});
 assert.equal(capture.status,0,capture.stderr.toString());
 const frames=[];let offset=0;
-while(offset<capture.stdout.length){const size=capture.stdout.readUInt32BE(offset);offset+=4;assert.ok(size>48&&offset+size<=capture.stdout.length);frames.push(Array.from(capture.stdout.subarray(offset,offset+size)));offset+=size;}
+while(offset<capture.stdout.length){const size=capture.stdout.readUInt32BE(offset);offset+=4;assert.ok(size>48&&offset+size<=capture.stdout.length);const packet=capture.stdout.subarray(offset,offset+size);const capability=packet.readUInt16BE(0)===0x7f04?8:0;frames.push(Array.from(packet.subarray(capability)));offset+=size;}
 assert.equal(frames.length,4);
 const script=await desktopMemoryScript(),browser=await launchBrowser();
 try{

@@ -155,15 +155,20 @@ func main() {
 				IdleTimeout:       60 * time.Second,
 			}
 			go func() {
+				listener, listenErr := listenTailscaleTCP(*tailscaleListen)
+				if listenErr != nil {
+					errors <- listenErr
+					return
+				}
 				if *tailscaleTLS {
 					localClient := new(local.Client)
 					edgeServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: localClient.GetCertificate}
 					slog.Info("Screen Control trusted Tailscale HTTPS listening", "address", *tailscaleListen)
-					errors <- edgeServer.ListenAndServeTLS("", "")
+					errors <- edgeServer.ServeTLS(listener, "", "")
 					return
 				}
 				slog.Info("Screen Control trusted Tailscale HTTP listening", "address", *tailscaleListen, "transport", "WireGuard")
-				errors <- edgeServer.ListenAndServe()
+				errors <- edgeServer.Serve(listener)
 			}()
 		}
 		if err := <-errors; err != nil && err != http.ErrServerClosed {

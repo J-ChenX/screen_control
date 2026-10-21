@@ -2,9 +2,9 @@
 
 ## 当前运行范围
 
-2026-10-20 桌面自适应更新：优质网络最高 1440p，拥塞降至 1080p／720p／540p；Linux 使用独立整帧 JPEG、展示／丢弃反馈和逐帧输入映射。用户试用固定 1080p 后要求保留 2K，该观察版已撤回。当前工件与适用设备见[自适应清单](adaptive-runtime-manifest.json)，行为、预算及验证入口见[自适应说明](../../../../docs/performance/DESKTOP_ADAPTIVE.md)。下面 2026-09-29 的记录保留其原始版本，不作为新工件运行事实。
+2026-10-22 桌面增量与自适应更新：优质网络最高 1440p，拥塞降至 1080p／720p／540p；lerrem、echova、nix 在能力协商后使用单矩形增量 JPEG、有界展示反馈和逐帧输入映射，旧查看者共用时固定兼容 v1；三台 Linux 均完成可回滚更新及桌面／手机实机检查；Windows 已保留默认候选 `80ade8cf…bc6c2`，完成真实 GDI+ JPEG、双屏四档、展示 ACK 绑定的物理指针和 Ctrl 应用／释放、错误恢复、自动／显式回滚及保留后双视口六轮新会话；守护健康、身份不变、旧版回滚备份可用。Windows 沿用 GDI+ 4:2:0；历史算法对照仅局部字节减约 3%，原生处理更慢，未取得一致展示改善。用户试用固定 1080p 后要求保留 2K，该观察版已撤回。当前工件与适用设备见[自适应清单](adaptive-runtime-manifest.json)，行为、预算及验证入口见[自适应说明](../../../../docs/performance/DESKTOP_ADAPTIVE.md)。下面 2026-09-29 的记录保留其原始版本，不作为新工件运行事实。
 
-2026-09-29，本轮选择默认构建及 Rust 最后分片扩容优化，Windows 工件为 `27a434c9…44cf`，用于已登记设备 `jiang-chenx` 的可回滚运行观察。Ubuntu `nix`、`echova`、`lerrem` 已同步共享 Rust 核心及 Linux 图像处理，并补上 Linux 采集暂停，见[Ubuntu 记录](../../../../docs/performance/UBUNTU_RUST_RUNTIME_20260929.md)与[Linux 工件清单](linux-runtime-manifest.json)。五个可选 C 生命周期补丁未进入此工件：此前包含它们的 `4213e8dd…f7039` 曾通过短测，却在保留后的新会话超时，已撤回。Rust 在两个组合中都实际参与帧、分片和图块处理；不能把排除实验补丁理解为移除了 Rust。[实机记录](../../../../docs/performance/RUST_RUNTIME_20260929.md)与[工件清单](windows-runtime-manifest.json)是当前状态和限制的入口，下方原始候选记录保留各自时间点的事实。
+2026-09-29，本轮选择默认构建及 Rust 最后分片扩容优化，Windows 工件为 `27a434c9…44cf`，用于已登记设备 `jiang-chenx` 的可回滚运行观察。Ubuntu `nix`、`echova`、`lerrem` 已同步共享 Rust 核心及 Linux 图像处理，并补上 Linux 采集暂停，见[Ubuntu 记录](../../../../docs/performance/UBUNTU_RUST_RUNTIME_20260929.md)与[Linux 工件清单](linux-runtime-manifest.json)。五个可选 C 生命周期补丁未进入此工件：此前包含它们的 `4213e8dd…f7039` 曾通过短测，却在保留后的新会话超时，已撤回。Rust 在两个组合中都实际参与帧、分片和图块处理；不能把排除实验补丁理解为移除了 Rust。[实机记录](../../../../docs/performance/RUST_RUNTIME_20260929.md)与[工件清单](windows-runtime-manifest.json)保留当时状态和限制；当前运行入口为上方自适应清单，下方原始候选记录保留各自时间点的事实。
 
 最后分片需要扩容时，Rust 现在只申请完整消息所需容量；中间分片仍按预算内倍增。独立正常输入对照中，10,000 + 3 字节消息的输出容量由 20,000 降至 10,003，完成后连接不保留该容量。该局部分配改善不等于进程常驻、系统峰值或长期泄漏已改善。
 
@@ -12,14 +12,14 @@
 
 ```powershell
 .\build-windows.ps1 -WorkDir <准备目录>
-.\windows-canary.ps1 -Mode Arm -CandidatePath <最终服务EXE> -CandidateSha256 <清单中的摘要>
+.\windows-canary.ps1 -Mode Arm -CandidatePath <最终服务EXE> -CandidateSha256 <清单中的摘要> -ExpectedPreviousSha256 <已核对的当前工件摘要> -BuildManifest <candidate.json>
 # Arm 输出的备份目录含旧 EXE、guard、身份快照和本次恢复脚本。
 # 六分钟自动回滚内完成正常会话；失败时恢复，未完成时不要保留。
 .\windows-canary.ps1 -Mode Retain -BackupDir <Arm输出目录> -CandidateSha256 <同一摘要> -BuildManifest <candidate.json>
 .\windows-canary.ps1 -Mode Restore -BackupDir <同一备份目录>
 ```
 
-保留操作原子写入 `rust-runtime.json` 后撤销自动回滚，固定哈希守护继续运行；此后仍能显式 `Restore`。自动任务和操作者共用互斥锁，已经排队的自动任务会在锁内复查保留凭据。保留凭据提交前不禁用自动回滚，提交后清理任务失败只报告警告。恢复只切回 EXE/guard，保留当前身份数据库；本轮同一上游版本没有模式迁移，且恢复旧版后的真实会话已通过。身份备份不能被表述为已自动恢复。
+保留操作原子写入 `rust-runtime.json` 后撤销自动回滚，固定哈希守护继续运行；此后仍能显式 `Restore`。自动任务和操作者共用互斥锁，每轮备份清单固定事务 ID、旧工件、guard、恢复脚本、构建清单及原运行凭据的摘要，停止后追加身份快照摘要；已排队的旧自动任务在锁内检查活动事务，不能恢复或注销新事务的回滚任务。切换及保留前读回核对精确恢复参数、SYSTEM 身份、触发时间与救援设置。保留凭据提交前不禁用自动回滚，提交后清理任务失败只报告警告。恢复切回 EXE/guard，并按备份逐字节恢复原运行凭据（原先不存在才删除）；保留当前身份数据库；本轮同一上游版本没有模式迁移，且恢复旧版后的真实会话已通过。身份备份不能被表述为已自动恢复。
 
 Windows 管理员环境可运行无真实服务操作的控制流回归：
 
@@ -46,7 +46,7 @@ sudo python3 <arm输出目录>/linux-canary.py restore --backup-dir <arm输出�
 
 `arm` 拒绝消毒器工件、五个可选生命周期补丁和未完成的前次更新；`retain` 拒绝工件不匹配、备份损坏及观察期间发生重启的代理。真实部署前运行 `python3 -m unittest discover -s tests/operations -p test_linux_canary.py`，该回归完全使用临时文件和模拟服务。
 
-Linux X11 主循环现在在处理控制管道后检查暂停标志：暂停时关闭本轮显示连接并短暂等待，不采集和编码画面；后续循环仍能接收恢复、刷新和退出。`desktop-session-live.mjs` 先等待在途图块排空，再在暂停中发送刷新请求，确认没有新画面，恢复后必须出现新帧；它还发送一组 Ctrl 按下/释放并核对普通结束。此探针不证明目标应用实际处理了按键，不能代替完整输入验收。
+Linux X11 主循环现在在处理控制管道后检查暂停标志：暂停时继续轮询控制消息，不采集和编码画面，保留可复用的采集资源；恢复后沿用有效资源，尺寸、深度或显示身份变化以及退出时释放。后续循环仍能接收恢复、刷新和退出。`desktop-session-live.mjs` 先等待在途图块排空，再在暂停中发送刷新请求，确认没有新画面，恢复后必须出现新帧；它还发送一组 Ctrl 按下/释放并核对普通结束。此探针不证明目标应用实际处理了按键，不能代替完整输入验收。
 
 若构建主机没有系统 X11 开发头文件，可显式设置 `CPATH=<已校验隔离sysroot>/usr/include` 使用已有开发头文件；不更换候选自带 JPEG 头文件和静态库。`make test-native`、默认及 ASan/UBSan 构建仍须通过，不得把消毒器工件安装到服务。
 
@@ -100,7 +100,7 @@ python3 deploy/g0/meshagent/rust-native/build.py --work-dir /tmp/screen-control-
 
 Windows 图块复制与变化校验现有独立的 Rust 候选：将实际捕获缓冲长度传到固定源码的 `get_tile_at`，Rust 同时检查 24/32 位像素、底向上坐标、源和目标容量；失败时不修改输出。纯 Rust 测试和 ASan/UBSan C ABI 对照已通过，Windows 原生构建与真实画面仍需核对。
 
-Windows x64 候选使用相同的固定源码；可选择是否显式叠加五个生命周期补丁。在 Linux 上以锁定工具链构建 MSVC 静态库，再运行 `prepare_windows_msvc.py` 修改隔离源码中的两项 Release|x64 工程链接设置、资源头，以及叠加补丁时一处 MSVC 无 UTF-8 编译选项无法解析的注释。该脚本拒绝重复处理或已部署的候选，并把静态库和改动文件摘要写入 `candidate.json`；它不会安装或启动代理。将整个准备目录复制到 Windows 后，以 Visual Studio 2022 的 MSBuild 对 `MeshAgent-2022.sln` 执行 `Release|x64` 的 `Rebuild`，产物位于源码目录的 `Release` 子目录。
+Windows x64 候选使用相同的固定源码；可选择是否显式叠加五个生命周期补丁。在 Linux 上以锁定工具链构建 MSVC 静态库，再运行 `prepare_windows_msvc.py` 修改隔离源码中的两项 Release|x64 工程链接及 UTF-8 编译设置、资源头，以及叠加补丁时的编码边界。该脚本拒绝重复处理或已部署的候选，并把静态库、Windows 桌面源码、公共帧策略和 C-ABI 头文件摘要写入 `candidate.json`；它不会安装或启动代理。将整个准备目录复制到 Windows 后，以 Visual Studio 2022 的 MSBuild 对 `MeshAgent-2022.sln` 执行 `Release|x64` 的 `Rebuild`，产物位于源码目录的 `Release` 子目录。
 
 ```bash
 mise exec -- cargo build --locked --release --target x86_64-pc-windows-msvc -p screen-control-protocol-ffi

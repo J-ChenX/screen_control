@@ -39,6 +39,9 @@ def project_with_rust_library(raw: bytes, name: str) -> bytes:
     if section.count(anchor) != 1 or DEPENDENCIES in section:
         raise ValueError(f"{name}: 链接入口不符合固定源码")
     section = section.replace(anchor, anchor + DEPENDENCIES, 1)
+    if section.count("<ClCompile>") != 1 or "<AdditionalOptions>" in section.split("</ClCompile>", 1)[0]:
+        raise ValueError(f"{name}: 编译选项入口不符合固定源码")
+    section = section.replace("<ClCompile>", "<ClCompile><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>", 1)
     result = source[: match.start(2)] + section + source[match.end(2) :]
     return (codecs.BOM_UTF8 if has_bom else b"") + result.encode("utf-8")
 
@@ -85,6 +88,13 @@ def main() -> None:
 
     for path, data in updates.items():
         path.write_bytes(data)
+    # MSVC 实际消费的桌面源码、公共策略和 C-ABI 均纳入构建前校验。
+    for relative in ("meshservice/ServiceMain.c", "meshcore/KVM/Windows/kvm.c", "meshcore/KVM/Windows/tile.cpp",
+                     "meshcore/KVM/Windows/sc_windows_adaptive_desktop.h",
+                     "meshcore/KVM/Windows/sc_adaptive_desktop_core.h",
+                     "microstack/screen_control_protocol.h"):
+        path = source / relative
+        updates[path] = path.read_bytes()
     shutil.copyfile(library, source / library.name)
     metadata.update(
         status="prepared-windows-not-deployed",

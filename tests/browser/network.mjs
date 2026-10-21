@@ -10,9 +10,11 @@ results[1] = { ...results[1], path: 'derp', ipVersion: undefined };
 results[3] = { ...results[3], path: 'timeout', ipVersion: undefined, rttMs: undefined, responses: 0 };
 results[4] = { ...results[4], path: 'unavailable', ipVersion: undefined, rttMs: undefined, responses: 0, attempts: 0 };
 results[5] = { ...results[5], initialRelay: true };
-results[6] = { ...results[6], path: 'lan', ipVersion: 6 };
+results[6] = { ...results[6], path: 'derp', ipVersion: undefined };
 results[7] = { ...results[7], ipVersion: 4 };
 results[8] = { ...results[8], ipVersion: undefined };
+results[9] = { ...results[9], path: 'derp', ipVersion: undefined };
+results[11] = { ...results[11], path: 'lan', ipVersion: 6 };
 try {
   for (const [width, height] of [[1440, 1050], [390, 844], [320, 740]]) {
     const context = await browser.newContext({ viewport: { width, height }, isMobile: width < 500, hasTouch: width < 500 });
@@ -49,26 +51,44 @@ try {
     assert.deepEqual(await start.boundingBox(), box, '悬停不能移动或缩放按钮');
     await start.click();
     await expect(panel.getByRole('button', { name: '正在检测…' })).toBeDisabled();
-    await expect(panel.getByText('9 个方向直连', { exact: true })).toBeVisible();
+    await expect(panel.getByText('2 组直连', { exact: true })).toBeVisible();
+    await expect(panel.getByText('1 组中继', { exact: true })).toBeVisible();
+    await expect(panel.getByText('1 组直连与中继不一致', { exact: true })).toBeVisible();
+    await expect(panel.getByText('2 组未确认', { exact: true })).toBeVisible();
     await expect(panel.getByText('结果可能已过期，请重新测试')).toBeVisible();
-    await expect(panel.getByText('检测 Tailscale 底层路径', { exact: false })).toBeVisible();
+    await expect(panel.getByText('仅检测 Tailscale 路径', { exact: false })).toBeVisible();
     assert.equal(posts, 1, '轮询不得重复发起测试');
-    const resultArea = width > 800 ? panel.locator('.network-matrix') : panel.locator('.network-mobile-results');
-    await expect(resultArea.getByText('DERP 中继', { exact: true })).toBeVisible();
-    await expect(resultArea.getByText('曾经中继', { exact: true })).toBeVisible();
-    await expect(resultArea.getByText('未验证', { exact: true })).toBeVisible();
-    await expect(resultArea.getByText('超时', { exact: true })).toBeVisible();
-    for (const label of ['局域网 IPv4 直连', '局域网 IPv6 直连', '公网 IPv4 直连']) await expect(resultArea.getByText(label, { exact: true })).toBeVisible();
-    await expect(resultArea.getByText('公网 IPv6 直连', { exact: true }).first()).toBeVisible();
+    const resultArea = panel.locator('.network-pairs');
+    assert.equal(await resultArea.locator('.network-pair-row').count(), 6, '每两台电脑只显示一组，不重复反向连接');
+    assert.equal(await resultArea.locator('.network-detail-row').count(), 0, '所有诊断详情默认收起');
+    const keys = await resultArea.locator('.network-pair-row > th').allTextContents();
+    assert.equal(new Set(keys).size, 6);
+    const relayPair = resultArea.locator('.network-pair-row').nth(1);
+    await expect(relayPair.getByText('DERP 中继', { exact: true })).toBeVisible();
+    const detailsToggle = relayPair.getByRole('button');
+    await detailsToggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
+    for (const row of await resultArea.locator('.network-pair-row').all()) {
+      const toggle = row.getByRole('button');
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+      assert.equal(await resultArea.locator('.network-detail-row').count(), 1, '一次只展开一组详情');
+    }
     await expect(resultArea.getByText('IP 协议版本未确认，请重新测试')).toBeVisible();
+    await resultArea.locator('.network-detail-toggle[aria-expanded="true"]').click();
+    for (const label of ['局域网 IPv4 直连', '局域网 IPv6 直连', '公网 IPv4 直连', '公网 IPv6 直连', '未验证', '超时']) await expect(resultArea.getByText(label, { exact: true }).first()).toBeVisible();
+    if (width > 800) {
+      const bounds = await panel.boundingBox();
+      assert.ok(bounds.height < 520, `六组连接的桌面面板应紧凑，实际高度 ${bounds.height}`);
+    }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, '窄屏不得横向溢出');
     await panel.screenshot({ path: screenshotPath(`network-${width}.png`) });
     await panel.getByRole('button', { name: '收起结果' }).click();
-    await expect(panel.getByText('检测 Tailscale 底层路径', { exact: false })).toBeHidden();
+    await expect(panel.getByText('仅检测 Tailscale 路径', { exact: false })).toBeHidden();
     fail = true;
     await panel.getByRole('button', { name: '重新测试' }).click();
     await expect(panel.getByRole('alert')).toContainText('直连测试暂不可用');
-    await expect(panel.getByText('9 个方向直连', { exact: true })).toBeVisible();
+    await expect(panel.getByText('2 组直连', { exact: true })).toBeVisible();
     assert.equal(posts, 2);
     assert.deepEqual(errors, []);
     await context.close();

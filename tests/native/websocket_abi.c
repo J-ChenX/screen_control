@@ -235,6 +235,21 @@ int main(void)
             CHECK(checksum == 0xa5a5a5a5);
         }
     }
-    puts("C ABI 布局、掩码、分片、Windows 图块边界与多租约通过");
+    {
+        /* 底向上 BGR32 转为顶向下 RGB24；拒绝短输入、别名和空指针。 */
+        unsigned char source[32] = {0}, target[12];
+        for (unsigned int y = 0; y < 2; y++) for (unsigned int x = 0; x < 2; x++)
+            for (unsigned int c = 0; c < 3; c++) source[(1-y)*16+x*4+2-c] = (unsigned char)(y*60+x*9+c);
+        memset(target, 0xa5, sizeof(target));
+        CHECK(sc_desktop_resize_windows(target, sizeof(target), source, sizeof(source), 16, 2, 4, 2, 2, 2, 2) == 1);
+        for (unsigned int i = 0; i < 12; i++) CHECK(target[i] == (unsigned char)((i/6)*60+((i/3)%2)*9+i%3));
+        memset(target, 0xa5, sizeof(target));
+        CHECK(sc_desktop_resize_windows(target, sizeof(target), source, 31, 16, 2, 4, 2, 2, 2, 2) == 0);
+        CHECK(sc_desktop_resize_windows(target, 11, source, sizeof(source), 16, 2, 4, 2, 2, 2, 2) == 0);
+        CHECK(sc_desktop_resize_windows(source, sizeof(source), source, sizeof(source), 16, 2, 4, 2, 2, 2, 2) == 0);
+        CHECK(sc_desktop_resize_windows(NULL, 12, source, sizeof(source), 16, 2, 4, 2, 2, 2, 2) == 0);
+        for (unsigned int i = 0; i < sizeof(target); i++) CHECK(target[i] == 0xa5);
+    }
+    puts("C ABI 布局、掩码、分片、Windows 图块／缩放边界与多租约通过");
     return 0;
 }

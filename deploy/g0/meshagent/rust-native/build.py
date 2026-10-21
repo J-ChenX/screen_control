@@ -67,9 +67,12 @@ def main():
     timer_patch = Path(__file__).with_name("timer-lifetime.patch")
     adaptive_patch = Path(__file__).with_name("linux-adaptive-desktop.patch")
     adaptive_header = Path(__file__).with_name("linux-adaptive-desktop.h")
+    adaptive_core = Path(__file__).with_name("adaptive-desktop.h")
+    windows_adaptive_patch = Path(__file__).with_name("windows-adaptive-desktop.patch")
+    windows_adaptive_header = Path(__file__).with_name("windows-adaptive-desktop.h")
     patches = [backport, rust_patch, metadata_patch, tile_patch, ximage_patch, jpeg_patch, checksum_patch,
                windows_tile_patch,
-               pipe_patch, pipe_stash_patch, timer_patch, adaptive_patch]
+               pipe_patch, pipe_stash_patch, timer_patch, adaptive_patch, windows_adaptive_patch]
     if args.lifetime_candidate:
         patches.extend(Path(__file__).with_name(name) for name in LIFETIME_PATCHES)
     for patch in patches:
@@ -77,6 +80,9 @@ def main():
     header = ROOT / "native/protocol-ffi/include/screen_control_protocol.h"
     shutil.copyfile(header, source / "microstack/screen_control_protocol.h")
     shutil.copyfile(adaptive_header, source / "meshcore/KVM/Linux/sc_adaptive_desktop.h")
+    shutil.copyfile(adaptive_core, source / "meshcore/KVM/Linux/sc_adaptive_desktop_core.h")
+    shutil.copyfile(adaptive_core, source / "meshcore/KVM/Windows/sc_adaptive_desktop_core.h")
+    shutil.copyfile(windows_adaptive_header, source / "meshcore/KVM/Windows/sc_windows_adaptive_desktop.h")
     # 压缩包没有 Git 元数据，禁止 make 误用父目录本项目的提交号。
     environment = dict(os.environ, GIT_CEILING_DIRECTORIES=str(work))
     jpeg_headers = source / "lib-jpeg-turbo/includes"
@@ -94,7 +100,8 @@ def main():
                 "readablePipePatchSha256": digest(pipe_patch),
                 "readablePipeStashPatchSha256": digest(pipe_stash_patch),
                 "timerPatchSha256": digest(timer_patch),
-                "adaptivePatchSha256": digest(adaptive_patch), "adaptiveHeaderSha256": digest(adaptive_header),
+                "adaptivePatchSha256": digest(adaptive_patch), "adaptiveHeaderSha256": digest(adaptive_header), "adaptiveCoreSha256": digest(adaptive_core),
+                "windowsAdaptivePatchSha256": digest(windows_adaptive_patch), "windowsAdaptiveHeaderSha256": digest(windows_adaptive_header),
                 "headerSha256": digest(header), "jpegConfigSha256": digest(jpeg_headers / "jconfig.h")}
     if args.lifetime_candidate:
         metadata["lifetimePatchSha256"] = {
@@ -150,6 +157,19 @@ def main():
                        cwd=source, env=environment, check=True)
         subprocess.run([str(adaptive_binary)], cwd=work, env=environment, check=True)
         metadata["adaptiveDesktopHarness"] = "passed-four-tiers-atomic-jpeg-and-presented-coordinate-mapping"
+        delta_binary = work / "desktop-delta"
+        subprocess.run(["cc", "-std=gnu99", "-D_POSIX", "-DJPEGMAXBUF=0", *sanitizer_flags.split(),
+                        "-no-pie", "-Wl,--gc-sections", "-I.", str(ROOT / "tests/native/desktop_delta.c"),
+                        str(jpeg_object), str(library), str(jpeg_library), "-ldl", "-lpthread", "-lm", "-o", str(delta_binary)],
+                       cwd=source, env=environment, check=True)
+        subprocess.run([str(delta_binary), "local"], cwd=work, env=environment, check=True)
+        metadata["deltaDesktopHarness"] = "passed-real-jpeg-delta-reconstruction-against-full-frame-reference"
+        link_binary = work / "desktop-link"
+        subprocess.run(["cc", "-std=gnu99", "-D_POSIX", "-DJPEGMAXBUF=0", *sanitizer_flags.split(),
+                        "-no-pie", "-Wl,--gc-sections", "-I.", str(ROOT / "tests/native/desktop_link.c"),
+                        str(jpeg_object), str(library), str(jpeg_library), "-ldl", "-lpthread", "-lm", "-o", str(link_binary)],
+                       cwd=source, env=environment, check=True)
+        metadata["desktopLinkDriver"] = "built; run tests/performance/desktop-link.mjs separately"
         subprocess.run(["python3", str(ROOT / "tests/native/run_desktop_input.py"), "--source", str(source)], cwd=ROOT, env=environment, check=True)
         metadata["adaptiveInputHarness"] = "passed-fragmented-and-unaligned-real-input-parser"
         subprocess.run(["python3", str(ROOT / "tests/native/check_integration.py"), "--source", str(source)], cwd=ROOT, check=True)

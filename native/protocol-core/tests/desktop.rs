@@ -53,3 +53,81 @@ fn high_quality_1440_preserves_native_pixels_and_caps_4k() {
     assert!(resize_rgb24(&mut target, &source, 3, 2, 2, 2, 2));
     assert_eq!(target, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 }
+
+#[test]
+fn windows_bitmap_orientation_padding_and_scaling_match_rgb() {
+    use screen_control_protocol::desktop::resize_windows;
+    for pixel in [3, 4] {
+        let (width, height, padded_height, stride) = (5, 3, 4, 8 * pixel);
+        let mut bitmap = vec![222; stride * padded_height];
+        let mut rgb = vec![0; width * height * 3];
+        for y in 0..height {
+            for x in 0..width {
+                for c in 0..3 {
+                    let v = (y * 60 + x * 9 + c * 2) as u8;
+                    rgb[(y * width + x) * 3 + c] = v;
+                    bitmap[(padded_height - 1 - y) * stride + x * pixel + 2 - c] = v;
+                }
+            }
+        }
+        for (tw, th) in [(5, 3), (3, 2), (1, 1)] {
+            let mut expected = vec![0; tw * th * 3];
+            let mut output = vec![7; tw * th * 3];
+            assert!(resize_rgb24(
+                &mut expected,
+                &rgb,
+                width,
+                width,
+                height,
+                tw,
+                th
+            ));
+            assert!(resize_windows(
+                &mut output,
+                &bitmap,
+                stride,
+                padded_height,
+                pixel,
+                width,
+                height,
+                tw,
+                th
+            ));
+            assert_eq!(output, expected);
+            output.fill(7);
+            assert!(!resize_windows(
+                &mut output,
+                &bitmap[..bitmap.len() - 1],
+                stride,
+                padded_height,
+                pixel,
+                width,
+                height,
+                tw,
+                th
+            ));
+            assert!(output.iter().all(|v| *v == 7));
+        }
+    }
+    let mut output = [7; 3];
+    for (stride, bh, pixel, width, height, tw, th) in [
+        (1, 1, 3, 1, 1, 1, 1),
+        (4, 0, 4, 1, 1, 1, 1),
+        (4, 1, 2, 1, 1, 1, 1),
+        (4, 1, 4, 1, 1, 2, 1),
+        (usize::MAX, 2, 4, 1, 1, 1, 1),
+    ] {
+        assert!(!resize_windows(
+            &mut output,
+            &[0; 8],
+            stride,
+            bh,
+            pixel,
+            width,
+            height,
+            tw,
+            th
+        ));
+        assert_eq!(output, [7; 3]);
+    }
+}

@@ -55,6 +55,9 @@ try {
    { name: '大面积运动优先延迟', moving: true, ackMs: 280, duration: 2400, tier: 1080 },
    { name: '健康动态保持高清', moving: true, ackMs: 20, duration: 4000, tier: 1440 },
    { name: '高动态处理过慢时降档', moving: true, ackMs: 20, processingMs: 220, duration: 2400, tier: 1080 },
+   { name: '数秒才收到一帧时仍保护持续拥塞', moving: true, ackMs: 2500, interval: 3750, duration: 15000, tier: 540 },
+   { name: '固定分辨率独立调节压缩与采集', moving: true, ackMs: 260, resolution: 1440, duration: 6000, tier: 1440 },
+   { name: '静止后补高清完整基准', moving: false, ackMs: 20, smooth: true, resolution: 1080, idleFor: 10000, duration: 1000, tier: 1080 },
    { name: '动态转静态后恢复清晰度', moving: true, ackMs: 280, quietAfter: 2000, duration: 11600, tier: 1440 },
  ]) {
   const context = await browser.newContext();
@@ -97,8 +100,8 @@ try {
         return true;
       },
     };
-    const dispose = window.manageDesktopMemory(module, canvas, { platform: 'Ubuntu', smooth: false });
-    for (let sequence = 1; now <= scenario.duration; now += 200, sequence++) {
+    const dispose = window.manageDesktopMemory(module, canvas, { platform: 'Ubuntu', smooth: scenario.smooth ?? false, resolution: scenario.resolution });
+    for (let sequence = 1; now <= scenario.duration; now += scenario.interval ?? 200, sequence++) {
       const packet = new Uint8Array(40), view = new DataView(packet.buffer);
       for (const [offset, value] of [[0, 0x7f00], [2, 40], [4, 1], [6, 3], [16, 2560], [18, 1440], [20, 2560], [22, 1440], [24, 1440], [26, 90]]) view.setUint16(offset, value);
       const quiet = scenario.quietAfter !== undefined && now > scenario.quietAfter;
@@ -108,11 +111,22 @@ try {
       module.ProcessPictureMsg(images[quiet ? 0 : sequence % 2], 0, 0);
       await completed; tick();
     }
+    if (scenario.idleFor) {
+      const end = now + scenario.idleFor;
+      for (; now <= end; now += 200) tick();
+    }
     const tier = settings.at(-1)[2]; dispose();
-    return { tier, tiers: settings.map(setting => setting[2]), samplingCalls: sampling.length, samplingMs: sampling.reduce((sum, value) => sum + value, 0), released: canvas.width * canvas.height === 1 };
+    return { tier, settings, tiers: settings.map(setting => setting[2]).filter((value, index, all) => index === 0 || value !== all[index - 1]), samplingCalls: sampling.length, samplingMs: sampling.reduce((sum, value) => sum + value, 0), released: canvas.width * canvas.height === 1 };
   }, scenario);
   assert.equal(result.tier, scenario.tier, scenario.name);
   if (scenario.quietAfter !== undefined) assert.deepEqual(result.tiers, [1440, 1080, 1440]);
+  if (scenario.ackMs >= 160 && !scenario.interval) {
+    assert.ok(result.settings.some(setting => setting[1] < 90), `${scenario.name} 未调整 JPEG`);
+    assert.ok(result.settings.some(setting => setting[3] > 40), `${scenario.name} 未调整采集间隔`);
+  }
+  if (scenario.processingMs) assert.ok(result.settings.filter(setting => setting[2] === 1440).every(setting => setting[1] === 90));
+  if (scenario.idleFor) { assert.equal(result.settings.at(-1)[1], 90); assert.equal(result.settings.length, 2); }
+  assert.ok(result.settings.every(setting => setting[1] >= 60 && setting[1] <= 90 && [40, 60, 80, 120].includes(setting[3])));
   assert.ok(result.samplingCalls > 0); assert.equal(result.released, true);
   console.log(`通过：${scenario.name}，采样绘制／读取 ${result.samplingCalls} 次共 ${result.samplingMs.toFixed(1)}ms`);
   await context.close();
