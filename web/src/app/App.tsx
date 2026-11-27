@@ -23,6 +23,7 @@ type IconName =
   | "activity"
   | "arrow"
   | "chevron"
+  | "clipboard"
   | "desktop"
   | "device"
   | "file"
@@ -38,6 +39,7 @@ const paths: Record<IconName, ReactNode> = {
   device: <><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 17h6"/></>,
   desktop: <><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></>,
   file: <path d="M4 4h6l2 3h8v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>,
+  clipboard: <><rect x="7" y="5" width="10" height="15" rx="2"/><path d="M9 5.2h6v2.2H9z"/><path d="M9.5 12h5M9.5 15.5h3.5"/></>,
   settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.09A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1.03-1.56V3h4v.09A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9a1.7 1.7 0 0 0 1.56 1.03H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></>,
   server: <><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"/></>,
   shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
@@ -224,15 +226,15 @@ function DeviceCard({ device, navigate, isLocal, identityReady, metricsFresh }: 
   const blocked = !identityReady || isLocal || device.state !== "online";
   const blockedReason = !identityReady ? "正在识别当前设备" : device.state !== "online" ? `设备${stateLabels[device.state]}，暂不可用` : undefined;
   return (
-    <article className={`device-row${isLocal ? " device-row-local" : ""}`} id={`device-${device.id}`} aria-label={device.name}>
+    <article className={`device-row${isLocal ? " device-row-local" : ""}`} id={`device-${device.id}`} data-state={device.state} aria-label={device.name}>
       <div className="device-identity">
         <span className={`device-icon device-${device.state}`}><Icon name={device.platform === "Windows" ? "desktop" : "device"} size={22} /></span>
-        <div><h2>{device.name}{isLocal && <span className="local-device-label">本机</span>}</h2><p>{device.platform} · {device.role}</p></div>
+        <div><h2>{device.name}{isLocal && <span className="local-device-label">本机</span>}</h2><p><span className={`os-badge os-${device.platform === "Windows" ? "windows" : "linux"}`}>{device.platform}</span>{device.role}</p></div>
       </div>
       <div className="device-availability"><StatusPill state={device.state} /><small>{device.observedAt}</small></div>
       <div className="device-capabilities">
         {device.components.filter((component) => component.key !== "host").map((component) => (
-          <div key={component.key}><span>{component.label}</span><strong><i className={`mini-dot status-${component.state}`} />{component.detail}</strong></div>
+          <div className={`capability capability-${component.key} capability-${component.state}`} key={component.key}><span>{component.label}</span><strong><i className={`mini-dot status-${component.state}`} />{component.detail}</strong></div>
         ))}
       </div>
       {!isLocal && <div className="device-actions">
@@ -252,7 +254,7 @@ function Overview({ navigate, devices, localDeviceId, backendState, backendError
   useEffect(() => startVisiblePolling(async () => { tick((value) => value + 1); }, 1000), []);
   const visibleDevices = filterDevices(devices, filter).filter((device) => `${device.name} ${device.platform} ${device.role}`.toLowerCase().includes(query.trim().toLowerCase()));
   return (
-    <div className="overview-workspace">
+    <div className={`overview-workspace is-${backendState}`}>
       <section className="workspace-heading">
         <div><span className="eyebrow">WORKSPACE / DEVICES</span><h1>设备工作台</h1><p>查看设备状态，连接桌面或管理文件。</p></div>
         <span className={`sync-indicator backend-${backendState}`}><span className="status-dot" />{backendState === "live" ? "状态已同步 · 前台每 5 秒刷新" : backendState === "error" ? "状态同步中断" : "正在同步设备状态"}</span>
@@ -263,6 +265,7 @@ function Overview({ navigate, devices, localDeviceId, backendState, backendError
         <div><span className="summary-symbol green"><Icon name="activity" /></span><strong>{backendState === "live" ? summary.online : "—"}</strong><span>当前在线</span></div>
         <div><span className="summary-symbol amber"><Icon name="shield" /></span><strong>{backendState === "live" ? summary.attention : "—"}</strong><span>需要注意</span></div>
       </section>
+      <ClipboardBoard devices={devices} />
       <DirectTest localDeviceId={localDeviceId} />
       <section className="device-directory" aria-label="已登记设备">
         <div className="directory-toolbar">
@@ -282,6 +285,33 @@ function Overview({ navigate, devices, localDeviceId, backendState, backendError
       </section>
       <div className="workspace-note"><Icon name="shield" size={16} /><span>仅限已登记设备访问</span><span className="note-divider">·</span><span>桌面、文件与剪贴板状态独立显示</span><button onClick={() => navigate("/settings/security")}>安全设置 <Icon name="chevron" size={14} /></button></div>
     </div>
+  );
+}
+
+function ClipboardBoard({ devices }: { devices: Device[] }) {
+  const ready = devices.filter((device) => device.components.find((component) => component.key === "clipboard")?.state === "ready").length;
+  return (
+    <section className="clipboard-board" aria-label="剪贴板通道">
+      <div className="clipboard-board-copy">
+        <span className="clipboard-kicker"><Icon name="clipboard" size={15} />剪贴板通道</span>
+        <h2>独立同步</h2>
+        <p>SyncClipboard 在登记电脑之间同步剪贴板，不经过远控画面。非收藏历史按 48 小时规则清理，浏览器不承担后台同步。</p>
+      </div>
+      <ul className="clipboard-lanes">
+        {devices.map((device) => {
+          const clip = device.components.find((component) => component.key === "clipboard");
+          const state = clip?.state ?? "unknown";
+          return (
+            <li className={`clipboard-lane clipboard-lane-${state}`} key={device.id}>
+              <span>{device.name}</span>
+              <strong>{clip?.detail ?? stateLabels[state]}</strong>
+              <small>{device.platform} · {stateLabels[state]}</small>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="clipboard-board-meta"><strong>{ready}</strong><span>台通道可用</span></p>
+    </section>
   );
 }
 
@@ -325,10 +355,10 @@ function DesktopView({ device, devices, localDeviceId, goBack, blocked, navigate
       {isFullscreen && <button className="desktop-tools-toggle" aria-expanded={toolsVisible} aria-controls="desktop-commandbar" onKeyDown={event => event.stopPropagation()} onKeyUp={event => event.stopPropagation()} onKeyPress={event => event.stopPropagation()} onClick={() => setToolsVisible(!toolsVisible)}>{toolsVisible ? "收起工具" : "工具"}</button>}
       <header className="desktop-commandbar" id="desktop-commandbar" onKeyDownCapture={event => event.stopPropagation()} onKeyUpCapture={event => event.stopPropagation()} onKeyPressCapture={event => event.stopPropagation()}>
         <button className="desktop-back" onClick={goBack}><Icon name="arrow" size={18} />返回</button>
-        <div><strong>{device.name}</strong><span>{device.platform} · 主屏控制</span><StatusPill state={desktop.state} detail={desktop.detail} /></div>
+        <div className="desktop-target"><strong>{device.name}</strong><span className="desktop-target-meta">{device.platform} · 主屏控制</span><StatusPill state={desktop.state} detail={desktop.detail} /></div>
         <div className="desktop-session-slot" ref={setToolbarTarget} />
         <button className="desktop-file-transfer" onClick={() => setFilesOpen(true)} aria-haspopup="dialog"><Icon name="file" size={16} />文件传输</button>
-        <button onClick={() => void toggleFullscreen()}>{isFullscreen ? "退出全屏" : "进入全屏"}</button>
+        <button className="desktop-fullscreen" onClick={() => void toggleFullscreen()}>{isFullscreen ? "退出全屏" : "进入全屏"}</button>
       </header>
       <div className="desktop-stage">{blocked ? <div className="self-target-blocked"><Icon name="shield" size={30} /><h2>不能控制当前设备</h2><p>你正在使用 {device.name}，为避免输入回环，已禁止对本机创建控屏会话。</p><button onClick={goBack}>返回设备总览</button></div> : <MeshDesktop key={device.id} device={device} toolbarTarget={toolbarTarget} inputSuspended={filesOpen} />}</div>
       {filesOpen && <DesktopFilesDialog device={device} devices={devices} localDeviceId={localDeviceId} onClose={() => setFilesOpen(false)} navigate={navigate} />}

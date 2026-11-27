@@ -859,7 +859,7 @@ export const MeshFiles = forwardRef<MeshFilesHandle, MeshFilesProps>(function Me
   };
 
   if (connection !== "connected") {
-    return <div className="live-files-connect"><div className="folder-hero" aria-hidden="true" /><h2>{connection === "starting" ? `正在连接 ${device.name}` : connection === "ended" ? "文件会话已结束" : connection === "error" ? "连接未成功" : device.state === "online" ? "正在准备文件通道" : "设备当前离线"}</h2><p>{paneLabel}窗口将在连接后直接读取设备目录。</p>{(connection === "ended" || connection === "error") && <button onClick={() => void start()} disabled={device.state !== "online"}>{device.state === "online" ? "重新连接" : "设备当前离线"}</button>}{error && <span className="inline-error">{error}</span>}</div>;
+    return <div className={`live-files-connect live-files-${connection}`}><div className="folder-hero" aria-hidden="true" /><p className="file-channel-kicker">{paneLabel} · {device.platform}</p><h2>{connection === "starting" ? `正在连接 ${device.name}` : connection === "ended" ? "文件会话已结束" : connection === "error" ? "连接未成功" : device.state === "online" ? "正在准备文件通道" : "设备当前离线"}</h2><p>{paneLabel}窗口将在连接后直接读取设备目录。</p>{(connection === "ended" || connection === "error") && <button onClick={() => void start()} disabled={device.state !== "online"}>{device.state === "online" ? "重新连接" : "设备当前离线"}</button>}{error && <span className="inline-error">{error}</span>}</div>;
   }
 
   return (

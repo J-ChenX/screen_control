@@ -329,8 +329,9 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           }}
         />
         {!active && (
-          <div className="mesh-desktop-empty">
+          <div className={`mesh-desktop-empty mesh-desktop-empty-${state}`}>
             <span className="mesh-screen-symbol" aria-hidden="true" />
+            <p className="mesh-stage-kicker">{device.name} · {device.platform}</p>
             <h2>{state === "ended" ? "桌面会话已结束" : state === "error" ? "连接未成功" : device.state === "online" ? "正在准备桌面" : "设备当前离线"}</h2>
             <p>画面和输入通过当前入口的安全中继传输，页面不会获得 MeshCentral 密码或授权令牌。</p>
             {(state === "ended" || state === "error") && <button onClick={() => void start()} disabled={device.state !== "online"}>{device.state === "online" ? "重新连接" : "设备当前离线"}</button>}
@@ -380,7 +381,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           </select>
         </label>
         <span className="desktop-session-status" role="status" aria-label={labels[state]} title={labels[state]}>
-          <span aria-hidden="true" className={state === "connected" ? "live-dot" : "session-state-dot"} />
+          <span aria-hidden="true" className={state === "connected" ? "live-dot" : state === "error" ? "session-state-dot session-state-error" : "session-state-dot"} />
           <span className="desktop-session-label">{labels[state]}</span>
         </span>
         <button aria-pressed={smooth} title="自动分辨率按负载调整，流畅优先更早降档；固定分辨率时只降低画质" disabled={state !== "connected"} onClick={() => {
@@ -390,7 +391,7 @@ export function MeshDesktop({ device, toolbarTarget, inputSuspended = false }: {
           smoothRef.current = next;
           setSmooth(next);
         }}>{smooth ? "流畅：开" : "流畅：关"}</button>
-        <button onClick={() => void lockAndStop()} disabled={ending || (!active && !recovery.current!.enabled)} title="锁定被控电脑并结束连接；直接返回不会锁屏">{ending ? "正在结束…" : state === "connected" ? "锁屏并结束连接" : "结束连接"}</button>
+        <button className="desktop-end-session" onClick={() => void lockAndStop()} disabled={ending || (!active && !recovery.current!.enabled)} title="锁定被控电脑并结束连接；直接返回不会锁屏">{ending ? "正在结束…" : state === "connected" ? "锁屏并结束连接" : "结束连接"}</button>
       </>, toolbarTarget)}
       <div className="mobile-input-toolbar" aria-label="触屏控制" hidden={state !== "connected"}>
         <span>单指点击 / 拖动控屏 · 双指缩放 / 移动画面</span>
